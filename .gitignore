@@ -1,0 +1,38 @@
+# ---- Secretos: NUNCA subir ----
+.env
+*.env
+!.env.example
+serviceAccountKey.json
+firebase-adminsdk-*.json
+*-service-account.json
+
+# ---- Node ----
+node_modules/
+npm-debug.log*
+.npm/
+
+# ---- Firebase ----
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# ---- Flutter / Dart ----
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/build/
+app/android/local.properties
+app/android/key.properties
+app/*.jks
+app/lib/firebase_options.dart
+
+# ---- Sistema / editor ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ---- OJO: estos SI van al repo (no los ignoramos a proposito) ----
+# package-lock.json  -> para que las dos PCs instalen lo mismo
+# app/pubspec.lock   -> idem para Flutter
