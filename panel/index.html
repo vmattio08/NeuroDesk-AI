@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+   index.html  —  LOGIN del panel de administracion de NeuroDesk AI.
+   Panel web. Autor: Martin.
+
+   Es la puerta. Lo unico que hace:
+     1. avisa si falta completar la config de Firebase (js/firebase.js);
+     2. si ya hay una sesion de admin abierta, manda derecho a app.html;
+     3. si no, muestra el formulario de email + contraseña.
+
+   NO hay registro aca a proposito: al panel entran cuentas que YA existen y
+   que ya son admin de algun workspace. Las cuentas se crean desde la app
+   Flutter (que llama a POST /v1/auth/registro) y a admin se asciende desde
+   este mismo panel, en la pantalla de Miembros.
+
+   OJO: esto es un modulo ES. NO funciona abriendo el archivo con doble clic
+   (file://): el navegador bloquea los imports por CORS. Hay que servirlo por
+   HTTP. Como, en el README.
+  ============================================================================
+-->
+<html lang="es-AR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Entrar — NeuroDesk AI</title>
+  <link rel="stylesheet" href="css/estilo.css">
+</head>
+
+<body class="pantalla-login">
+
+  <main class="caja-login">
+
+    <div class="marca-login">
+      <div class="logo">ND</div>
+      <div>
+        <b>NeuroDesk AI</b>
+        <span>Panel de administración</span>
+      </div>
+    </div>
+
+    <!-- Cartel que aparece cuando falta completar js/firebase.js -->
+    <div id="avisoConfig" class="aviso aviso-error oculto">
+      <b>Falta configurar Firebase.</b><br>
+      Abrí <code>panel/js/firebase.js</code> y completá el objeto
+      <code>configFirebase</code> con los datos de la consola de Firebase.
+    </div>
+
+    <!-- Mensajes: "tu sesion vencio", "no sos admin", errores de login -->
+    <div id="aviso" class="aviso aviso-error oculto" role="alert"></div>
+
+    <!-- Mientras el SDK dice si ya habia una sesion guardada -->
+    <p id="verificando" class="apagado chico">Verificando sesión…</p>
+
+    <form id="formLogin" class="oculto" novalidate>
+      <div class="campo">
+        <label for="email">Email</label>
+        <input type="email" id="email" name="email"
+               autocomplete="username" required
+               placeholder="admin@ejemplo.com">
+      </div>
+
+      <div class="campo">
+        <label for="clave">Contraseña</label>
+        <input type="password" id="clave" name="clave"
+               autocomplete="current-password" required
+               placeholder="••••••••">
+      </div>
+
+      <button type="submit" id="botonEntrar" class="boton-principal boton-ancho">
+        Entrar
+      </button>
+    </form>
+
+    <p class="chico apagado" style="margin-top:14px">
+      Al panel solo entran las cuentas que son <b>administradoras</b> de algún
+      espacio de trabajo. Si tenés cuenta pero no sos admin, pedile a quien
+      creó el espacio que te ascienda desde Miembros.
+    </p>
+
+  </main>
+
+
+  <script type="module">
+    // ------------------------------------------------------------------
+    // Todo el JS de esta pagina entra en 60 lineas, asi que va inline y no
+    // en un archivo aparte: buscar la logica del login en otro lado seria
+    // peor que tenerla aca.
+    // ------------------------------------------------------------------
+    import { faltaConfig } from './js/firebase.js';
+    import { entrar, esperarSesion, leerContexto } from './js/auth.js';
+    import { esc } from './js/util.js';
+
+    const $ = (id) => document.getElementById(id);
+    const avisoConfig  = $('avisoConfig');
+    const aviso        = $('aviso');
+    const verificando  = $('verificando');
+    const formLogin    = $('formLogin');
+    const botonEntrar  = $('botonEntrar');
+
+    function mostrarAviso(texto, tipo = 'aviso-error') {
+      aviso.className = 'aviso ' + tipo;      // pisa el 'oculto'
+      aviso.innerHTML = esc(texto);           // texto propio, pero pasa por esc igual: la regla no tiene excepciones
+    }
+
+    // --- 1. ¿Esta completa la config? ---------------------------------
+    if (faltaConfig) {
+      avisoConfig.classList.remove('oculto');
+      verificando.classList.add('oculto');
+      // Sin config no tiene sentido mostrar el formulario: cualquier intento
+      // termina en un error de API key que no le dice nada a nadie.
+      throw new Error('Falta completar configFirebase en js/firebase.js');
+    }
+
+    // --- 2 y 3. ¿Por que volvi al login? ¿Ya habia sesion guardada? ----
+    // Va adentro de una funcion (y no suelto) solo para poder cortar con
+    // `return` cuando redirigimos: sin eso, el codigo sigue corriendo unos
+    // milisegundos mas y se ve parpadear el formulario antes de irse.
+    async function arrancar() {
+      // app.html redirige aca con un ?motivo= cuando echa a alguien.
+      const motivo = new URLSearchParams(location.search).get('motivo');
+      if (motivo === 'sesion') {
+        mostrarAviso('Tu sesión venció. Volvé a entrar.');
+      } else if (motivo === 'no_admin') {
+        mostrarAviso('Esa cuenta no es administradora de ningún espacio de trabajo.');
+      }
+
+      // Si el admin ya entro antes y no cerro sesion, lo mandamos derecho al
+      // panel. Si esta logueado pero NO es admin de nada, lo dejamos en el
+      // login con el cartel (no tiene nada que hacer del otro lado).
+      const usuario = await esperarSesion();
+      if (usuario && motivo !== 'no_admin') {
+        const ctx = await leerContexto(usuario);
+        if (ctx.esAdminDeAlguno) {
+          location.replace('app.html');
+          return;                       // la pagina se esta yendo: no dibujamos nada mas
+        }
+        mostrarAviso('Esa cuenta no es administradora de ningún espacio de trabajo.');
+      }
+
+      verificando.classList.add('oculto');
+      formLogin.classList.remove('oculto');
+      $('email').focus();
+    }
+
+    arrancar();
+
+    // --- 4. El login ---------------------------------------------------
+    formLogin.addEventListener('submit', async (evento) => {
+      evento.preventDefault();               // que no recargue la pagina
+
+      const email = $('email').value.trim();
+      const clave = $('clave').value;
+
+      if (!email || !clave) {
+        mostrarAviso('Completá el email y la contraseña.');
+        return;
+      }
+
+      // Deshabilitar el boton mientras el pedido esta en curso es la unica
+      // defensa contra el doble clic, que en la demo es el error numero uno.
+      botonEntrar.disabled = true;
+      botonEntrar.textContent = 'Entrando…';
+      aviso.classList.add('oculto');
+
+      try {
+        const ctx = await entrar(email, clave);
+
+        if (!ctx.esAdminDeAlguno) {
+          // Entro bien, pero no es admin: cerramos el paso aca mismo.
+          // (Igual no podria hacer nada del otro lado: las reglas de
+          // Firestore le niegan eventos/ y suscripcion/, y el backend le
+          // contesta NO_ES_ADMIN.)
+          mostrarAviso('Entraste, pero esa cuenta no es administradora de ningún espacio.');
+          return;
+        }
+
+        location.replace('app.html');
+      } catch (e) {
+        mostrarAviso(e.message);
+      } finally {
+        botonEntrar.disabled = false;
+        botonEntrar.textContent = 'Entrar';
+      }
+    });
+  </script>
+
+</body>
+</html>

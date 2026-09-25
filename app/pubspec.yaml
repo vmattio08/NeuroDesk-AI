@@ -1,0 +1,64 @@
+# ============================================================================
+#  NeuroDesk AI — app movil (Flutter)
+#  Autores: Valentino (backend/Firebase) y Martin (app/panel/QA)
+#
+#  POR QUE LAS VERSIONES VAN CLAVADAS Y SIN EL ^ (caret):
+#  El ^ deja que pub agarre cualquier version "compatible" mas nueva. Entre
+#  dos computadoras (la de Valentino y la de Martin) eso hace que se bajen
+#  paquetes DISTINTOS y que a uno le compile y al otro no, con un error que
+#  no esta en nuestro codigo. Con la version exacta las dos maquinas y la
+#  entrega final usan lo mismo. Si hay que subir una version, se sube a mano,
+#  se prueba, y recien ahi se commitea (junto con el pubspec.lock).
+# ============================================================================
+name: neurodesk
+description: "NeuroDesk AI - el segundo cerebro con IA del equipo. App movil."
+publish_to: 'none'
+version: 2.0.0+1
+
+environment:
+  # El objetivo del proyecto es Flutter 3.41.6, pero el minimo se deja en
+  # 3.41 A PROPOSITO: la maquina de la escuela tiene 3.41.6 y, si el minimo
+  # dijera 3.44, ahi ni siquiera correria 'flutter pub get'. El codigo no usa
+  # nada posterior a 3.41, asi que anda en las dos.
+  sdk: '>=3.9.0 <4.0.0'
+  flutter: '>=3.41.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # --- Firebase -------------------------------------------------------------
+  # firebase_core SIEMPRE va: es el que inicializa la conexion con el proyecto.
+  firebase_core: 4.1.1
+  # Login con email y contrasena + el ID token que le mandamos al backend.
+  firebase_auth: 6.1.0
+  # La base en tiempo real. Es el corazon de la app: casi toda la pantalla
+  # se dibuja desde un StreamBuilder sobre Firestore, no desde el backend.
+  cloud_firestore: 6.0.2
+  # OJO: NO usamos firebase_storage. El plan Spark no lo deja sin tarjeta, asi
+  # que el archivo NUNCA se guarda: viaja al backend, se le saca el texto y se
+  # descarta. Por eso un PDF en 'error' no se puede reintentar sin volver a
+  # elegirlo (esta explicado en el README y en la pantalla).
+
+  # --- Captura de contenido -------------------------------------------------
+  # Foto de la camara o de la galeria. Se usa con imageQuality: 70 para que la
+  # imagen salga liviana (OCR.space gratis acepta hasta ~1 MB).
+  image_picker: 1.2.0
+  # Elegir un PDF del telefono.
+  file_picker: 10.3.3
+
+  # --- Red ------------------------------------------------------------------
+  # Cliente HTTP para hablar con nuestro backend de Render (multipart incluido).
+  http: 1.5.0
+  # Para saber si hay internet y mostrar el cartel de "sin conexion" en vez de
+  # dejar al usuario mirando un spinner eterno.
+  connectivity_plus: 6.1.5
+
+  cupertino_icons: 1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

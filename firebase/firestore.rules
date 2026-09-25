@@ -1,0 +1,547 @@
+// ============================================================================
+//  NeuroDesk AI  —  firestore.rules
+//  Autores: Valentino (backend/seguridad) y Martin (app/panel)
+//  VERSION 3 — parte de la v2 y aplica las decisiones D1, D2 y el barrido
+//  completo de accesos a campos que pueden faltar.
+//
+//  QUE CAMBIO DE LA V2 A LA V3 (para la defensa oral, una frase cada uno):
+//   R1 (D1) respuestas: queda escrito que NO hay campo workspaceId. El wsId
+//           va SOLO en el path. El hasOnly lista exactamente los cuatro campos
+//           que el cliente escribe y que el modelo declara:
+//           pregunta, autorUid, estado, creadoEn.
+//           El invariante "workspaceId en el path Y como campo" vale SOLO para
+//           items y chunks (ahi si hace falta, porque chunks es una coleccion
+//           plana y el backend barre items con collectionGroup).
+//   R2 (D2) usuarios.nombre: string de 2 a 60 caracteres. Ese mismo rango,
+//           identico, esta en el modelo, en el contrato y aca.
+//   R3      Barrido de .get('campo', DEFAULT QUE DENIEGA) en TODOS los lugares
+//           donde el campo puede faltar (documento incompleto, documento viejo,
+//           o un update que borra el campo con FieldValue.delete()). Un
+//           documento roto tiene que volverse INVISIBLE: nunca romper la query
+//           de todo el equipo y nunca volverse publico por omision.
+//           OJO CON EL DEFAULT: en la v2, 'visibilidad' dentro del UPDATE
+//           usaba .get(..., 'privado'), y 'privado' es un valor VALIDO de la
+//           lista, o sea que borrar el campo pasaba la validacion y dejaba al
+//           item sin visibilidad. En una VALIDACION el default tiene que ser
+//           un valor que NO este en la lista permitida (usamos '').
+//   R5      El borrado de items desde el cliente SIGUE cerrado (allow delete:
+//           if false), porque borrar un item tiene que arrastrar sus chunks y
+//           eso solo lo puede hacer el backend con Admin SDK.
+//
+//  IDEA CENTRAL (esto es lo que hay que saber decir en la defensa oral):
+//
+//  1) Todo esta DENEGADO por defecto. Solo se abre lo que se escribe aca.
+//
+//  2) El rol NO se lee de la base: sale del CUSTOM CLAIM firmado que viaja
+//     adentro del ID token -> request.auth.token.ws["<wsId>"] == "admin"|"miembro".
+//     Por eso NO usamos get(/databases/...) en ninguna regla: cada get() de
+//     documento es una lectura facturada y hay un tope de 10 por request.
+//     CUIDADO CON EL NOMBRE: resource.data.get('campo','default') NO es esa
+//     funcion. Es el metodo .get() de un MAPA que ya tenemos en la mano: no
+//     lee nada de la base y no cuesta nada. Lo usamos para que un documento
+//     incompleto no tumbe la query de todo el equipo (ver items).
+//
+//  3) EL BACKEND IGNORA ESTE ARCHIVO. El Admin SDK saltea las reglas. Por eso
+//     todo lo sensible (chunks, eventos, suscripcion, members, usuarios) esta
+//     cerrado al cliente: ahi escribe solo el backend, despues de verificar el
+//     ID token con verifyIdToken() Y de leer members/{uid} (que corta al
+//     instante cuando echan a alguien, cosa que el claim no hace).
+//
+//  4) LAS REGLAS NO SON FILTROS. Si una query puede devolver aunque sea UN
+//     documento no permitido, falla la query ENTERA con permission-denied: no
+//     devuelve el resto. Ver el comentario largo del allow list de items.
+//
+//  5) QUIEN ESCRIBE QUE — la regla de oro que se habia roto en la version 1:
+//     el CLIENTE crea el item con los campos que carga la persona
+//     (titulo, tipo, visibilidad, url, nombreArchivo, textoOriginal) y el
+//     BACKEND escribe todo lo derivado (texto, cantChunks, paginas, origen,
+//     caracteres, errorMsg, y el estado despues de 'pendiente').
+//       textoOriginal = lo que ESCRIBIO LA PERSONA. Solo en las notas.
+//       texto         = lo que EXTRAJO EL BACKEND. El cliente nunca lo toca.
+//     Son dos campos distintos a proposito: asi el tipo 'nota' funciona sin
+//     abrirle al cliente el campo que alimenta a la IA.
+// ============================================================================
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ------------------------------------------------------------------
+    // FUNCIONES AUXILIARES (valen para todos los match de abajo)
+    // ------------------------------------------------------------------
+
+    // Hay un usuario logueado con Firebase Auth?
+    function logueado() {
+      return request.auth != null;
+    }
+
+    // Atajo al uid del que esta leyendo/escribiendo.
+    function uid() {
+      return request.auth.uid;
+    }
+
+    // El token trae el claim { ws: { "<wsId>": "admin"|"miembro" } }?
+    // Chequeamos que exista y que sea un mapa ANTES de indexarlo: si tocamos
+    // una clave que no existe, la regla explota y deniega.
+    function tieneClaimWs() {
+      return logueado()
+          && 'ws' in request.auth.token
+          && request.auth.token.ws is map;
+    }
+
+    // Devuelve el rol del usuario en ese workspace, o 'ninguno'.
+    // Esta es LA funcion del archivo: todo lo demas se apoya en ella.
+    function rolEn(wsId) {
+      return tieneClaimWs() && wsId in request.auth.token.ws
+        ? request.auth.token.ws[wsId]
+        : 'ninguno';
+    }
+
+    function esAdmin(wsId) {
+      return rolEn(wsId) == 'admin';
+    }
+
+    // El admin TAMBIEN es miembro: puede hacer todo lo de un miembro.
+    function esMiembro(wsId) {
+      return rolEn(wsId) == 'admin' || rolEn(wsId) == 'miembro';
+    }
+
+    // Marca de tiempo puesta por el servidor (FieldValue.serverTimestamp()).
+    // Si el cliente manda la hora de su celular, esto da false y se deniega.
+    function fechaDelServidor(valor) {
+      return valor == request.time;
+    }
+
+
+    // ==================================================================
+    // usuarios/{uid}  —  la ficha personal
+    // Campos: email, nombre, workspaces (map), workspaceActual,
+    //         claimsActualizadoEn, creadoEn
+    //
+    // CAMBIO DE LA V2: el cliente YA NO CREA este documento. Lo crea solo
+    // POST /v1/auth/registro, porque en el mismo momento tiene que dejar
+    // claimsActualizadoEn inicializado. Antes competian los dos y podia
+    // ganar cualquiera: si ganaba el cliente, el doc quedaba sin ese campo,
+    // el endpoint idempotente "no pisaba nada" y el listener que refresca el
+    // token no se disparaba nunca.
+    // Se fueron ~20 lineas de reglas y una carrera imposible de debuggear.
+    // ==================================================================
+    match /usuarios/{usuarioId} {
+
+      // D2 (R2): 'nombre' es un string de 2 a 60 caracteres. EXACTAMENTE ese
+      // rango en el modelo, en el contrato del backend y en esta regla.
+      // En la v2 aca decia size() <= 80 y no habia minimo: se podia guardar
+      // el nombre '' (vacio) y la lista de miembros mostraba una fila en
+      // blanco que no se podia arreglar desde la app.
+      function nombreValido(n) {
+        return n is string && n.size() >= 2 && n.size() <= 60;
+      }
+
+      // Cada uno ve solo su ficha. Nadie lista la coleccion entera.
+      allow get: if logueado() && usuarioId == uid();
+      allow list: if false;
+
+      // El alta la hace el backend (Admin SDK, que ignora estas reglas).
+      allow create: if false;
+
+      // Edicion: solo su nombre y cual workspace tiene abierto.
+      allow update: if logueado()
+        && usuarioId == uid()
+        && edicionDeUsuarioValida();
+
+      allow delete: if false;
+
+      function edicionDeUsuarioValida() {
+        let d = request.resource.data;
+        let cambios = d.diff(resource.data).affectedKeys();
+        return cambios.hasOnly(['nombre', 'workspaceActual'])
+          // R3: si el update BORRA 'nombre' (FieldValue.delete()), el campo
+          // aparece en 'cambios' pero NO esta en 'd'. En la v2 eso hacia
+          // d.nombre sobre un campo inexistente y la regla explotaba.
+          // Ahora leemos con .get('nombre', '') y '' no llega a 2 caracteres,
+          // asi que borrar el nombre queda DENEGADO, que es justo lo que
+          // queremos: 'nombre' es obligatorio.
+          && (!('nombre' in cambios) || nombreValido(d.get('nombre', '')))
+          // workspaceActual: puede quedar en null (o borrarse con
+          // FieldValue.delete()) cuando lo sacan del ultimo workspace; si
+          // trae un wsId, tiene que ser uno donde de verdad es miembro.
+          // En la v1 esto exigia string SIEMPRE y dejaba al cliente sin
+          // forma de limpiar el campo: permission-denied eterno.
+          // Aca el default SI puede ser "vacio" (null), porque para ESTE
+          // campo "no tener nada" es un estado valido a proposito. No es una
+          // excepcion a R3: null tampoco da acceso a ningun workspace.
+          && (!('workspaceActual' in cambios)
+              || d.get('workspaceActual', null) == null
+              || (d.workspaceActual is string && esMiembro(d.workspaceActual)));
+      }
+    }
+
+
+    // ==================================================================
+    // workspaces/{wsId}  —  el equipo
+    // Lo crea SIEMPRE el backend (porque tiene que setear los claims).
+    // ==================================================================
+    match /workspaces/{wsId} {
+
+      // Solo miembros ven la ficha del workspace.
+      // Listar /workspaces desde el cliente no sirve: la lista incluiria
+      // workspaces ajenos y la query fallaria entera. Los propios se leen
+      // del mapa usuarios/{uid}.workspaces.
+      allow read: if esMiembro(wsId);
+
+      // Crear / renombrar / borrar workspace = backend (Admin SDK).
+      // (Renombrar no esta en el MVP: figura en limitaciones conocidas.)
+      allow create, update, delete: if false;
+
+
+      // ----------------------------------------------------------------
+      // members/{uid}  —  quien esta en el equipo y con que rol
+      // Alta, baja y cambio de rol SIEMPRE por backend, porque tambien hay
+      // que tocar los custom claims. Si esto se pudiera escribir desde el
+      // cliente, cualquiera se pondria rol 'admin' en su propio doc.
+      //
+      // ADEMAS: este doc es el que el BACKEND lee en cada request para
+      // saber si la persona sigue en el equipo. El claim del token puede
+      // estar hasta 1 hora desactualizado; este documento, nunca.
+      // ----------------------------------------------------------------
+      match /members/{miembroId} {
+        allow read: if esMiembro(wsId);
+        allow create, update, delete: if false;
+      }
+
+
+      // ----------------------------------------------------------------
+      // items/{itemId}  —  el corazon de la app
+      //
+      // FLUJO: Flutter CREA el item aca directo, con estado 'pendiente'
+      // (por eso la fila aparece al instante en el panel del admin aunque
+      // el backend de Render este dormido). Recien despues manda el POST
+      // al backend con ese itemId, y el backend ACTUALIZA el item:
+      // pendiente -> procesando -> listo | error.
+      // EL BACKEND NUNCA CREA EL ITEM.
+      // ----------------------------------------------------------------
+      match /items/{itemId} {
+
+        // -------- validaciones de creacion --------
+
+        // Campos que el CLIENTE tiene permitido escribir al crear.
+        // Todo lo que NO este aca queda prohibido: 'texto', 'cantChunks',
+        // 'paginas', 'origen', 'caracteres', 'recortado', 'errorMsg' y
+        // 'actualizadoEn' los escribe SOLO el backend.
+        function camposQuePuedeCrearElCliente() {
+          return ['titulo', 'tipo', 'visibilidad', 'workspaceId',
+                  'creadoPor', 'creadoEn', 'estado',
+                  'url', 'nombreArchivo', 'textoOriginal'];
+        }
+
+        function camposObligatorios() {
+          return ['titulo', 'tipo', 'visibilidad', 'workspaceId',
+                  'creadoPor', 'creadoEn', 'estado'];
+        }
+
+        function tituloValido(t) {
+          return t is string && t.size() >= 1 && t.size() <= 140;
+        }
+
+        // R3: una sola funcion para las dos validaciones de textoOriginal
+        // (creacion y edicion), asi el minimo de 1 caracter no se escribe
+        // dos veces y no se puede desincronizar.
+        function textoOriginalValido(t) {
+          return t is string && t.size() >= 1 && t.size() <= 50000;
+        }
+
+        function creacionDeItemValida() {
+          let d = request.resource.data;
+          return
+            // 1) ni un campo de mas, ni un campo de menos.
+            //    Ese hasAll sobre los obligatorios es lo que nos HABILITA a
+            //    leer d.titulo, d.tipo, d.creadoPor, etc. directo mas abajo:
+            //    ya esta probado que existen. Los campos OPCIONALES, en
+            //    cambio, siempre se leen con .get() o detras de un `in d`.
+               d.keys().hasOnly(camposQuePuedeCrearElCliente())
+            && d.keys().hasAll(camposObligatorios())
+            // 2) no puede firmar el item con el uid de otro
+            && d.creadoPor == uid()
+            // 3) el workspaceId del doc tiene que coincidir con el del path
+            //    (asi no se puede "plantar" un item apuntando a otro ws).
+            //    ESTE invariante (wsId en el path Y como campo) vale para
+            //    items y para chunks, NO para respuestas: chunks es plana y
+            //    el backend barre items con collectionGroup(); en los dos
+            //    casos el campo es la unica forma de filtrar por workspace.
+            && d.workspaceId == wsId
+            // 4) siempre nace 'pendiente'. No puede nacer 'listo'.
+            && d.estado == 'pendiente'
+            // 5) la fecha la pone el servidor, no el reloj del celular
+            && fechaDelServidor(d.creadoEn)
+            // 6) tipos y valores cerrados
+            && tituloValido(d.titulo)
+            && d.tipo in ['nota', 'pdf', 'link', 'foto']
+            && d.visibilidad in ['equipo', 'privado']
+            // 7) 'url' SOLO en los links, y obligatoria ahi.
+            //    El campo se llama 'url' en las TRES piezas del proyecto (en
+            //    la v1 las reglas lo llamaban 'fuenteUrl' y el modelo 'url',
+            //    asi que no se podia crear ni un solo link).
+            //    Este matches() es un filtro barato, NO la defensa contra
+            //    SSRF: la validacion de verdad (IPs privadas, redirects,
+            //    tamano, Content-Type) la hace el backend antes del fetch.
+            && (!('url' in d)
+                || (d.tipo == 'link'
+                    && d.url is string
+                    && d.url.size() <= 2000
+                    && d.url.matches('https?://.+')))
+            && (d.tipo != 'link' || 'url' in d)
+            // 8) 'textoOriginal' SOLO en las notas: es el contenido que
+            //    escribio la persona con el teclado. Es lo que hace que el
+            //    tipo 'nota' exista (en la v1 no habia por donde entrar el
+            //    texto de una nota y el tipo estaba muerto por construccion).
+            //    El backend lo lee del documento, lo limpia y recien ahi
+            //    escribe 'texto', que el cliente no puede tocar nunca.
+            //    R3: el segundo chequeo lee con .get('textoOriginal', '')
+            //    para no depender del orden de evaluacion del && de arriba.
+            && (!('textoOriginal' in d)
+                || (d.tipo == 'nota' && textoOriginalValido(d.textoOriginal)))
+            && (d.tipo != 'nota'
+                || textoOriginalValido(d.get('textoOriginal', '')))
+            // 9) opcional, con tope de largo
+            && (!('nombreArchivo' in d)
+                || (d.nombreArchivo is string && d.nombreArchivo.size() <= 200));
+        }
+
+        // -------- validaciones de edicion --------
+
+        // Lo unico que el cliente puede tocar despues: titulo, visibilidad,
+        // el textoOriginal de una nota, y actualizadoEn.
+        // Nunca estado, ni texto, ni cantChunks.
+        // Si edita el textoOriginal, el indice queda viejo hasta que toque
+        // "Reprocesar": el panel muestra el aviso (ver limitaciones).
+        // OJO: actualizadoEn tiene que ser SIEMPRE la hora del servidor, o
+        // sea AHORA. El cliente no puede escribir una hora vieja, asi que no
+        // puede enganar al barrido de items colgados del backend.
+        //
+        // R3 — TODA esta funcion leia antes d.campo directo. Si el update
+        // BORRABA el campo (FieldValue.delete()), el campo aparecia en
+        // 'cambios' pero no en 'd' y la regla explotaba. Ahora cada lectura
+        // pasa por .get() con un default que DENIEGA:
+        //    titulo        -> ''  (no llega al minimo de 1 caracter)
+        //    visibilidad   -> ''  (no esta en ['equipo','privado'])
+        //    textoOriginal -> ''  (no llega al minimo de 1 caracter)
+        // CUIDADO: para 'visibilidad' el default NO puede ser 'privado' como
+        // en la funcion de LECTURA, porque 'privado' SI esta en la lista
+        // permitida y entonces borrar el campo pasaria la validacion y el
+        // item quedaria sin visibilidad. En una VALIDACION el default tiene
+        // que ser un valor INVALIDO; en una LECTURA, el mas RESTRICTIVO.
+        // No es lo mismo, y es la diferencia mas facil de pasar por alto.
+        function edicionDeItemValida() {
+          let d = request.resource.data;
+          let cambios = d.diff(resource.data).affectedKeys();
+          return cambios.hasOnly(['titulo', 'visibilidad',
+                                  'textoOriginal', 'actualizadoEn'])
+            && (!('titulo' in cambios) || tituloValido(d.get('titulo', '')))
+            && (!('visibilidad' in cambios)
+                || d.get('visibilidad', '') in ['equipo', 'privado'])
+            && (!('textoOriginal' in cambios)
+                // resource.data = el documento COMO ESTA HOY. El tipo no se
+                // puede cambiar, asi que se mira ahi, tambien con default
+                // que deniega ('' no es 'nota').
+                || (resource.data.get('tipo', '') == 'nota'
+                    && textoOriginalValido(d.get('textoOriginal', ''))))
+            // Para la fecha no sirve un default string: pedimos que el campo
+            // EXISTA en el documento nuevo y que valga exactamente
+            // request.time. Borrar actualizadoEn queda denegado.
+            && (!('actualizadoEn' in cambios)
+                || ('actualizadoEn' in d && fechaDelServidor(d.actualizadoEn)));
+        }
+
+        // -------- quien puede LEER --------
+        // Miembro del ws Y ademas: o es del equipo, o es suyo, o el que
+        // mira es admin (el admin ve todo, incluso lo privado).
+        //
+        // IMPORTANTE: usamos resource.data.get('campo', DEFAULT QUE DENIEGA).
+        // Si un item quedo sin 'visibilidad' (cargado a mano desde la consola
+        // de Firebase, o hecho por una version vieja de la app), en la v1 la
+        // regla explotaba y se caia la lista de TODO el equipo. Ahora ese
+        // documento simplemente no se ve. Y el default es 'privado', nunca
+        // 'equipo': un doc roto jamas se vuelve publico por omision.
+        // Lo mismo con creadoPor -> '': ningun uid real es la cadena vacia,
+        // asi que un item sin autor no se lo apropia nadie.
+        function puedeLeerItem() {
+          return esMiembro(wsId)
+            && (esAdmin(wsId)
+                || resource.data.get('visibilidad', 'privado') == 'equipo'
+                || resource.data.get('creadoPor', '') == uid());
+        }
+
+        // get = leer UN doc por id.
+        allow get: if puedeLeerItem();
+
+        // list = query. ACA ESTA LA TRAMPA MAS IMPORTANTE DEL ARCHIVO:
+        // la regla se evalua contra CADA documento que la query devolveria.
+        // Si uno solo no pasa, se cae la query completa con permission-denied
+        // (NO filtra). Entonces un MIEMBRO tiene que pedir:
+        //    a) .where('visibilidad', isEqualTo: 'equipo')  -> pestana "Del equipo"
+        //    b) .where('creadoPor',  isEqualTo: miUid)      -> pestana "Mis notas"
+        // en DOS queries separadas, cada una en su pestana. NO unir dos
+        // streams en memoria: deduplicar, ordenar y paginar dos StreamBuilder
+        // es la parte mas dificil de todo el proyecto y no suma nota.
+        // Si ademas se filtra por 'tipo', hace falta el indice compuesto
+        // correspondiente (esta en firestore.indexes.json).
+        // Un ADMIN puede listar todo sin where, porque esAdmin(wsId) ya da
+        // true y corta la evaluacion antes de mirar el documento.
+        allow list: if puedeLeerItem();
+
+        allow create: if esMiembro(wsId) && creacionDeItemValida();
+
+        // Editar: el autor o el admin.
+        // (El backend, cuando alguien que no es ninguno de los dos intenta
+        // editar por endpoint, responde NO_SOS_EL_AUTOR / HTTP 403.)
+        allow update: if esMiembro(wsId)
+          && (resource.data.get('creadoPor', '') == uid() || esAdmin(wsId))
+          && edicionDeItemValida();
+
+        // BORRAR: CERRADO. Ya estaba cerrado en la v2 y en la v3 SIGUE
+        // cerrado (R5), a proposito.
+        // Borrar el item desde el cliente NO borra sus chunks, que viven en
+        // la coleccion plana /chunks y que el cliente no puede tocar. El
+        // texto de una nota privada seguia vivo ahi, sin item al cual
+        // preguntarle los permisos, y la IA lo podia seguir citando: la
+        // persona creia que lo habia borrado y no lo habia borrado.
+        // Se borra con DELETE /v1/workspaces/:wsId/items/:itemId, que borra
+        // chunks + item en lote y deja el evento 'item.eliminado'.
+        // La limpieza masiva de pendientes viejos (solo admin) es
+        // DELETE /v1/workspaces/:wsId/items?estado=pendiente&antesDe=<ISO>,
+        // que borra de a lotes de 400 y escribe UN solo evento agregado.
+        allow delete: if false;
+      }
+
+
+      // ----------------------------------------------------------------
+      // respuestas/{respId}  —  las preguntas a la IA y su respuesta
+      // El cliente CREA la pregunta (para ver el estado 'buscando' al
+      // instante) y el backend la completa. Solo la lee su autor (o el
+      // admin), porque una respuesta puede citar fragmentos de items
+      // PRIVADOS del autor: si la leyera todo el equipo, se filtraria por
+      // la ventana la privacidad que cuidamos en items.
+      //
+      // D1 (R1) — ACA NO HAY CAMPO workspaceId. El wsId vive UNICAMENTE en
+      // el path: workspaces/{wsId}/respuestas/{respId}. No hace falta el
+      // campo porque nunca consultamos respuestas con collectionGroup(): la
+      // app y el panel siempre entran por el workspace que tienen abierto.
+      // Repetir el wsId adentro del documento seria un dato que se puede
+      // desincronizar del path sin que nadie se entere. El invariante de
+      // "workspaceId en el path Y como campo" vale SOLO para items y chunks.
+      // ----------------------------------------------------------------
+      match /respuestas/{respId} {
+
+        function esMiRespuesta() {
+          // R3: default '' (ningun uid real es la cadena vacia), asi que una
+          // respuesta sin autorUid no se la apropia nadie y tampoco tumba la
+          // query del historial.
+          return resource.data.get('autorUid', '') == uid();
+        }
+
+        // Para listar, el miembro filtra por .where('autorUid','==',miUid).
+        // El admin puede listar todo.
+        allow get, list: if esMiembro(wsId) && (esMiRespuesta() || esAdmin(wsId));
+
+        // El cliente crea EXACTAMENTE estos cuatro campos, los mismos cuatro
+        // que declara el modelo: pregunta, autorUid, estado, creadoEn.
+        // NI UNO MAS: nada de 'workspaceId' (va solo en el path, D1) y nada
+        // de 'respuesta' (mientras ese campo no exista, la pantalla muestra
+        // "buscando"; en la v1 el modelo decia que el cliente mandaba
+        // respuesta: '' y esta misma regla lo rechazaba).
+        // hasOnly + hasAll juntos = la lista exacta, ni de mas ni de menos.
+        // Como hasAll ya garantiza que los cuatro campos existen, aca SI se
+        // pueden leer .pregunta / .autorUid / .estado / .creadoEn directo.
+        allow create: if esMiembro(wsId)
+          && request.resource.data.keys().hasOnly(
+               ['pregunta', 'autorUid', 'estado', 'creadoEn'])
+          && request.resource.data.keys().hasAll(
+               ['pregunta', 'autorUid', 'estado', 'creadoEn'])
+          && request.resource.data.autorUid == uid()
+          && request.resource.data.estado == 'buscando'
+          && fechaDelServidor(request.resource.data.creadoEn)
+          && request.resource.data.pregunta is string
+          && request.resource.data.pregunta.size() >= 3
+          && request.resource.data.pregunta.size() <= 500;
+
+        // La respuesta, las fuentes y la confianza las escribe el backend.
+        allow update: if false;
+
+        // Borrar del historial: el autor o el admin. Una respuesta no tiene
+        // chunks colgando, asi que borrarla no deja basura.
+        allow delete: if esMiembro(wsId) && (esMiRespuesta() || esAdmin(wsId));
+      }
+
+
+      // ----------------------------------------------------------------
+      // eventos/{eventoId}  —  feed de auditoria del panel
+      // SOLO ADMIN. Es una de las diferencias de rol que pide la materia:
+      // el miembro ni siquiera puede listar esta subcoleccion.
+      // Lo escribe unicamente el backend, y solo agrega (append-only).
+      // ----------------------------------------------------------------
+      match /eventos/{eventoId} {
+        allow read: if esAdmin(wsId);
+        allow create, update, delete: if false;
+      }
+
+
+      // ----------------------------------------------------------------
+      // suscripcion/actual  —  plan y datos de Mercado Pago
+      // SOLO ADMIN lee. Escribe el webhook del backend.
+      // Nombres de campos identicos al modelo y al contrato (D3):
+      //   vence (NO venceEn)  y  preapprovalId (NO mpPreapprovalId).
+      // Un solo enum de estado de plan, el mismo que workspaces.planStatus:
+      //   'sin_plan' | 'pendiente' | 'activa' | 'pausada' | 'cancelada'.
+      // (Mercado Pago es opcional / stretch goal, pero la regla ya queda.)
+      // ----------------------------------------------------------------
+      match /suscripcion/{docId} {
+        allow read: if esAdmin(wsId);
+        allow create, update, delete: if false;
+      }
+
+
+      // Recordatorio escrito, no candado: las reglas se combinan con OR, asi
+      // que este bloque NO tapa nada de lo permitido arriba. Sirve para dejar
+      // dicho que cualquier subcoleccion nueva que inventemos dentro de un
+      // workspace nace cerrada hasta que le escribamos su propia regla.
+      match /{otraSubcoleccion=**} {
+        allow read, write: if false;
+      }
+    }
+
+
+    // ==================================================================
+    // chunks/{chunkId}  —  coleccion PLANA, top-level, CERRADA
+    // Guarda el texto troceado + el embedding (1024 floats) + una copia de
+    // 'visibilidad' y 'creadoPor' del item (defensa en profundidad del RAG).
+    // Lleva 'workspaceId' como campo (el invariante de items y chunks),
+    // porque al ser plana es la UNICA forma de filtrar por workspace.
+    // NADIE la toca desde el cliente: ni lee, ni escribe, ni lista.
+    // Solo el backend con Admin SDK (que ignora estas reglas).
+    // Motivos: 1) tiene texto de items privados de todo el workspace;
+    //          2) bajar embeddings al celular serian megas de datos.
+    // ==================================================================
+    match /chunks/{chunkId} {
+      allow read, write: if false;
+    }
+
+
+    // ==================================================================
+    // CIERRE GENERAL. Firestore ya deniega por defecto; esto lo deja
+    // escrito y explicito para la defensa oral.
+    //
+    // Ademas, al NO existir ningun match del estilo
+    //     match /{path=**}/items/{itemId}
+    // quedan denegadas las consultas de GRUPO DE COLECCIONES
+    // (collectionGroup('items')) desde el cliente, que serian la forma de
+    // espiar items de TODOS los workspaces con una sola query.
+    // El backend SI usa collectionGroup('items') para el barrido de items
+    // colgados en 'procesando', pero lo hace con el Admin SDK, que ni
+    // siquiera mira este archivo.
+    // ==================================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

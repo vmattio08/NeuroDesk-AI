@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+   app.html  —  EL SHELL del panel de NeuroDesk AI.
+   Panel web. Autor: Martin.
+
+   Es una sola pagina que nunca se recarga. Adentro:
+     - la barra lateral (marca, selector de espacio, menu, usuario, salir);
+     - un <div id="pantalla"> vacio;
+     - un router por HASH que, segun lo que diga la barra de direcciones,
+       monta una pantalla u otra adentro de ese div.
+
+   POR QUE UN ROUTER POR HASH (#/items) Y NO POR RUTA (/items):
+   Porque el hash no viaja al servidor. Con rutas de verdad, entrar directo a
+   /items o apretar F5 le pide al servidor un archivo llamado "items" que no
+   existe -> 404. Eso se arregla configurando el servidor para que devuelva
+   siempre el mismo HTML... y nosotros queremos publicar el panel en cualquier
+   hosting estatico gratis, sin configurar nada. Con el hash, el navegador
+   nunca pide nada nuevo: recargar en #/miembros funciona, el boton "atras"
+   funciona y el link se puede compartir. Cero configuracion.
+
+   REGLA DE ORO DEL ROUTER: antes de montar la pantalla nueva se llama al
+   unmount() de la anterior, SIEMPRE. Ese unmount es el que corta los
+   onSnapshot. Sin eso, ir y volver entre pantallas deja escuchas acumuladas
+   consumiendo lecturas del plan gratuito hasta que se cierre la pestaña.
+  ============================================================================
+-->
+<html lang="es-AR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel — NeuroDesk AI</title>
+  <link rel="stylesheet" href="css/estilo.css">
+
+  <!--
+    Chart.js por CDN, con <script> CLASICO (no module) y version fija.
+    Deja la variable global `Chart`, que es la que usa js/pantallas/dashboard.js.
+
+    ORDEN: los <script type="module"> son "defer" por definicion, o sea que
+    corren DESPUES de que el HTML termino de parsearse. Un <script> clasico sin
+    defer corre en el momento. Entonces, poniendolo aca arriba, `Chart` ya
+    existe cuando el dashboard lo necesita. Igual el dashboard chequea que
+    exista antes de usarlo: si la red de la escuela bloquea el CDN, los KPIs
+    tienen que seguir andando.
+
+    La version va CLAVADA (@4.4.1) a proposito: un "latest" que cambia solo es
+    exactamente el tipo de sorpresa que uno no quiere el dia de la entrega.
+  -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+
+<body>
+
+  <div class="shell">
+
+    <!-- ================= BARRA LATERAL ================= -->
+    <aside class="lateral">
+
+      <div class="marca-login">
+        <div class="logo">ND</div>
+        <div>
+          <b>NeuroDesk AI</b>
+          <span>Panel de admin</span>
+        </div>
+      </div>
+
+      <!-- Selector de espacio de trabajo. Solo aparece si la persona es
+           admin de mas de uno; con uno solo seria un select de una opcion. -->
+      <div id="cajaSelector" class="oculto">
+        <label for="selectorWs" style="color:#9a9db4">Espacio de trabajo</label>
+        <select id="selectorWs" class="selector-ws"></select>
+      </div>
+
+      <nav class="menu" id="menu">
+        <a href="#/items"     data-ruta="#/items">Contenido</a>
+        <a href="#/miembros"  data-ruta="#/miembros">Miembros</a>
+        <a href="#/dashboard" data-ruta="#/dashboard">Resumen</a>
+      </nav>
+
+      <div class="pie-lateral">
+        <span class="email" id="emailAdmin">…</span>
+        <button id="botonSalir" class="boton-fantasma">Cerrar sesión</button>
+      </div>
+
+    </aside>
+
+    <!-- ================= CONTENIDO ================= -->
+    <main class="contenido">
+      <!-- Todas las pantallas se dibujan adentro de este div y solo de este. -->
+      <div id="pantalla">
+        <p class="apagado">Cargando…</p>
+      </div>
+    </main>
+
+  </div>
+
+
+  <script type="module">
+    // ------------------------------------------------------------------
+    // El shell entero: guardia, barra lateral y router. No hay ninguna
+    // logica de datos aca; cada pantalla se ocupa de la suya.
+    // ------------------------------------------------------------------
+    import { guardiaDeAdmin, salir, recordarWorkspace,
+             guardarWorkspaceActual, vigilarClaims } from './js/auth.js';
+    import { despertarBackend } from './js/api.js';
+    import { esc } from './js/util.js';
+
+    // Las tres pantallas se importan de entrada, no con import() dinamico:
+    // son tres archivos chicos y tenerlos cargados hace que cambiar de
+    // pantalla sea instantaneo. La carga perezosa tendria sentido con veinte
+    // pantallas, no con tres.
+    import * as pantallaItems     from './js/pantallas/items.js';
+    import * as pantallaMiembros  from './js/pantallas/miembros.js';
+    import * as pantallaDashboard from './js/pantallas/dashboard.js';
+
+    const RUTAS = {
+      '#/items':     pantallaItems,
+      '#/miembros':  pantallaMiembros,
+      '#/dashboard': pantallaDashboard
+    };
+    const RUTA_POR_DEFECTO = '#/items';
+
+    const caja = document.getElementById('pantalla');
+
+    let ctx = null;             // { uid, email, nombre, workspacesAdmin, wsId }
+    let pantallaActual = null;  // el modulo montado ahora mismo
+    let turno = 0;              // ver el comentario de mostrar()
+
+
+    // ==================================================================
+    //  ARRANQUE
+    // ==================================================================
+    async function arrancar() {
+      // 1. El guardia. Si no hay sesion o no es admin de ningun espacio,
+      //    redirige y devuelve null: aca no seguimos.
+      ctx = await guardiaDeAdmin();
+      if (!ctx) return;
+
+      // 2. Despertar a Render en segundo plano. El plan free duerme a los 15
+      //    minutos y el primer pedido tarda hasta un minuto: si lo despertamos
+      //    ahora, cuando el admin vaya a invitar a alguien ya esta listo.
+      //    No se espera la respuesta a proposito.
+      despertarBackend();
+
+      // 3. Barra lateral
+      document.getElementById('emailAdmin').textContent = ctx.email;
+      dibujarSelector();
+
+      document.getElementById('botonSalir')
+        .addEventListener('click', () => salir());
+
+      // 4. Si otro admin me cambia el rol, el backend escribe
+      //    claimsActualizadoEn en mi doc y este listener lo ve en segundos.
+      vigilarClaims(ctx.uid, (ctxNuevo) => {
+        const sigoSiendoAdminAca =
+          ctxNuevo.workspacesAdmin.some((w) => w.wsId === ctx.wsId);
+
+        if (!sigoSiendoAdminAca) {
+          // Ya no soy admin de este espacio: me voy solo, sin esperar a que
+          // Firestore me empiece a negar cosas con errores rojos.
+          alert('Cambiaron tus permisos: ya no sos administrador de este espacio.');
+          location.replace('index.html?motivo=no_admin');
+          return;
+        }
+        // Sigo siendo admin: actualizo los datos (pueden haber cambiado los
+        // nombres o haberse sumado un espacio nuevo).
+        ctx = { ...ctxNuevo, wsId: ctx.wsId };
+        dibujarSelector();
+      });
+
+      // 5. Router
+      window.addEventListener('hashchange', mostrar);
+      if (!location.hash) location.hash = RUTA_POR_DEFECTO;
+      await mostrar();
+    }
+
+
+    // ==================================================================
+    //  ROUTER
+    // ==================================================================
+    async function mostrar() {
+      const hash = RUTAS[location.hash] ? location.hash : RUTA_POR_DEFECTO;
+      const modulo = RUTAS[hash];
+
+      marcarMenuActivo(hash);
+
+      // Cortar la pantalla anterior ANTES de montar la nueva. Esta linea es
+      // la que evita que se acumulen los onSnapshot.
+      if (pantallaActual) {
+        pantallaActual.unmount();
+        pantallaActual = null;
+      }
+
+      // mount() es asincronico (lee miembros, el workspace...). Si alguien
+      // hace clic rapido en dos items del menu, pueden quedar dos mount() en
+      // el aire y el que termina ultimo pisa al que corresponde. Este
+      // contador es la version simple del problema: cada llamada se guarda su
+      // numero y, si al volver del await ya hay una llamada mas nueva, se
+      // borra a si misma en vez de dibujar encima.
+      const miTurno = ++turno;
+
+      caja.innerHTML = '<p class="apagado">Cargando…</p>';
+
+      try {
+        await modulo.mount(caja, ctx);
+        if (miTurno !== turno) {
+          // Llego otra navegacion mientras montabamos: deshacemos esta.
+          modulo.unmount();
+          return;
+        }
+        pantallaActual = modulo;
+      } catch (e) {
+        console.error('[panel] no pude montar la pantalla', e);
+        if (miTurno !== turno) return;
+        caja.innerHTML =
+          `<div class="aviso aviso-error">
+             No pudimos abrir esta pantalla: ${esc(e.message)}
+           </div>`;
+      }
+    }
+
+    function marcarMenuActivo(hash) {
+      document.querySelectorAll('#menu a').forEach((a) => {
+        a.classList.toggle('activo', a.dataset.ruta === hash);
+      });
+    }
+
+
+    // ==================================================================
+    //  SELECTOR DE ESPACIO DE TRABAJO
+    // ==================================================================
+    function dibujarSelector() {
+      // Ojo con el nombre: 'caja' (sin sufijo) ya es el div de la pantalla.
+      // Este es otro, y por eso se llama distinto.
+      const cajaSelector = document.getElementById('cajaSelector');
+      const selector = document.getElementById('selectorWs');
+
+      // Con un solo espacio no mostramos el selector: no hay nada que elegir.
+      if (ctx.workspacesAdmin.length <= 1) {
+        cajaSelector.classList.add('oculto');
+        return;
+      }
+      cajaSelector.classList.remove('oculto');
+
+      // esc() tambien aca: el nombre del workspace lo escribio una persona.
+      selector.innerHTML = ctx.workspacesAdmin
+        .map((w) => `<option value="${esc(w.wsId)}"${w.wsId === ctx.wsId ? ' selected' : ''}>${esc(w.nombre)}</option>`)
+        .join('');
+
+      // onchange (y no addEventListener) a proposito: dibujarSelector() se
+      // vuelve a llamar cuando cambian los permisos, y con onchange el
+      // handler se PISA en vez de acumularse.
+      selector.onchange = async (e) => {
+        ctx = { ...ctx, wsId: e.target.value };
+        recordarWorkspace(ctx.wsId);
+        // Espejamos la eleccion en usuarios/{uid}.workspaceActual, que es uno
+        // de los dos unicos campos que el cliente puede escribir de su propio
+        // documento, para que la app Flutter arranque en el mismo espacio.
+        guardarWorkspaceActual(ctx.uid, ctx.wsId);
+        // Volver a montar la pantalla actual, ahora con el wsId nuevo.
+        await mostrar();
+      };
+    }
+
+
+    arrancar();
+  </script>
+
+</body>
+</html>

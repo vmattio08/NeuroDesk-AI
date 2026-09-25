@@ -1,0 +1,25 @@
+{
+  "name": "neurodesk-api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Backend de NeuroDesk AI: el unico que tiene las claves secretas",
+  "main": "src/server.js",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch --env-file=.env src/server.js",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-neurodesk \"node --test test/rules.test.js\"",
+    "modelos:vivos": "node scripts/chequear-modelos.js",
+    "seed": "node --env-file=.env scripts/seed.js",
+    "seed:borrar": "node --env-file=.env scripts/borrar-seed.js",
+    "set-admin": "node --env-file=.env scripts/set-admin.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "firebase-admin": "^14.3.0",
+    "multer": "^2.0.1",
+    "pdf-parse": "^2.4.5",
+    "tesseract.js": "^7.0.0"
+  }
+}

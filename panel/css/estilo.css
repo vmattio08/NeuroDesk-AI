@@ -1,0 +1,533 @@
+/* ============================================================================
+   estilo.css  —  el unico CSS del panel de NeuroDesk AI.
+   Autor: Martin.
+
+   Un solo archivo, sin framework, sin build. Se lee de arriba a abajo:
+     1. La paleta (variables)
+     2. Base y tipografia
+     3. Login
+     4. Shell (barra lateral + contenido)
+     5. Piezas repetidas (botones, chips, badges, avisos, tablas, formularios)
+     6. Pantallas (items, miembros, dashboard)
+     7. Pantallas chicas
+
+   TODO color sale de una variable de la seccion 1. Si en alguna regla de mas
+   abajo aparece un #hexadecimal suelto, es un error: se cambia por su
+   variable. Asi cambiar la marca es tocar diez lineas y no doscientas.
+   ============================================================================ */
+
+
+/* ==========================================================================
+   1. LA PALETA DE LA MARCA
+   ========================================================================== */
+:root {
+  /* --- Marca ---
+     NeuroDesk es "el segundo cerebro del equipo": violeta/indigo para la
+     marca (idea, memoria) y verde azulado para lo que ya esta resuelto. */
+  --marca:          #5b58e8;   /* violeta principal: botones, links, foco */
+  --marca-oscuro:   #4744c9;   /* hover del boton principal */
+  --marca-suave:    #ecebfd;   /* fondos de cosas seleccionadas */
+  --acento:         #0f9d78;   /* verde azulado: "listo", "en vivo" */
+
+  /* --- Grises (de mas oscuro a mas claro) --- */
+  --tinta:          #181926;   /* texto principal y fondo de la barra lateral */
+  --tinta-2:        #232436;   /* hover dentro de la barra lateral */
+  --gris-fuerte:    #4a4d63;   /* texto secundario */
+  --gris:           #8b8fa8;   /* texto apagado, placeholders */
+  --borde:          #e2e4ee;   /* lineas de tablas y tarjetas */
+  --fondo:          #f5f6fb;   /* fondo de la pagina */
+  --tarjeta:        #ffffff;   /* fondo de tarjetas y tablas */
+
+  /* --- Estados del item (los mismos cuatro de la maquina de estados) ---
+     pendiente = gris, procesando = ambar, listo = verde, error = rojo.
+     Son los MISMOS colores que usa la app Flutter: si el admin y el usuario
+     ven colores distintos para el mismo estado, no se entienden. */
+  --pendiente:      #6b7086;
+  --pendiente-bg:   #eef0f6;
+  --procesando:     #a86800;
+  --procesando-bg:  #fdf3dd;
+  --listo:          #0b7a5e;
+  --listo-bg:       #e2f6ef;
+  --error:          #c0322f;
+  --error-bg:       #fdeceb;
+
+  /* --- Medidas repetidas --- */
+  --radio:          10px;
+  --radio-chico:    6px;
+  --sombra:         0 1px 2px rgba(24, 25, 38, .06),
+                    0 4px 16px rgba(24, 25, 38, .05);
+  --lateral:        228px;     /* ancho de la barra lateral */
+}
+
+
+/* ==========================================================================
+   2. BASE
+   ========================================================================== */
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  /* Pila de fuentes del sistema: cero descargas, se ve nativo en Windows
+     (Segoe UI), en Mac y en Android. Una fuente de Google seria una request
+     mas y el panel tiene que abrir rapido en la notebook de la escuela. */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+               'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--tinta);
+  background: var(--fondo);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 { margin: 0 0 .4rem; line-height: 1.25; font-weight: 650; }
+h1 { font-size: 1.35rem; }
+h2 { font-size: 1.05rem; }
+h3 { font-size: .95rem; }
+p  { margin: 0 0 .6rem; }
+
+a { color: var(--marca); }
+
+/* Foco visible SIEMPRE. Se ve un poco "de mas", pero sacarlo deja el panel
+   inusable con teclado, y el profe de la materia pregunta por accesibilidad. */
+:focus-visible {
+  outline: 2px solid var(--marca);
+  outline-offset: 2px;
+  border-radius: var(--radio-chico);
+}
+
+.oculto { display: none !important; }
+.apagado { color: var(--gris); }
+.chico { font-size: .8rem; }
+
+
+/* ==========================================================================
+   3. LOGIN  (index.html)
+   ========================================================================== */
+.pantalla-login {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  /* Un degrade muy suave para que el login no sea una hoja en blanco. */
+  background:
+    radial-gradient(900px 500px at 15% -10%, var(--marca-suave), transparent 60%),
+    var(--fondo);
+}
+
+.caja-login {
+  width: 100%;
+  max-width: 380px;
+  background: var(--tarjeta);
+  border: 1px solid var(--borde);
+  border-radius: 14px;
+  box-shadow: var(--sombra);
+  padding: 28px 26px 24px;
+}
+
+.marca-login {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.logo {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--marca);
+  color: #fff;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: -.5px;
+}
+
+.marca-login b { display: block; font-size: 1.05rem; }
+.marca-login span { display: block; font-size: .78rem; color: var(--gris); }
+
+
+/* ==========================================================================
+   4. SHELL  (app.html): barra lateral fija + contenido con scroll propio
+   ========================================================================== */
+.shell {
+  display: grid;
+  grid-template-columns: var(--lateral) 1fr;
+  min-height: 100vh;
+}
+
+/* --- Barra lateral --- */
+.lateral {
+  background: var(--tinta);
+  color: #d9dbe7;
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  /* position: sticky para que el menu no se vaya cuando la tabla es larga. */
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+
+.lateral .marca-login b { color: #fff; }
+
+.selector-ws {
+  width: 100%;
+  background: var(--tinta-2);
+  color: #fff;
+  border: 1px solid #33344a;
+  border-radius: var(--radio-chico);
+  padding: 7px 8px;
+  font-size: .85rem;
+}
+
+.menu { display: flex; flex-direction: column; gap: 2px; }
+
+.menu a {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: var(--radio-chico);
+  color: #c4c7d8;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.menu a:hover { background: var(--tinta-2); color: #fff; }
+
+/* La pantalla en la que estamos parados. La clase la pone el router del
+   app.html cuando cambia el hash. */
+.menu a.activo {
+  background: var(--marca);
+  color: #fff;
+}
+
+.pie-lateral {
+  margin-top: auto;                 /* empuja el bloque del usuario al fondo */
+  border-top: 1px solid #2c2d40;
+  padding-top: 12px;
+  font-size: .8rem;
+  color: #9a9db4;
+}
+
+.pie-lateral .email {
+  display: block;
+  color: #e6e8f2;
+  word-break: break-all;
+  margin-bottom: 8px;
+}
+
+/* --- Contenido --- */
+.contenido { padding: 22px 26px 40px; min-width: 0; /* deja encoger la tabla */ }
+
+.encabezado {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+
+/* ==========================================================================
+   5. PIEZAS REPETIDAS
+   ========================================================================== */
+
+/* --- Tarjeta --- */
+.tarjeta {
+  background: var(--tarjeta);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+  padding: 16px;
+}
+
+/* --- Formularios --- */
+label {
+  display: block;
+  font-size: .82rem;
+  font-weight: 600;
+  color: var(--gris-fuerte);
+  margin-bottom: 4px;
+}
+
+input[type="text"], input[type="email"], input[type="password"],
+input[type="search"], select {
+  width: 100%;
+  padding: 8px 10px;
+  font: inherit;
+  color: var(--tinta);
+  background: #fff;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio-chico);
+}
+
+input::placeholder { color: var(--gris); }
+
+.campo { margin-bottom: 12px; }
+
+/* --- Botones --- */
+button {
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: var(--radio-chico);
+  border: 1px solid transparent;
+  padding: 8px 14px;
+  transition: background .12s ease;
+}
+
+button:disabled { opacity: .55; cursor: not-allowed; }
+
+.boton-principal { background: var(--marca); color: #fff; }
+.boton-principal:hover:not(:disabled) { background: var(--marca-oscuro); }
+
+.boton-suave {
+  background: #fff;
+  color: var(--gris-fuerte);
+  border-color: var(--borde);
+}
+.boton-suave:hover:not(:disabled) { background: var(--fondo); }
+
+.boton-peligro {
+  background: #fff;
+  color: var(--error);
+  border-color: #f3c9c7;
+}
+.boton-peligro:hover:not(:disabled) { background: var(--error-bg); }
+
+.boton-ancho { width: 100%; }
+
+.boton-fantasma {
+  background: none;
+  border: none;
+  color: #c4c7d8;
+  padding: 4px 0;
+  text-align: left;
+}
+.boton-fantasma:hover { color: #fff; text-decoration: underline; }
+
+/* --- Avisos (errores y confirmaciones) --- */
+.aviso {
+  border-radius: var(--radio-chico);
+  padding: 9px 12px;
+  font-size: .87rem;
+  margin-bottom: 12px;
+  border: 1px solid;
+}
+.aviso-error { background: var(--error-bg); border-color: #f3c9c7; color: var(--error); }
+.aviso-ok    { background: var(--listo-bg); border-color: #bfe6da; color: var(--listo); }
+.aviso-info  { background: var(--marca-suave); border-color: #d3d1fa; color: var(--marca-oscuro); }
+
+/* --- Chips de estado ---
+   Un chip por cada estado de la maquina de estados del item. */
+.chip {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: .76rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.chip-pendiente  { background: var(--pendiente-bg);  color: var(--pendiente); }
+.chip-procesando { background: var(--procesando-bg); color: var(--procesando); }
+.chip-listo      { background: var(--listo-bg);      color: var(--listo); }
+.chip-error      { background: var(--error-bg);      color: var(--error); }
+/* Cualquier estado que no conozcamos (un doc cargado a mano) cae en este. */
+.chip-desconocido { background: var(--pendiente-bg); color: var(--gris); }
+
+/* Chip mas apagado para tipo y visibilidad, que no son alarmas. */
+.etiqueta {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: var(--radio-chico);
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  font-size: .76rem;
+  color: var(--gris-fuerte);
+  white-space: nowrap;
+}
+
+/* --- Badge "En vivo" / "Sin conexion" (pantalla de items) --- */
+.badge-vivo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .78rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid;
+}
+.badge-vivo .punto {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: currentColor;
+}
+.badge-vivo.vivo   { color: var(--acento); border-color: #b9e5d8; background: var(--listo-bg); }
+.badge-vivo.cache  { color: var(--procesando); border-color: #ecd9a8; background: var(--procesando-bg); }
+
+/* El puntito late solo cuando estamos EN VIVO: es la señal de que el
+   onSnapshot esta escuchando de verdad. */
+.badge-vivo.vivo .punto { animation: latido 1.6s ease-in-out infinite; }
+@keyframes latido {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .25; }
+}
+/* Respetamos a quien pidio menos animaciones en su sistema operativo. */
+@media (prefers-reduced-motion: reduce) {
+  .badge-vivo.vivo .punto { animation: none; }
+}
+
+/* --- Tablas --- */
+.caja-tabla {
+  background: var(--tarjeta);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+  overflow-x: auto;          /* en pantalla chica la tabla scrollea sola */
+}
+
+table { width: 100%; border-collapse: collapse; }
+
+th {
+  text-align: left;
+  font-size: .76rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--gris);
+  font-weight: 700;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--borde);
+  background: #fbfbfe;
+  white-space: nowrap;
+}
+
+td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--borde);
+  vertical-align: top;
+}
+
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: #fbfbfe; }
+
+.celda-titulo { font-weight: 600; max-width: 380px; }
+.celda-titulo .sub { font-weight: 400; font-size: .8rem; color: var(--gris); }
+.celda-error { color: var(--error); font-size: .8rem; margin-top: 2px; }
+.numero { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Fila de "no hay nada". */
+.vacio {
+  padding: 34px 14px;
+  text-align: center;
+  color: var(--gris);
+}
+
+
+/* ==========================================================================
+   6. PANTALLAS
+   ========================================================================== */
+
+/* --- Barra de filtros de items --- */
+.filtros {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.filtros .campo { margin: 0; }
+.filtros .campo-buscador { flex: 1 1 240px; }
+.filtros select { width: auto; min-width: 130px; }
+
+.resumen-filtro {
+  font-size: .82rem;
+  color: var(--gris);
+  margin: 10px 2px 0;
+}
+
+/* --- KPIs del dashboard --- */
+.grilla-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.kpi { padding: 14px 16px; }
+.kpi .etiqueta-kpi {
+  font-size: .78rem;
+  font-weight: 650;
+  color: var(--gris);
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+.kpi .valor {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+.kpi .pie-kpi { font-size: .78rem; color: var(--gris); }
+
+.kpi-listo      .valor { color: var(--listo); }
+.kpi-encola     .valor { color: var(--procesando); }
+.kpi-error      .valor { color: var(--error); }
+
+/* --- Grafico ---
+   El <canvas> necesita una altura fija del contenedor: Chart.js es
+   responsive y si el padre no mide nada, el grafico crece infinito y la
+   pagina hace scroll para siempre. Es un clasico. */
+.caja-grafico { height: 300px; position: relative; }
+.caja-grafico canvas { max-height: 100%; }
+
+/* --- Alta de miembros --- */
+.form-invitar {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.form-invitar .campo { margin: 0; }
+.form-invitar .campo-email { flex: 1 1 260px; }
+
+.rol-admin   { color: var(--marca); font-weight: 650; }
+.rol-miembro { color: var(--gris-fuerte); }
+
+
+/* ==========================================================================
+   7. PANTALLAS CHICAS
+   La barra lateral pasa a ser una franja arriba. No es una app movil: es que
+   el panel no se rompa si alguien lo abre en una tablet o con el proyector.
+   ========================================================================== */
+@media (max-width: 780px) {
+  .shell { grid-template-columns: 1fr; }
+  .lateral {
+    position: static;
+    height: auto;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .menu { flex-direction: row; }
+  .pie-lateral {
+    margin-top: 0;
+    border-top: none;
+    padding-top: 0;
+    margin-left: auto;
+  }
+  .pie-lateral .email { display: none; }
+  .contenido { padding: 16px 14px 32px; }
+}
