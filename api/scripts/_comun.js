@@ -16,7 +16,23 @@
 //  guardan en Firestore SI llevan acentos: eso se ve bien en la consola web.
 // ============================================================================
 
-import admin from "firebase-admin";
+// firebase-admin v14 usa la API MODULAR: cada servicio se importa de su propio
+// subpaquete. La forma vieja (import admin from "firebase-admin" y despues
+// admin.credential.cert(), admin.firestore(), admin.auth()) ya no existe.
+import { initializeApp, cert, deleteApp } from "firebase-admin/app";
+import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
+
+// La app de Firebase de los scripts (se crea una sola vez en conectar()).
+let app = null;
+
+// Objeto "admin" con la misma forma que usan seed.js, borrar-seed.js y
+// set-admin.js (admin.app().delete() y admin.firestore.FieldValue), asi esos
+// tres scripts no tuvieron que cambiar con la migracion.
+const admin = {
+  app: () => ({ delete: () => (app ? deleteApp(app) : Promise.resolve()) }),
+  firestore: { FieldValue, Timestamp },
+};
 
 // ---------------------------------------------------------------------------
 // DATOS DE PRUEBA (los mismos para seed.js y para borrar-seed.js)
@@ -97,7 +113,7 @@ export function conectar() {
     // Contra el emulador no se usa credencial real a proposito: si por error
     // quedara una service account de produccion, el emulador la ignora igual,
     // pero asi queda escrito que este camino NO toca la base de verdad.
-    admin.initializeApp({ projectId });
+    app = initializeApp({ projectId });
     console.log(`  Conectado al EMULADOR (${process.env.FIRESTORE_EMULATOR_HOST}), proyecto ${projectId}`);
   } else {
     const b64 = process.env.FIREBASE_SERVICE_ACCOUNT_B64;
@@ -128,11 +144,11 @@ export function conectar() {
       );
     }
 
-    admin.initializeApp({ credential: admin.credential.cert(credencial), projectId });
+    app = initializeApp({ credential: cert(credencial), projectId });
     console.log(`  Conectado al proyecto REAL de Firebase: ${projectId}`);
   }
 
-  cache = { admin, db: admin.firestore(), auth: admin.auth() };
+  cache = { admin, db: getFirestore(app), auth: getAuth(app) };
   return cache;
 }
 
@@ -150,7 +166,7 @@ export function conectar() {
 export function fecha(iso) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) throw new Error(`Fecha invalida en el seed: ${iso}`);
-  return admin.firestore.Timestamp.fromDate(d);
+  return Timestamp.fromDate(d);
 }
 
 /**
