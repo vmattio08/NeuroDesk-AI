@@ -1,0 +1,13 @@
+{
+  "firestore": {
+    "database": "(default)",
+    "location": "southamerica-east1",
+    "rules": "firebase/firestore.rules",
+    "indexes": "firebase/firestore.indexes.json"
+  },
+  "emulators": {
+    "firestore": { "port": 8080 },
+    "auth": { "port": 9099 },
+    "ui": { "enabled": true }
+  }
+}
