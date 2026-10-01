@@ -3,7 +3,7 @@
 *.env
 !.env.example
 serviceAccountKey.json
-firebase-adminsdk-*.json
+*firebase-adminsdk*.json
 *-service-account.json
 
 # ---- Node ----
