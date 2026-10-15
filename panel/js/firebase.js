@@ -36,12 +36,12 @@
 // ##                                                                        ##
 // ############################################################################
 export const configFirebase = {
-  apiKey:            'PEGAR_API_KEY',
-  authDomain:        'PEGAR_PROYECTO.firebaseapp.com',
-  projectId:         'PEGAR_PROYECTO',
-  storageBucket:     'PEGAR_PROYECTO.appspot.com',   // no lo usamos (Storage esta descartado), pero va igual
-  messagingSenderId: 'PEGAR_SENDER_ID',
-  appId:             'PEGAR_APP_ID'
+  apiKey:            'AIzaSyAar9DHKvZUxDnpUaDQhvfE3eojwTXvn20',
+  authDomain:        'neurodesk-6to.firebaseapp.com',
+  projectId:         'neurodesk-6to',
+  storageBucket:     'neurodesk-6to.firebasestorage.app',   // no lo usamos (Storage esta descartado), pero va igual
+  messagingSenderId: '455226002826',
+  appId:             '1:455226002826:web:6621104ade762da7d64c73'   // app web "NeuroDesk Panel"
 };
 
 
