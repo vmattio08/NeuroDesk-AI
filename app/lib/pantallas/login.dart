@@ -5,9 +5,14 @@
 //  formularios casi iguales (el de registro suma el nombre), asi que dos
 //  pantallas separadas serian el mismo codigo copiado dos veces.
 //
+//  Abajo esta "Continuar con Google", que vale para los dos modos: Google no
+//  distingue entre entrar y crear la cuenta, y el nombre sale de la cuenta de
+//  Google (por eso ese boton no pasa por el formulario).
+//
 //  LO IMPORTANTE ACA: la persona NUNCA ve un codigo de Firebase. Ni
 //  'user-not-found', ni 'invalid-credential', ni un stack trace. Todo pasa por
-//  AuthServicio.traducirErrorDeAuth(), que devuelve castellano.
+//  AuthServicio.traducirErrorDeAuth() (y traducirErrorDeGoogle() para lo que
+//  falla antes de llegar a Firebase), que devuelven castellano.
 //
 //  Esta pantalla NO navega a ningun lado despues de un login exitoso: cuando
 //  Firebase confirma la sesion, el stream authStateChanges() que escucha la
@@ -18,6 +23,8 @@
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+// Solo el tipo de la excepcion: todo lo demas de Google vive en AuthServicio.
+import 'package:google_sign_in/google_sign_in.dart' show GoogleSignInException;
 
 import '../servicios/auth_servicio.dart';
 import '../tema.dart';
@@ -38,6 +45,11 @@ class _LoginPantallaState extends State<LoginPantalla> {
   bool _modoRegistro = false;
   bool _trabajando = false;
   bool _verContrasena = false;
+
+  /// true solo mientras el pedido en curso es el de Google. El candado sigue
+  /// siendo _trabajando (uno solo para los dos botones); esto es para dibujar
+  /// el spinner en el boton que se toco y no en el otro.
+  bool _esperandoGoogle = false;
 
   @override
   void dispose() {
@@ -87,6 +99,50 @@ class _LoginPantallaState extends State<LoginPantalla> {
       // El finally corre igual si hubo error: si no, el boton queda
       // deshabilitado para siempre y hay que cerrar la app.
       if (mounted) setState(() => _trabajando = false);
+    }
+  }
+
+  Future<void> _entrarConGoogle() async {
+    // El MISMO candado que el formulario: mientras uno esta en curso, los dos
+    // botones quedan deshabilitados (no hay dos logins a la vez).
+    if (_trabajando) return;
+    // Bajamos el teclado para que no tape la hoja de cuentas de Google.
+    FocusScope.of(context).unfocus();
+
+    setState(() {
+      _trabajando = true;
+      _esperandoGoogle = true;
+    });
+    try {
+      // Si devuelve null, la persona cerro el selector: no mostramos nada.
+      // Si sale bien tampoco navegamos: lo hace la Puerta al ver la sesion, y
+      // si es la primera vez la Puerta tambien crea la ficha en el backend.
+      await AuthServicio.entrarConGoogle();
+    } on GoogleSignInException catch (e) {
+      if (!mounted) return;
+      mostrarAviso(context, AuthServicio.traducirErrorDeGoogle(e), esError: true);
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      mostrarAviso(
+        context,
+        AuthServicio.traducirErrorDeAuth(e, conGoogle: true),
+        esError: true,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      debugPrint('[NeuroDesk] error inesperado con Google: $e');
+      mostrarAviso(
+        context,
+        'No pudimos completar la accion. Proba de nuevo en un rato.',
+        esError: true,
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _trabajando = false;
+          _esperandoGoogle = false;
+        });
+      }
     }
   }
 
@@ -197,7 +253,9 @@ class _LoginPantallaState extends State<LoginPantalla> {
                         foregroundColor: azulNoche,
                         padding: const EdgeInsets.symmetric(vertical: 16),
                       ),
-                      child: _trabajando
+                      // El spinner va solo en el boton que se toco: si el que
+                      // esta esperando es Google, este queda gris y quieto.
+                      child: _trabajando && !_esperandoGoogle
                           ? const SizedBox(
                               width: 22,
                               height: 22,
@@ -225,6 +283,49 @@ class _LoginPantallaState extends State<LoginPantalla> {
                             ? 'Ya tengo cuenta: entrar'
                             : 'No tengo cuenta: crear una',
                         style: const TextStyle(color: cianElectrico),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Separador "o": deja claro que Google es OTRA forma de
+                    // entrar y que no usa los campos de arriba.
+                    const Row(
+                      children: <Widget>[
+                        Expanded(child: Divider(color: superficie)),
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Text('o', style: TextStyle(color: grisApagado)),
+                        ),
+                        Expanded(child: Divider(color: superficie)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    OutlinedButton.icon(
+                      // Mismo candado que el boton de arriba (ver _trabajando).
+                      onPressed: _trabajando ? null : _entrarConGoogle,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: grisClaro,
+                        side: const BorderSide(color: grisApagado),
+                        // El mismo alto que el boton "Entrar".
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                      // OJO: no es el logo oficial de Google (las guias de la
+                      // marca piden la "G" de colores). Usamos el icono de
+                      // Material para no sumar una imagen al proyecto.
+                      icon: _esperandoGoogle
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: cianElectrico,
+                              ),
+                            )
+                          : const Icon(Icons.g_mobiledata, size: 28),
+                      label: const Text(
+                        'Continuar con Google',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                       ),
                     ),
 

@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "455226002826",
+    "project_id": "neurodesk-6to",
+    "storage_bucket": "neurodesk-6to.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:455226002826:android:1b6dec9213b32194d64c73",
+        "android_client_info": {
+          "package_name": "com.neurodeskai.neurodesk"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "455226002826-hdupcj3rodjso27202cspud9ac140lla.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.neurodeskai.neurodesk",
+            "certificate_hash": "88d4e038d396bc2bd1f4aaa1f7a77cf611215b4b"
+          }
+        },
+        {
+          "client_id": "455226002826-enbo238rh9vpn6chs5qird9q96dig076.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyATggCXK0ZYAfPGdW2YGKZRLa1RkhxbLpc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "455226002826-enbo238rh9vpn6chs5qird9q96dig076.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -382,7 +382,9 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
                       // Si el archivo desaparecio (la persona lo borro de la
                       // galeria mientras tanto), Image.file tira un error que
                       // pintaria el cuadro rojo adentro de la pantalla.
-                      errorBuilder: (_, __, ___) => const Text(
+                      // (_, _, _): desde Dart 3.7 el _ ignora el parametro y
+                      // se puede repetir; el viejo (_, __, ___) ya da aviso.
+                      errorBuilder: (_, _, _) => const Text(
                         'No se puede mostrar la vista previa',
                         style: TextStyle(color: grisApagado),
                       ),

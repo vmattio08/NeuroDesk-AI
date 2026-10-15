@@ -43,14 +43,20 @@ import 'servicios/auth_servicio.dart';
 import 'tema.dart';
 
 // ---------------------------------------------------------------------------
-// firebase_options.dart NO esta en el repo A PROPOSITO: lo genera el comando
-// `flutterfire configure` en cada maquina y trae los ids del proyecto de
-// Firebase. Esta explicado en el README.
+// COMO SE CONFIGURA FIREBASE (esta explicado en el README, seccion 2.3)
 //
-// En Android alcanza con el archivo android/app/google-services.json que
-// tambien genera ese comando, y por eso Firebase.initializeApp() anda sin
-// pasarle opciones. Para correr en WEB o en iOS hay que descomentar estas dos
-// lineas (la de arriba y la de abajo, marcada con [1]):
+// En Android, Firebase.initializeApp() anda SIN pasarle opciones porque lee
+// solo el archivo android/app/google-services.json. Ese archivo SI esta en el
+// repo A PROPOSITO: no es un secreto (viaja adentro de cada APK, igual que la
+// config web del panel en panel/js/firebase.js), y asi el companero clona y
+// compila sin correr `flutterfire configure`. Lo unico que tiene que hacer
+// cada PC nueva es registrar su SHA-1 en Firebase para que ande "Continuar
+// con Google" (README, seccion 2.4).
+//
+// firebase_options.dart, en cambio, NO esta en el repo (esta en el .gitignore)
+// y no se usa. Solo hace falta para correr en WEB o en iOS: ahi hay que
+// generarlo con `flutterfire configure --project=neurodesk-6to` y descomentar
+// estas dos lineas (la de abajo y la marcada con [1] adentro de main()):
 //
 // import 'firebase_options.dart';
 // ---------------------------------------------------------------------------

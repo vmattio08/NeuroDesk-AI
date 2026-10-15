@@ -30,8 +30,18 @@ dependencies:
   # --- Firebase -------------------------------------------------------------
   # firebase_core SIEMPRE va: es el que inicializa la conexion con el proyecto.
   firebase_core: 4.1.1
-  # Login con email y contrasena + el ID token que le mandamos al backend.
+  # Login con email y contrasena, el login con Google (recibe el ID token de
+  # Google y crea/encuentra el usuario) + el ID token que le mandamos al backend.
   firebase_auth: 6.1.0
+  # "Continuar con Google". Abre la hoja NATIVA de Android con las cuentas del
+  # telefono (Credential Manager) y nos devuelve un ID token de Google que
+  # despues le pasamos a firebase_auth. Sin este paquete, en Android solo queda
+  # el flujo por navegador (signInWithProvider), que se puede perder si el
+  # sistema cierra la app mientras el navegador esta abierto.
+  # 7.2.0 clavada: pide Dart ^3.7 y Flutter >=3.29 (tenemos 3.11.4 / 3.41.6).
+  # OJO: la 7.x cambio TODA la API respecto de la 6.x: ya no existe
+  # GoogleSignIn().signIn(), ahora es GoogleSignIn.instance.authenticate().
+  google_sign_in: 7.2.0
   # La base en tiempo real. Es el corazon de la app: casi toda la pantalla
   # se dibuja desde un StreamBuilder sobre Firestore, no desde el backend.
   cloud_firestore: 6.0.2
@@ -59,6 +69,11 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # Las reglas de estilo recomendadas por Flutter, que usa 'flutter analyze'
+  # (las activa analysis_options.yaml). Solo corren en la compu, no viajan
+  # dentro del APK. Sin este paquete, el include de analysis_options.yaml no
+  # encuentra el archivo y el analizador corre SIN ninguna regla de estilo.
+  flutter_lints: 6.0.0
 
 flutter:
   uses-material-design: true

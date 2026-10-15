@@ -1,0 +1,24 @@
+# ============================================================================
+#  analysis_options.yaml — las reglas que revisa 'flutter analyze'
+#
+#  Usamos el set recomendado de Flutter (paquete flutter_lints, que esta en
+#  dev_dependencies del pubspec). POR QUE: son las reglas que conoce cualquiera
+#  que programe en Flutter (no usar el context despues de un await sin chequear
+#  mounted -use_build_context_synchronously-, no dejar print() -avoid_print-,
+#  SizedBox en vez de un Container vacio -sized_box_for_whitespace-, etc.) y
+#  las que espera ver el profe. OJO: este set NO obliga a poner const al crear
+#  los widgets (esa regla, prefer_const_constructors, no viene incluida); los
+#  const que hay en el codigo estan puestos a mano, para que Flutter no vuelva
+#  a armar esos widgets en cada build.
+#
+#  Si el paquete no estuviera instalado, este include no encuentra el archivo
+#  y el analizador corre SIN ninguna regla de estilo.
+#
+#  La meta es que 'flutter analyze' de "No issues found!" siempre: cualquier
+#  aviso nuevo se arregla en el codigo, NO apagando la regla aca.
+#
+#  Si alguna vez hay que saltear una regla en UNA linea puntual (con un buen
+#  motivo escrito al lado), se usa el comentario // ignore: nombre_de_la_regla
+#  en esa linea, nunca en todo el proyecto.
+# ============================================================================
+include: package:flutter_lints/flutter.yaml
