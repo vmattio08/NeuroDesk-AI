@@ -10,7 +10,10 @@
     "start": "node src/server.js",
     "dev": "node --watch --env-file=.env src/server.js",
     "test:rules": "firebase emulators:exec --only firestore --project demo-neurodesk \"node --test test/rules.test.js\"",
-    "modelos:vivos": "node scripts/chequear-modelos.js",
+    "modelos:vivos": "node --env-file=.env scripts/chequear-modelos.js",
+    "probar:ia": "node --env-file=.env scripts/probar-ia.js",
+    "probar:api": "node --env-file=.env scripts/probar-api.js",
+    "calibrar": "node --env-file=.env scripts/calibrar-umbral.js",
     "seed": "node --env-file=.env scripts/seed.js",
     "seed:borrar": "node --env-file=.env scripts/borrar-seed.js",
     "set-admin": "node --env-file=.env scripts/set-admin.js"

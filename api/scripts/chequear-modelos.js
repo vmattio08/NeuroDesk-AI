@@ -10,8 +10,12 @@
 // ============================================================
 const BASE = process.env.NVIDIA_BASE_URL || "https://integrate.api.nvidia.com/v1";
 
+// Los de respaldo tambien se chequean: un respaldo muerto es un respaldo que
+// no esta, y eso hay que saberlo un lunes y no el dia de la demo.
+const RESPALDOS = (process.env.NVIDIA_MODELOS_CHAT_RESPALDO || "").split(",").map((s) => s.trim()).filter(Boolean);
 const MODELOS = [
-  { uso: "chat", id: process.env.NVIDIA_MODELO_CHAT || "nvidia/nemotron-3.5-lightning-30b-a3b", ruta: "/chat/completions" },
+  { uso: "chat", id: process.env.NVIDIA_MODELO_CHAT || "openai/gpt-oss-20b", ruta: "/chat/completions" },
+  ...RESPALDOS.map((id) => ({ uso: "chat-resp", id, ruta: "/chat/completions" })),
   { uso: "embeddings", id: process.env.NVIDIA_MODELO_EMBED || "nvidia/nemotron-3-embed-1b", ruta: "/embeddings" },
 ];
 

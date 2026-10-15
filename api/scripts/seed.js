@@ -733,7 +733,23 @@ async function main() {
   // que hace indexar() en el backend y lo que exige el invariante 5: si una
   // corrida anterior dejo mas chunks de los que escribe esta, los sobrantes
   // quedarian vivos con texto viejo y la IA los podria seguir citando.
-  console.log("\nPASO 5/7  Chunks (con embeddings falsos de " + EMBED_DIMS + " dimensiones)");
+  // EMBEDDINGS REALES SI HAY CLAVE. Con NVIDIA_API_KEY en el .env, los 40
+  // trozos se mandan a NVIDIA (input_type 'passage', igual que /procesar) y
+  // las preguntas de la demo encuentran lo que tienen que encontrar. Sin clave
+  // quedan los falsos de la PARTE 1: la base existe y se ve, pero una pregunta
+  // cita cualquier cosa. Se hace ACA y no reprocesando cada item por la API
+  // porque asi cada trozo sigue siendo su propio chunk con su pagina: el
+  // reproceso juntaria cada PDF corto en un solo chunk sin numero de pagina.
+  // Son 2 pedidos a NVIDIA (lotes de 32), unos segundos.
+  const conClave = Boolean((process.env.NVIDIA_API_KEY || "").trim());
+  if (conClave) {
+    const { pedirEmbeddings } = await import("../src/servicios/nvidia.js");
+    const vectores = await pedirEmbeddings(chunksAEscribir.map((c) => c.datos.texto), "passage");
+    // Mismo redondeo a 6 decimales que los falsos: no cambia la busqueda y el
+    // documento pesa la mitad.
+    chunksAEscribir.forEach((c, i) => { c.datos.embedding = vectores[i].map((x) => Number(x.toFixed(6))); });
+  }
+  console.log(`\nPASO 5/7  Chunks (embeddings ${conClave ? "REALES de NVIDIA" : "falsos"} de ${EMBED_DIMS} dimensiones)`);
   const chunksViejos = await borrarPorQuery(
     db,
     db.collection("chunks").where("workspaceId", "==", WS_ID)

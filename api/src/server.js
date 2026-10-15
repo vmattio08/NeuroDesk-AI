@@ -32,6 +32,8 @@ import { db, FieldValue, Timestamp, proyectoId } from './firebase.js';
 import { cuerpoDeError, esErrorApi, CATALOGO_DE_ERRORES } from './errores.js';
 import { rutasDeAuth } from './rutas/auth.js';
 import { rutasDeWorkspaces } from './rutas/workspaces.js';
+import { rutasDeItems } from './rutas/items.js';
+import { rutasDePreguntar } from './rutas/preguntar.js';
 
 const VERSION = '2.0.0';
 const PORT = Number(process.env.PORT) || 8080;
@@ -121,8 +123,10 @@ app.use((req, res, next) => {
 //  el panel apenas arrancan, en segundo plano, para DESPERTAR a Render (el
 //  plan free duerme a los 15 minutos y el primer pedido tarda hasta 60 s).
 //  Va suelto y no bajo /v1/ para que el ping sea lo mas simple posible.
+//  Tambien responde en /v1/salud porque asi figura en CONTRATO.md: la app y el
+//  panel llaman a /salud, y las dos rutas comparten el mismo manejador.
 // ===========================================================================
-app.get('/salud', async (req, res) => {
+app.get(['/salud', '/v1/salud'], async (req, res) => {
   let estadoFirestore = 'ok';
 
   try {
@@ -164,6 +168,12 @@ app.get('/salud', async (req, res) => {
 // ===========================================================================
 app.use('/v1/auth', rutasDeAuth);
 app.use('/v1/workspaces', rutasDeWorkspaces);
+// items y preguntar usan Router({ mergeParams: true }) para poder leer el
+// :wsId de la ruta de montaje (sin eso, req.params.wsId llega undefined y
+// exigirMiembro corta con DATOS_INVALIDOS). No chocan con rutasDeWorkspaces:
+// ese router no tiene ninguna ruta '/:wsId/items...' ni '/:wsId/preguntar'.
+app.use('/v1/workspaces/:wsId/items', rutasDeItems);
+app.use('/v1/workspaces/:wsId', rutasDePreguntar);
 
 // ---------------------------------------------------------------------------
 // 404 de ruta inexistente. Va DESPUES de todas las rutas y ANTES del manejador
@@ -186,7 +196,16 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
   // 1) Errores nuestros, ya clasificados con un codigo del catalogo.
   if (esErrorApi(err)) {
-    // No los logueamos como error: un 403 o un 404 son parte del
+    // ERROR_INTERNO es la excepcion: su 'detalle' lo escribimos para NOSOTROS
+    // ("NVIDIA rechazo la clave", "Falta NVIDIA_MODELO_CHAT") y describe la
+    // configuracion del servidor. Va al log de Render y al cliente le llega
+    // null, igual que en el punto 3 de abajo. Se corta aca y no en cada ruta
+    // para que ningun endpoint nuevo se lo pueda olvidar.
+    if (err.codigo === 'ERROR_INTERNO') {
+      console.error(`[ERROR_INTERNO] ${req.method} ${req.originalUrl} -> ${err.detalle ?? '(sin detalle)'}`);
+      return res.status(err.http).json(cuerpoDeError('ERROR_INTERNO', null));
+    }
+    // El resto no los logueamos como error: un 403 o un 404 son parte del
     // funcionamiento normal y llenarian el log de ruido.
     return res.status(err.http).json(cuerpoDeError(err.codigo, err.detalle));
   }

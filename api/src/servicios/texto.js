@@ -151,11 +151,16 @@ export function recortarTexto(texto, tope = TOPE_TEXTO_ITEM) {
  * chunk 4 arranca con la frase entera. Se paga con ~12% de texto repetido.
  */
 export function trocear(texto, opciones = {}) {
-  const tamano = Math.max(200, Number(opciones.tamano) || 1600);
+  // 1500 / 200 son los numeros del contrato (endpoint 7, paso 5).
+  const tamano = Math.max(200, Number(opciones.tamano) || 1500);
+  // OJO con el default del solape: Number(undefined) da NaN, y NaN NO es
+  // "nullish", asi que `Number(x) ?? 200` devolvia NaN y se troceaba SIN
+  // solape. Por eso se chequea que sea un numero finito antes de usarlo.
+  const solapePedido = Number.isFinite(Number(opciones.solape)) ? Number(opciones.solape) : 200;
   // El solape nunca puede llegar a la mitad del chunk: si fuera >= tamano/2,
   // cada trozo avanzaria menos de lo que repite y el bucle no terminaria mas
   // (o generaria cientos de chunks casi iguales, que es peor: cuesta plata).
-  const solape = Math.min(Math.max(0, Number(opciones.solape) ?? 200), Math.floor(tamano / 2) - 1);
+  const solape = Math.min(Math.max(0, solapePedido), Math.floor(tamano / 2) - 1);
 
   const trozos = [];
   for (const pag of separarEnPaginas(String(texto ?? ''))) {

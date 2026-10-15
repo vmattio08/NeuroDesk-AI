@@ -96,11 +96,11 @@ export async function cargarMembresia(wsId, uid) {
     refMiembro.get(),
   ]);
 
-  // Ojo con el orden de los errores: primero "no existe el workspace" y
-  // despues "no sos miembro". Si fuera al reves, alguien podria distinguir un
-  // wsId que existe de uno que no probando ids al azar.
-  if (!snapWorkspace.exists) fallar('WORKSPACE_NO_ENCONTRADO');
-  if (!snapMiembro.exists) fallar('NO_ES_MIEMBRO');
+  // Los dos casos responden LO MISMO a proposito (contrato v3): NO_ES_MIEMBRO.
+  // Si "no existe el workspace" diera un 404 distinto, cualquiera con una
+  // cuenta podria probar ids al azar y averiguar cuales existen. Para quien no
+  // es miembro, un workspace ajeno y uno inexistente tienen que verse iguales.
+  if (!snapWorkspace.exists || !snapMiembro.exists) fallar('NO_ES_MIEMBRO');
 
   const datosMiembro = snapMiembro.data();
   // Default que DENIEGA: si el documento quedo sin 'rol' (cargado a mano desde

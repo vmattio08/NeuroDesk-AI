@@ -30,8 +30,11 @@ const MAX_INTENTOS = 3;
 
 // Cuanto esperamos a que conteste antes de cortar. Los embeddings de un lote
 // de 32 tardan bastante mas que un chat corto, por eso son dos numeros.
+// El del chat esta atado al timeout de 90 s de la app: con el modelo principal
+// y hasta 2 de respaldo, 3 x 25 s = 75 s, y la respuesta llega antes de que el
+// celular corte. Con 45 s por intento y 3 intentos se pasaba holgado.
 const TIMEOUT_EMBEDDINGS_MS = 60_000;
-const TIMEOUT_CHAT_MS = 45_000;
+const TIMEOUT_CHAT_MS = 25_000;
 
 // --- Estado del modulo -----------------------------------------------------
 
@@ -124,6 +127,60 @@ function modeloChat() {
   return id;
 }
 
+/**
+ * Modelos de chat de RESPALDO, en orden, separados por coma en el .env:
+ *   NVIDIA_MODELOS_CHAT_RESPALDO=modelo-b,modelo-c
+ *
+ * SOLO para el chat, nunca para los embeddings: los vectores de dos modelos
+ * distintos no se pueden comparar entre si. Si cambiara el modelo de
+ * embeddings a la mitad, las preguntas se compararian contra chunks armados
+ * con otro modelo y la busqueda devolveria cualquier cosa. Cambiar ese modelo
+ * obliga a reindexar todo; cambiar el de chat no rompe nada.
+ */
+function modelosChatRespaldo() {
+  return (process.env.NVIDIA_MODELOS_CHAT_RESPALDO || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** El principal primero y despues los de respaldo, sin repetidos. */
+export function cadenaDeModelosChat() {
+  return [...new Set([modeloChat(), ...modelosChatRespaldo()])];
+}
+
+/**
+ * Parametros extra para que cada familia NO "piense en voz alta".
+ *
+ * Los modelos de razonamiento (nemotron 3, GLM, DeepSeek) escriben su borrador
+ * en ingles antes de contestar ("Here's a thinking process: ...") y se comen
+ * los max_tokens en eso: en la prueba real del 2/10 la respuesta salio cortada
+ * y en ingles. Cada familia se apaga distinto, y a un modelo que no razona
+ * (mistral, llama) no le mandamos nada raro, para que no rebote con un 400.
+ */
+function extrasSinRazonamiento(modelo) {
+  if (/nemotron-3|nemotron-nano-3|glm|deepseek|qwen|kimi/i.test(modelo)) {
+    return { chat_template_kwargs: { enable_thinking: false } };
+  }
+  if (/gpt-oss/i.test(modelo)) return { reasoning_effort: 'low' };
+  return {};
+}
+
+/**
+ * Saca el razonamiento que se haya colado en la respuesta.
+ *
+ * Caso 1: <think>borrador</think>respuesta -> se va el bloque entero.
+ * Caso 2: borrador</think>respuesta (llega el cierre sin la apertura, nos paso
+ *         con nemotron 3.5 y enable_thinking=false) -> nos quedamos con lo que
+ *         viene DESPUES del ultimo </think>.
+ */
+export function sacarRazonamiento(texto) {
+  let limpio = String(texto ?? '').replace(/<think>[\s\S]*?<\/think>/gi, '');
+  const cierre = limpio.toLowerCase().lastIndexOf('</think>');
+  if (cierre !== -1) limpio = limpio.slice(cierre + '</think>'.length);
+  return limpio.trim();
+}
+
 /** Cuantas dimensiones guardamos de cada vector. El modelo de datos dice 1024. */
 export function dimensiones() {
   const n = Number.parseInt(process.env.EMBED_DIMS || '1024', 10);
@@ -162,8 +219,17 @@ async function leerErrorParaElLog(res) {
  *              Retry-After si viene) y recien despues DEMASIADOS_PEDIDOS.
  *   5xx     -> se cayo NVIDIA. Reintento con backoff, despues IA_NO_RESPONDE.
  *   timeout -> igual que 5xx.
+ *
+ * Los errores que son culpa DEL MODELO (410 dado de baja, 404 no existe, 5xx
+ * o timeout despues de los reintentos, respuesta que no es JSON) salen con
+ * err.culpaDelModelo = true. Con eso chatear() decide pasar al modelo de
+ * respaldo. Los de la CUENTA (clave, creditos, 429) no lo llevan: cambiar de
+ * modelo no los arregla, porque la cuenta es la misma.
+ *
+ * opciones.maxIntentos: chatear() pide 1 solo intento cuando tiene un modelo
+ * de respaldo, porque es mas rapido probar otro modelo que esperar al mismo.
  */
-async function pedirANvidia(ruta, cuerpo, msTimeout) {
+async function pedirANvidia(ruta, cuerpo, msTimeout, { maxIntentos = MAX_INTENTOS } = {}) {
   let intento = 0;
   let cambiosDeClave = 0;
 
@@ -198,28 +264,28 @@ async function pedirANvidia(ruta, cuerpo, msTimeout) {
     } catch (err) {
       // Aca caen: timeout, DNS caido, conexion cortada a la mitad.
       console.error('[nvidia] fetch fallo:', err?.name, err?.message);
-      if (intento < MAX_INTENTOS) {
+      if (intento < maxIntentos) {
         await esperar(esperaDelIntento(intento));
         continue;
       }
-      throw fallo(
+      throw culpaDelModelo(fallo(
         'IA_NO_RESPONDE',
         'El servicio de IA no está respondiendo. Probá de nuevo en un minuto.',
         503,
         'NVIDIA no contestó dentro del tiempo de espera.',
-      );
+      ));
     }
 
     if (res.ok) {
       try {
         return await res.json();
       } catch {
-        throw fallo(
+        throw culpaDelModelo(fallo(
           'IA_NO_RESPONDE',
           'El servicio de IA no está respondiendo. Probá de nuevo en un minuto.',
           503,
           'NVIDIA contestó algo que no era JSON.',
-        );
+        ));
       }
     }
 
@@ -255,16 +321,16 @@ async function pedirANvidia(ruta, cuerpo, msTimeout) {
 
     if (res.status === 410) {
       // Gone. El modelo fue dado de baja. Reintentar no sirve para nada.
-      throw fallo(
+      throw culpaDelModelo(fallo(
         'ERROR_INTERNO',
         'Algo salió mal de nuestro lado. Ya lo estamos viendo, probá de nuevo.',
         500,
         `NVIDIA dio de baja el modelo "${cuerpo.model}". Hay que cambiar el ID en el .env.`,
-      );
+      ));
     }
 
     if (res.status === 429) {
-      if (intento < MAX_INTENTOS) {
+      if (intento < maxIntentos) {
         // Si NVIDIA nos dice cuanto esperar, le hacemos caso; si no, backoff.
         const retryAfter = Number.parseInt(res.headers.get('retry-after') || '', 10);
         const ms = Number.isFinite(retryAfter) ? retryAfter * 1000 : esperaDelIntento(intento);
@@ -279,18 +345,26 @@ async function pedirANvidia(ruta, cuerpo, msTimeout) {
       );
     }
 
-    if (res.status >= 500 && intento < MAX_INTENTOS) {
+    if (res.status >= 500 && intento < maxIntentos) {
       await esperar(esperaDelIntento(intento));
       continue;
     }
 
-    throw fallo(
+    // Lo que queda: 404 (el ID del modelo no existe), 5xx despues de los
+    // reintentos y cualquier otro status raro. En todos, otro modelo puede andar.
+    throw culpaDelModelo(fallo(
       'IA_NO_RESPONDE',
       'El servicio de IA no está respondiendo. Probá de nuevo en un minuto.',
       503,
       `NVIDIA respondió HTTP ${res.status}.`,
-    );
+    ));
   }
+}
+
+/** Marca un error como "fallo este modelo, otro puede andar". */
+function culpaDelModelo(err) {
+  err.culpaDelModelo = true;
+  return err;
 }
 
 // ============================================================
@@ -468,33 +542,54 @@ export async function chatear(mensajes, opciones = {}) {
     );
   }
 
-  const json = await pedirANvidia(
-    '/chat/completions',
-    {
-      model: modeloChat(),
-      messages: mensajes,
-      temperature: opciones.temperatura ?? 0.2,
-      top_p: opciones.topP ?? 0.9,
-      max_tokens: opciones.maxTokens ?? 700,
-      stream: false, // sin streaming: la respuesta se guarda entera en Firestore
-    },
-    TIMEOUT_CHAT_MS,
-  );
+  // LA CADENA DE MODELOS. Si el principal fue dado de baja, no existe o no
+  // contesta, probamos el siguiente de NVIDIA_MODELOS_CHAT_RESPALDO en vez de
+  // reintentar el mismo. Los errores de la CUENTA (clave, creditos, 429) cortan
+  // ahi nomas: con otro modelo de la misma cuenta pasaria exactamente lo mismo.
+  const modelos = cadenaDeModelosChat();
+  let ultimoError = null;
 
-  const salida = json?.choices?.[0]?.message?.content;
-  if (typeof salida !== 'string' || salida.trim() === '') {
-    throw fallo(
-      'IA_NO_RESPONDE',
-      'El servicio de IA no está respondiendo. Probá de nuevo en un minuto.',
-      503,
-      'NVIDIA devolvió una respuesta de chat vacía.',
-    );
+  for (let i = 0; i < modelos.length; i++) {
+    const modelo = modelos[i];
+    const hayOtro = i < modelos.length - 1;
+    try {
+      const json = await pedirANvidia(
+        '/chat/completions',
+        {
+          model: modelo,
+          messages: mensajes,
+          temperature: opciones.temperatura ?? 0.2,
+          top_p: opciones.topP ?? 0.9,
+          max_tokens: opciones.maxTokens ?? 700,
+          stream: false, // sin streaming: la respuesta se guarda entera en Firestore
+          ...extrasSinRazonamiento(modelo),
+        },
+        TIMEOUT_CHAT_MS,
+        // Con respaldo, un solo intento: probar otro modelo es mas rapido que
+        // esperar al mismo. El ultimo de la cadena si se banca un reintento.
+        { maxIntentos: hayOtro ? 1 : 2 },
+      );
+
+      // Los modelos "de razonamiento" a veces cuelan su borrador en la
+      // respuesta. Eso es basura para el usuario: se saca antes de guardarlo.
+      const salida = sacarRazonamiento(json?.choices?.[0]?.message?.content);
+      if (!salida) {
+        throw culpaDelModelo(fallo(
+          'IA_NO_RESPONDE',
+          'El servicio de IA no está respondiendo. Probá de nuevo en un minuto.',
+          503,
+          `NVIDIA devolvió una respuesta de chat vacía (${modelo}).`,
+        ));
+      }
+      if (i > 0) console.warn(`[nvidia] Contesto el modelo de respaldo ${modelo}.`);
+      return salida;
+    } catch (err) {
+      ultimoError = err;
+      if (!err?.culpaDelModelo || !hayOtro) throw err;
+      console.warn(`[nvidia] El modelo ${modelo} fallo (${err.detalle}). Pruebo con ${modelos[i + 1]}.`);
+    }
   }
-
-  // Los modelos "de razonamiento" (nemotron entre ellos) a veces meten su
-  // borrador adentro de <think>...</think>. Eso es basura para el usuario:
-  // lo sacamos antes de guardarlo en Firestore.
-  return salida.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  throw ultimoError; // inalcanzable: el ultimo modelo siempre tira o devuelve
 }
 
 // ============================================================

@@ -40,10 +40,19 @@ import { pedirEmbeddings } from './nvidia.js';
 export const MAX_FUENTES = 6;
 
 // Por debajo de esto consideramos que el chunk NO habla de la pregunta.
-// Con vectores normalizados el coseno va de -1 a 1. 0.35 es el numero de
-// arranque: HAY QUE CALIBRARLO con los datos reales antes de la entrega,
-// haciendo preguntas cuya respuesta sabemos y mirando fuentes[].similitud.
-const UMBRAL_POR_DEFECTO = 0.35;
+// Con vectores normalizados el coseno va de -1 a 1.
+//
+// CALIBRADO EL 2/10/2026 con datos reales (npm run calibrar, modelo
+// nemotron-3-embed-1b recortado a 1024): 11 preguntas con respuesta en el seed
+// dieron entre 0.26 y 0.69 (mediana 0.45), y 5 que no tienen nada que ver
+// dieron entre 0.08 y 0.14 (salvo una de 0.26 que solo compartia la palabra
+// "Berazategui"). El 0.35 que teniamos a ojo dejaba afuera 4 de las 11
+// respuestas correctas: la IA hubiera dicho "No encontre esto" con el dato ahi.
+// 0.20 deja pasar todas las correctas. Lo que se cuele por arriba lo frena la
+// segunda barrera: el prompt le exige al modelo decir "No encontre" si los
+// fragmentos no contestan, y sin citas validas la respuesta sale con aviso.
+// Si se cambia el modelo de embeddings, HAY QUE VOLVER A CALIBRAR.
+const UMBRAL_POR_DEFECTO = 0.2;
 
 // Cuanto texto del chunk se guarda como cita visible en la respuesta.
 const LARGO_FRAGMENTO = 240;
@@ -109,8 +118,12 @@ export function similitudCoseno(a, b) {
  * Es string y no numero a proposito: el numero crudo vive en fuentes[].similitud.
  */
 export function nivelDeConfianza(mejorSimilitud) {
-  if (mejorSimilitud >= 0.6) return 'alta';
-  if (mejorSimilitud >= 0.45) return 'media';
+  // Cortes calibrados con la misma medicion que el umbral (ver arriba). El
+  // 0.60 / 0.45 original estaba pensado para otro modelo: con este, solo 1 de
+  // 11 respuestas correctas llegaba a 'alta'. 0.45 es la mediana de las
+  // respuestas correctas y 0.30 queda por encima de casi todo el ruido.
+  if (mejorSimilitud >= 0.45) return 'alta';
+  if (mejorSimilitud >= 0.3) return 'media';
   return 'baja';
 }
 

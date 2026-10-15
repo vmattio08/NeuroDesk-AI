@@ -10,6 +10,9 @@ serviceAccountKey.json
 node_modules/
 npm-debug.log*
 .npm/
+# Diccionario que baja tesseract.js (el OCR local de respaldo) la primera vez
+# que corre. Son varios MB y se vuelve a bajar solo: no va al repo.
+*.traineddata
 
 # ---- Firebase ----
 .firebase/

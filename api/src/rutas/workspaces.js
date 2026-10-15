@@ -1,13 +1,14 @@
 // ============================================================================
 //  NeuroDesk AI — api/src/rutas/workspaces.js
-//  Los tres endpoints que manejan el EQUIPO:
+//  Los cuatro endpoints que manejan el EQUIPO:
 //
 //    POST   /v1/workspaces                       crear el espacio de trabajo
 //    POST   /v1/workspaces/:wsId/miembros        invitar por email
 //    DELETE /v1/workspaces/:wsId/miembros/:uid   sacar a alguien
+//    PATCH  /v1/workspaces/:wsId/miembros/:uid   cambiarle el rol a alguien
 //
-//  LOS TRES TOCAN CUATRO LUGARES DE UNA (por eso no los puede hacer el cliente
-//  directo contra Firestore):
+//  LOS CUATRO TOCAN CUATRO LUGARES DE UNA (por eso no los puede hacer el
+//  cliente directo contra Firestore):
 //    1. workspaces/{wsId}                  el doc del equipo
 //    2. workspaces/{wsId}/members/{uid}    quien esta y con que rol
 //    3. usuarios/{uid}.workspaces          el espejo del que se reconstruye el claim
@@ -405,6 +406,162 @@ rutasDeWorkspaces.delete('/:wsId/miembros/:uid', requireAuth, exigirMiembro, exi
       backend: 'inmediato',
       lecturaDirectaFirestore: 'hasta 60 minutos (vence el ID token)',
       tokensRevocados: true,
+    },
+  });
+});
+
+// ===========================================================================
+//  PATCH /v1/workspaces/:wsId/miembros/:uid  — cambiarle el rol a alguien
+// ===========================================================================
+rutasDeWorkspaces.patch('/:wsId/miembros/:uid', requireAuth, exigirMiembro, exigirAdmin, async (req, res) => {
+  const wsId = req.params.wsId;
+  const uidObjetivo = req.params.uid;
+  const admin = req.usuario;
+
+  // ---- 1. Validar el body ----
+  // Comparacion EXACTA, sin trim, sin toLowerCase y SIN default. En el POST de
+  // invitar el rol es opcional y cae en 'miembro', pero aca el rol ES el
+  // pedido: si un body vacio o un "Admin" mal tipeado cayera en un default,
+  // le bajariamos el rol a alguien sin que nadie lo haya pedido.
+  const rolNuevo = req.body?.rol;
+  if (rolNuevo !== 'admin' && rolNuevo !== 'miembro') {
+    fallar('DATOS_INVALIDOS', "El rol solo puede ser 'admin' o 'miembro'.");
+  }
+
+  const refMembers = db.collection('workspaces').doc(wsId).collection('members');
+  const refMiembro = refMembers.doc(uidObjetivo);
+
+  // ---- 2. Reglas de negocio + escribir members/{uid}, TODO en una transaccion ----
+  // Por que transaccion y no "leer, chequear y escribir" suelto como en el
+  // DELETE: aca hay una carrera que deja al workspace sin admins. Si A y B son
+  // los unicos admins y se bajan el rol MUTUAMENTE en el mismo segundo, sin
+  // transaccion los dos leen "hay otro admin, se puede" y escriben los dos:
+  // quedan cero admins. Adentro de runTransaction, Firestore detecta que cada
+  // uno leyo lo que el otro escribio, reintenta a uno, y en el reintento ese ya
+  // ve que dejo de ser admin y se va con NO_ES_ADMIN.
+  //
+  // El ownerUid se lee de req.workspace (afuera de la transaccion) porque no
+  // hay ningun endpoint que lo cambie: no puede quedar viejo.
+  const { datosMiembro, rolAnterior } = await db.runTransaction(async (tx) => {
+    // Firestore exige TODAS las lecturas antes de la primera escritura. Van en
+    // secuencia (no en Promise.all) para no depender de como arranca la
+    // transaccion el SDK en la primera lectura.
+    //
+    // La query de admins trae como mucho 5 documentos (tope del plan free), y
+    // con ella resolvemos dos chequeos de una sola lectura.
+    const snapAdmins = await tx.get(refMembers.where('rol', '==', 'admin'));
+    const uidsAdmins = snapAdmins.docs.map((d) => d.id);
+
+    // Re-chequeo del que llama, ahora SI con lectura transaccional. exigirAdmin
+    // ya lo miro, pero fuera de la transaccion: es lo que cierra la carrera de
+    // arriba (el reintento del segundo admin cae aca).
+    if (!uidsAdmins.includes(admin.uid)) fallar('NO_ES_ADMIN');
+
+    const snapMiembro = await tx.get(refMiembro);
+    if (!snapMiembro.exists) fallar('MIEMBRO_NO_ENCONTRADO');
+
+    const datos = snapMiembro.data();
+    // Mismo default que DENIEGA que cargarMembresia(): un doc sin 'rol' (roto,
+    // cargado a mano desde la consola) cuenta como 'miembro', nunca como admin.
+    const anterior = datos.rol === 'admin' ? 'admin' : 'miembro';
+
+    // Invariante 15: el owner es admin SIEMPRE. Se chequea contra rolNuevo y no
+    // contra "si es una baja" a proposito: si el doc del owner quedo roto (sin
+    // rol), pedir 'miembro' tampoco se acepta, y pedir 'admin' lo repara.
+    if (rolNuevo === 'miembro' && uidObjetivo === req.workspace.ownerUid) {
+      fallar('ACCION_NO_PERMITIDA', 'No se le puede bajar el rol al dueño del espacio.');
+    }
+
+    // CASO BORDE QUE EL CONTRATO NO ESCRIBE PARA EL PATCH (si para el DELETE):
+    // que la baja deje al workspace sin NINGUN admin. Con el owner sano no
+    // puede pasar (el owner siempre queda), pero si el ownerUid falta o el doc
+    // del owner esta roto, esta es la ultima red: sin ella, nadie mas podria
+    // entrar al panel ni invitar, y solo se arregla con scripts/set-admin.js.
+    if (anterior === 'admin' && rolNuevo === 'miembro') {
+      const otrosAdmins = uidsAdmins.filter((u) => u !== uidObjetivo).length;
+      if (otrosAdmins === 0) {
+        fallar('ACCION_NO_PERMITIDA', 'El espacio se quedaría sin administradores: nombrá a otro antes.');
+      }
+    }
+
+    // Se compara contra el valor CRUDO del doc (no contra 'anterior') para que
+    // un doc roto sin 'rol' quede escrito bien aunque el pedido sea el mismo.
+    // update() y no set(): si el doc desaparecio en el medio (un DELETE en
+    // paralelo), update falla en vez de resucitar al miembro que acaban de
+    // sacar.
+    if (datos.rol !== rolNuevo) {
+      tx.update(refMiembro, { rol: rolNuevo });
+    }
+
+    return { datosMiembro: datos, rolAnterior: anterior };
+  });
+
+  const huboCambio = rolAnterior !== rolNuevo;
+  const fueBaja = rolAnterior === 'admin' && rolNuevo === 'miembro';
+
+  // ---- 3. Claims ----
+  // La misma rutina unica de siempre: aplica el cambio de rol sobre
+  // usuarios/{uid}.workspaces adentro de su transaccion, escribe
+  // claimsActualizadoEn (que dispara el getIdToken(true) del celular de esa
+  // persona) y reconstruye el claim ENTERO.
+  //
+  // Corre AUNQUE el rol no haya cambiado, a proposito. Si un intento anterior
+  // escribio members y despues se cayo en el setCustomUserClaims, el claim
+  // quedo viejo; volver a mandar el mismo PATCH entra por aca y lo arregla
+  // (es lo que promete el encabezado: "volver a llamar al endpoint lo
+  // arregla"). Por eso tampoco deshacemos members si esto falla.
+  //
+  // Usamos tipo 'rol' y no 'alta': 'rol' falla con MIEMBRO_NO_ENCONTRADO si en
+  // el medio lo sacaron del equipo, y 'alta' lo volveria a meter en el claim de
+  // un workspace del que ya no es miembro.
+  await sincronizarClaims(uidObjetivo, { tipo: 'rol', wsId, rol: rolNuevo });
+
+  // ---- 4. Si fue una BAJA, revocar los refresh tokens ----
+  // Mismo razonamiento que el DELETE: impide sacar un token NUEVO con el claim
+  // viejo, pero NO invalida el ID token que ya tiene en la mano. Durante hasta
+  // 1 hora las reglas de Firestore lo siguen viendo admin (por ejemplo, puede
+  // seguir leyendo 'eventos' y 'suscripcion'); el backend no, porque lee
+  // members en cada pedido. Si el admin se bajo a si mismo, esto tambien le
+  // cierra la sesion en el panel: es lo esperable, ya no tiene nada que hacer
+  // ahi. En una subida no se revoca nada: el listener de claimsActualizadoEn
+  // le refresca el token solo y no hay que echarlo de la app.
+  if (fueBaja) {
+    await auth.revokeRefreshTokens(uidObjetivo);
+  }
+
+  // ---- 5. El evento de auditoria ----
+  // Solo si de verdad cambio algo: un PATCH repetido (doble click, o el
+  // reintento que arregla el claim) no es un cambio de rol y ensuciaria
+  // justo el feed que demuestra el rol de admin en la defensa.
+  const quien = datosMiembro.email || uidObjetivo;
+  if (huboCambio) {
+    let resumen;
+    if (fueBaja) {
+      resumen = uidObjetivo === admin.uid
+        ? `${admin.email} dejó de ser administrador`
+        : `${admin.email} le quitó los permisos de administrador a ${quien}`;
+    } else {
+      resumen = `${admin.email} le dio permisos de administrador a ${quien}`;
+    }
+
+    await escribirEvento(wsId, {
+      tipo: 'rol.cambiado',
+      actorUid: admin.uid,
+      resumen,
+      itemId: null,
+    });
+  }
+
+  return res.status(200).json({
+    ok: true,
+    miembro: {
+      uid: uidObjetivo,
+      email: datosMiembro.email || '',
+      rol: rolNuevo,
+    },
+    corteDeAcceso: {
+      backend: 'inmediato',
+      reglasDeFirestore: 'hasta 60 minutos si fue una baja de rol',
     },
   });
 });
