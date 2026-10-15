@@ -1,7 +1,7 @@
 # NeuroDesk AI — Informe de avance (Fase 2)
 
 **Materia:** Programación II · 6º 1ª · **Equipo:** Mattio, Valentino — Ramírez, Martín
-**Entrega parcial:** avance de desarrollo · actualizado al 1 de octubre de 2026
+**Entrega parcial:** avance de desarrollo · actualizado al 2 de octubre de 2026
 
 ---
 
@@ -72,15 +72,24 @@ Las capturas de la consola de Firebase van en el documento de la entrega.
 - ✅ **Roles en el token:** cada cuenta tiene su rol guardado como *custom claim*;
   Martín, por ejemplo, figura como miembro del workspace. Las reglas leen el rol de
   ahí, sin gastar una lectura de la base.
-- ✅ **Backend completo** (`api/src/`): los 13 endpoints con un formato único de
-  error, la búsqueda semántica, la respuesta de la IA citando las fuentes y la
-  extracción de texto en tres niveles (PDF digital → OCR.space → OCR local). Los
-  scripts que usan su misma conexión ya escribieron en la base real.
-- ✅ **App Flutter** (`app/lib/`): login, feed en tiempo real, captura de nota, foto
-  o PDF, chat con la IA y pantalla para quien todavía no tiene equipo.
-  `flutter analyze` no marca ningún problema (Flutter 3.41.6).
-- ✅ **Panel web del administrador** (`panel/`): tablas de items y miembros en
-  tiempo real y un dashboard con gráficos.
+- ✅ **Backend probado contra la base real** (`api/src/`): los 11 endpoints del
+  contrato que no son de pagos. `npm run probar:api` levanta el servidor, entra
+  con las tres cuentas de prueba y recorre 24 casos (autenticación, autoría,
+  procesar/reprocesar/borrar, limpieza masiva, preguntar, roles): **24 de 24 OK**.
+- ✅ **La IA responde citando la fuente**: a "¿Cuándo es la reunión de padres?"
+  contesta *"La reunión de padres es el jueves 17 de octubre a las 18 horas. [1]"*
+  en unos 3 segundos.
+- ✅ **Privacidad demostrada** (el test obligatorio del contrato): Martín pregunta
+  por la contraseña que Camila guardó en una nota privada y recibe "No encontré
+  esto en la base del equipo"; el admin hace la misma pregunta y sí la ve.
+- ✅ **App Flutter conectada** (`app/`): paquete `com.neurodeskai.neurodesk`, login
+  con email y con Google, feed en tiempo real, captura de nota, foto o PDF, chat
+  con la IA. `flutter analyze` sin problemas y 13 tests OK (Flutter 3.41.6).
+- ✅ **Panel web del administrador conectado** (`panel/`): tablas de items y
+  miembros en tiempo real y un dashboard con gráficos, contra la base real.
+- ✅ **Scripts de diagnóstico**: `npm run probar:ia` (NVIDIA y OCR con el código del
+  backend), `npm run calibrar` (umbral de similitud con preguntas de respuesta
+  conocida) y `npm run modelos:vivos` (que ningún modelo haya sido dado de baja).
 
 ---
 
@@ -88,21 +97,28 @@ Las capturas de la consola de Firebase van en el documento de la entrega.
 
 | API | Para qué | Estado |
 |---|---|---|
-| **NVIDIA NIM** | Genera los *embeddings* que indexan cada documento y redacta la respuesta final citando las fuentes | Integrada en el código (`api/src/servicios/nvidia.js`); falta la clave para probarla |
-| **OCR.space** | Saca el texto de PDFs escaneados y fotos (25.000 usos gratis por mes) | Integrada (`api/src/servicios/extraer.js`); falta la clave |
+| **NVIDIA NIM** | Genera los *embeddings* que indexan cada documento y redacta la respuesta final citando las fuentes | Funcionando con clave real (`api/src/servicios/nvidia.js`) |
+| **OCR.space** | Saca el texto de PDFs escaneados y fotos (25.000 usos gratis por mes) | Integrada (`api/src/servicios/extraer.js`); falta la clave. Mientras tanto anda el OCR local de respaldo (tesseract.js) |
 | **Firebase** (Auth + Firestore) | Usuarios, roles y la base en tiempo real que comparten la app y el panel | Funcionando |
 | **Mercado Pago** | Suscripción mensual del workspace | Opcional — ver sección 7 |
 
 Con NVIDIA y OCR.space ya cumplimos el mínimo de dos APIs externas. Elegimos
 NVIDIA porque da acceso gratuito con una cuenta de desarrollador y su API es
-compatible con la de OpenAI: cambian la URL y la clave, el código es el mismo. El
-modelo que habíamos anotado en la Fase 1 (GLM-5.2) no está en su catálogo, así que
-pasamos a `nemotron-3.5-lightning` para el chat y a `nemotron-3-embed-1b` para los
-embeddings.
+compatible con la de OpenAI: cambian la URL y la clave, el código es el mismo. Para los
+embeddings usamos `nemotron-3-embed-1b`.
 
-Los nombres de los modelos viven en la configuración (`.env`) y no en el código: si
-NVIDIA da uno de baja, se cambia una línea. Además, un script
-(`api/scripts/chequear-modelos.js`) avisa si alguno dejó de existir.
+**El modelo de chat lo elegimos midiendo.** Probamos ocho modelos gratuitos con la
+misma pregunta: varios figuran en el catálogo pero no están habilitados para
+nuestra cuenta (404), y GLM y DeepSeek se pasaban del minuto. Quedó
+`openai/gpt-oss-20b` como principal (1 a 6 s, en castellano y citando bien) y una
+**cadena de respaldo** (`nemotron-3-super-120b`, `nemotron-3.5-lightning`): si el
+principal se cae o lo dan de baja, el backend pasa solo al siguiente. Si se acaban
+los créditos de la cuenta, cambiar de modelo no sirve (son por cuenta): para eso
+está la clave de respaldo de otra cuenta.
+
+Los nombres de los modelos viven en la configuración (`.env`: `NVIDIA_MODELO_CHAT`
+y `NVIDIA_MODELOS_CHAT_RESPALDO`) y no en el código. `npm run modelos:vivos` avisa
+si alguno dejó de existir.
 
 ---
 
@@ -124,14 +140,14 @@ NVIDIA da uno de baja, se cambia una línea. Además, un script
 
 ## 7. Dónde estamos trabados / qué falta
 
-1. **Claves de NVIDIA y OCR.space.** El flujo de IA está escrito pero todavía no
-   corrió contra los servicios reales. Es lo próximo.
-2. **Conectar la app y el panel al proyecto.** Falta correr `flutterfire configure`,
-   que genera la configuración de Android, y registrar la app web del panel. Para
-   entrar con Google desde Android hay que cargar además la huella SHA-1 de cada
-   compu.
-3. **Desplegar el backend en Render** (gratis), para que el celular le pueda pegar
-   desde fuera de la red del colegio.
+1. **Probar la app en un celular.** En las compus del colegio no está el SDK de
+   Android, así que la app todavía no se compiló: pasa el análisis y los tests,
+   pero falta verla andar en un teléfono (login de Google incluido). Cada compu
+   que compile tiene que registrar su SHA-1 (ver `app/README.md`, sección 2.4).
+2. **Desplegar el backend en Render** (gratis), para que el celular le pueda pegar
+   desde fuera de la red del colegio. Hoy corre en la compu.
+3. **La clave de OCR.space.** Sin ella, fotos y PDF escaneados se leen con el OCR
+   local de respaldo, que anda pero es más lento.
 4. **Pruebas automáticas de las reglas.** El emulador de Firebase necesita Java 11
    o más y en las compus del colegio está instalado Java 8.
 5. **Mercado Pago pasó a ser opcional.** Con dos APIs ya cumplimos la consigna, y la
@@ -143,6 +159,25 @@ NVIDIA da uno de baja, se cambia una línea. Además, un script
    lectura directa a la base tarda en cortarse.
 
 ### Problemas que ya resolvimos
+
+- **Las piezas del backend no encajaban.** Al levantar el servidor completo por
+  primera vez (2/10) descubrimos que `items.js` y `preguntar.js` importaban de una
+  carpeta `src/lib/` que no existe, usaban funciones con otros nombres y no
+  estaban montadas en `server.js`: cada archivo pasaba `node --check` solo, pero
+  juntos no arrancaban. Las reescribimos sobre los módulos reales, sumamos los dos
+  endpoints que faltaban (cambio de rol y limpieza masiva) y armamos
+  `npm run probar:api` para que no vuelva a pasar sin que nos enteremos.
+- **La IA decía "no encontré" teniendo el dato.** El umbral de similitud estaba a
+  ojo en 0.35, y con datos reales la respuesta correcta daba entre 0.26 y 0.69:
+  4 de 11 preguntas se hubieran quedado sin respuesta. Con `npm run calibrar` lo
+  bajamos a 0.20 y recalibramos la confianza (alta ≥ 0.45, media ≥ 0.30).
+- **El chat "pensaba en voz alta" en inglés.** Los modelos de razonamiento escribían
+  su borrador antes de contestar. Lo apagamos según la familia de cada modelo y
+  limpiamos en código lo que se cuele.
+- **Otros bugs que salieron al probar:** el troceo cortaba sin solapar
+  (`Number(undefined) ?? 200` da `NaN`), un error interno podía mandarle al
+  cliente texto de la configuración del servidor, y un workspace inexistente
+  respondía distinto que uno ajeno (dejaba averiguar qué ids existen).
 
 - **El script de carga no arrancaba.** La versión 14 de `firebase-admin` eliminó la
   forma vieja de importarse y el seed fallaba con *Cannot read properties of

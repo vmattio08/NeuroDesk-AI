@@ -708,7 +708,7 @@ Body:
 }
 ```
 
-- `confianza` es **string**: `"alta" | "media" | "baja"`, igual en el contrato y en el modelo. Se calcula con la similitud del mejor chunk: `>= 0.60` alta, `>= 0.45` media, si no baja. Los umbrales se calibran con datos reales antes de la entrega. El número crudo vive en `fuentes[].similitud`.
+- `confianza` es **string**: `"alta" | "media" | "baja"`, igual en el contrato y en el modelo. Se calcula con la similitud del mejor chunk: `>= 0.45` alta, `>= 0.30` media, si no baja. **Calibrados el 2/10/2026 con datos reales** (`npm run calibrar`): con `nemotron-3-embed-1b` las respuestas correctas dan entre 0.26 y 0.69, así que el 0.60 / 0.45 original casi nunca daba "alta". El umbral para descartar un chunk (`UMBRAL_SIMILITUD`) quedó en 0.20 por la misma medición. El número crudo vive en `fuentes[].similitud`.
 - `chunksVisibles` viaja **siempre**: es cuántos fragmentos podía ver quien preguntó.
 - **`chunksMirados` viaja únicamente si quien pregunta es admin.** Para un miembro común, el campo **no aparece** en la respuesta y se escribe `null` en el documento. Es el total de chunks del workspace: decirle a un miembro "miré 312 y viste 190" le está contando que hay 122 fragmentos de contenido privado ajeno, o sea cuánto material hay que él no puede ver. El admin sí lo ve, y esa comparación es la que se muestra en vivo en la defensa: la misma pregunta hecha por el admin y por un miembro devuelve `chunksVisibles` distintos.
 
