@@ -1,0 +1,1997 @@
+/* ============================================================================
+   estilo.css  —  la unica hoja de estilos de la landing de NeuroDesk AI.
+
+   Un solo archivo, sin framework y sin build. Se lee de arriba a abajo:
+     1. Tokens (colores, letras, medidas)
+     2. Base
+     3. Piezas que se repiten (botones, placa del logo, chips, pads y pistas,
+        marcos de telefono y de navegador, placeholders de capturas)
+     4. Cabecera
+     5. Secciones, en el orden de la pagina
+     6. Pie
+     7. Movimiento (todo lo animado vive aca, y solo si la persona no pidio
+        "reducir movimiento" en su sistema)
+
+   REGLAS DE LA CASA
+   - Todo color sale de una variable de la seccion 1. Son los MISMOS colores de
+     la app (app/lib/tema.dart): la landing, la app y el panel son una marca.
+   - Clases con nombre propio (.plan__precio) y casi nunca selectores por
+     etiqueta: asi una regla no le pisa el margen a otra sin querer.
+   - Mobile first: lo de afuera de los @media es el celular; los @media
+     (min-width) agregan lo de pantallas mas grandes.
+   - EL LOGO: los PNG se muestran tal cual, solo se escalan. Ninguna regla de
+     este archivo les cambia el color, los recorta ni les aplica filtros.
+   ============================================================================ */
+
+
+/* ==========================================================================
+   1. TOKENS
+   ========================================================================== */
+:root {
+  /* --- La marca (iguales a app/lib/tema.dart) --- */
+  --noche:           #0F172A;   /* azul noche: el fondo de la pagina */
+  /* Los fondos que YA TRAEN los PNG del logo, medidos en sus bordes. Son dos
+     porque los archivos no son iguales: el isotipo es un poco mas oscuro
+     (el mismo valor que usa la app en fondoDelIsotipo). */
+  --fondo-isotipo:   #030D2A;   /* isotipo-oscuro.png */
+  --fondo-marca:     #030E2C;   /* marca-completa-oscuro.png */
+  --noche-profunda:  #0B1222;   /* fondo de los campos del formulario */
+  --superficie:      #1E293B;   /* tarjetas (la "superficie" de la app) */
+  --superficie-suave: rgba(30, 41, 59, .55);
+  --cian:            #06B6D4;   /* el acento: botones principales y foco */
+  --cian-electrico:  #22D3EE;   /* acentos, links y la "segunda frase" de los titulos */
+  --azul-royal:      #3B82F6;   /* la mitad neuronal del logo */
+  --azul-claro:      #60A5FA;   /* el mismo azul, aclarado para que se lea como texto */
+
+  /* --- Texto (contraste medido sobre --noche: 14.5:1 y 7:1, los dos pasan AA) --- */
+  --texto:           #E2E8F0;
+  --texto-fuerte:    #F8FAFC;
+  --texto-apagado:   #94A3B8;
+
+  /* --- Bordes --- */
+  --borde:           rgba(148, 163, 184, .16);
+  --borde-medio:     rgba(148, 163, 184, .28);
+  --borde-control:   #64748B;   /* 3.75:1 sobre --noche: los bordes de campos piden 3:1 */
+
+  /* --- Estados del item (los mismos cuatro de la app) --- */
+  --listo:           #22C55E;
+  --procesando:      #F59E0B;
+  --procesando-texto:#FBBF24;
+  --error:           #EF4444;
+  --error-texto:     #F87171;   /* el rojo de la app no llega a 4.5:1 como texto: se aclara */
+  --pendiente:       #64748B;
+
+  /* --- Las "pistas" del circuito (las lineas que conectan cosas) --- */
+  --pista:           rgba(34, 211, 238, .6);
+  --pista-grosor:    2px;
+
+  /* --- Letras --- */
+  --fuente-titulo: 'Lexend', ui-sans-serif, system-ui, sans-serif;
+  --fuente-texto:  'Atkinson Hyperlegible Next', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --fuente-mono:   'Atkinson Hyperlegible Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+
+  /* --- Medidas --- */
+  --margen:     16px;           /* el borde de la pagina en el celular */
+  --ancho-max:  1180px;
+  --cabecera:   68px;
+  --radio:      16px;
+  --radio-chico: 10px;
+  --barra-nav:  28px;           /* alto de la barra del marco de navegador */
+
+  /* --- Movimiento --- */
+  --curva: cubic-bezier(.16, 1, .3, 1);   /* sale rapido y frena suave */
+
+  --sombra-profunda: 0 30px 60px -24px rgba(2, 6, 23, .85);
+}
+
+@media (min-width: 768px) {
+  :root { --margen: 32px; }
+}
+
+
+/* ==========================================================================
+   2. BASE
+   ========================================================================== */
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--noche);
+  color: var(--texto);
+  font-family: var(--fuente-texto);
+  font-size: 1.0625rem;          /* 17 px: un poco mas que lo comun, se lee mejor */
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+img, svg { display: block; max-width: 100%; }
+img { height: auto; }
+
+h1, h2, h3 {
+  margin: 0;
+  font-family: var(--fuente-titulo);
+  color: var(--texto-fuerte);
+  text-wrap: balance;            /* reparte las lineas del titulo parejas */
+}
+
+p { margin: 0; }
+ul, ol { margin: 0; padding: 0; }
+[role="list"] { list-style: none; }
+
+a { color: var(--cian-electrico); text-underline-offset: .2em; }
+a:hover { color: #67E8F9; }
+
+/* Foco visible SIEMPRE que se navega con teclado. Nunca outline: none. */
+:focus-visible {
+  outline: 2px solid var(--cian-electrico);
+  outline-offset: 3px;
+}
+
+/* hidden tiene que ganarle a cualquier display de una clase. */
+[hidden] { display: none !important; }
+
+/* Al saltar a #precios, que el titulo no quede tapado por la cabecera fija. */
+[id] { scroll-margin-top: calc(var(--cabecera) + 16px); }
+
+.sr {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* El sprite de iconos existe pero no ocupa lugar. */
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+.icono {
+  width: 1.25em;
+  height: 1.25em;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.contenedor {
+  width: min(100% - 2 * var(--margen), var(--ancho-max));
+  margin-inline: auto;
+}
+
+.saltar {
+  position: absolute;
+  left: 12px;
+  top: -100px;
+  z-index: 100;
+  padding: 10px 16px;
+  border-radius: var(--radio-chico);
+  background: var(--cian);
+  color: var(--noche);
+  font-weight: 700;
+  text-decoration: none;
+}
+.saltar:focus { top: 12px; }
+
+
+/* --- Tipografia de la pagina ---------------------------------------------- */
+.titulo-hero {
+  font-size: clamp(2.125rem, 1.25rem + 3.4vw, 3.6rem);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+}
+
+.titulo-seccion {
+  font-size: clamp(1.875rem, 1.3rem + 2.2vw, 2.875rem);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+/* "En dos tiempos", como el lema del logo ("Tu información. Inteligente."):
+   la segunda frase va en su propia linea y en cian. */
+.segundo-tiempo {
+  display: block;
+  color: var(--cian-electrico);
+}
+
+.bajada {
+  margin-top: 16px;
+  max-width: 62ch;
+  font-size: clamp(1.0625rem, 1rem + .3vw, 1.1875rem);
+  color: var(--texto-apagado);
+}
+
+.etiqueta-mono {
+  font-family: var(--fuente-mono);
+  font-size: .8125rem;
+  letter-spacing: .02em;
+  color: var(--texto-apagado);
+}
+
+.encabezado-seccion { max-width: 780px; }
+
+.seccion { padding-block: clamp(4.5rem, 3rem + 5vw, 7.5rem); }
+
+
+/* ==========================================================================
+   3. PIEZAS QUE SE REPITEN
+   ========================================================================== */
+
+/* --- Botones --------------------------------------------------------------- */
+.boton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;              /* objetivo tactil comodo (minimo 44) */
+  padding: 12px 20px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  font: 700 1rem/1.2 var(--fuente-texto);
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color .2s, border-color .2s, color .2s, box-shadow .2s, transform .2s;
+}
+.boton:active { transform: translateY(1px); }
+.boton .icono { width: 20px; height: 20px; }
+
+/* Cian con letra azul noche: 7.3:1, mas que suficiente. */
+.boton--principal {
+  background: var(--cian);
+  color: var(--noche);
+  box-shadow: 0 10px 30px -12px rgba(6, 182, 212, .7);
+}
+.boton--principal:hover { background: var(--cian-electrico); color: var(--noche); }
+
+.boton--secundario {
+  background: rgba(15, 23, 42, .4);
+  color: var(--texto-fuerte);
+  border-color: var(--borde-control);
+}
+.boton--secundario:hover { border-color: var(--cian-electrico); color: #fff; }
+
+.boton--chico { min-height: 40px; padding: 8px 14px; font-size: .9375rem; }
+.boton--ancho { width: 100%; }
+
+.boton[disabled] { opacity: .55; cursor: not-allowed; transform: none; }
+
+/* El giro del "Enviando…" dentro del boton. */
+.boton__giro {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+}
+
+.enlace-flecha {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  font-weight: 700;
+  text-decoration: none;
+}
+.enlace-flecha .icono { width: 18px; height: 18px; transition: transform .2s; }
+.enlace-flecha:hover .icono { transform: translateX(3px); }
+
+
+/* --- La placa del logo ------------------------------------------------------
+   Igual que LogoNeuroDesk en app/lib/tema.dart: un cuadrado redondeado del
+   MISMO color que el fondo que trae el PNG, con margen interno de
+   0.3 x radio. Ese margen es el que hace que las esquinas de la imagen queden
+   adentro de las esquinas redondeadas: hace falta radio x (1 - 1/raiz(2)) =
+   0.293 x radio, y usamos 0.3. Resultado: no se recorta ni un pixel. */
+.placa {
+  --lado: 44px;
+  display: inline-block;
+  flex: none;
+  width: var(--lado);
+  height: var(--lado);
+  padding: calc(var(--lado) * .24 * .3);
+  border-radius: calc(var(--lado) * .24);
+  background: var(--fondo-isotipo);
+  border: 1px solid rgba(6, 182, 212, .25);
+  box-shadow: 0 0 calc(var(--lado) * .2) rgba(6, 182, 212, .18);
+}
+.placa img { width: 100%; height: 100%; }
+.placa--chica { --lado: 40px; }
+.placa--hero  { --lado: 76px; }
+
+@media (min-width: 960px) {
+  .placa--hero { --lado: 88px; }
+}
+
+
+/* --- Chips de estado (los mismos de la app) -------------------------------- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border: 1px solid;
+  border-radius: 999px;
+  font: 700 .75rem/1.6 var(--fuente-texto);
+  white-space: nowrap;
+}
+.chip--listo      { color: var(--listo); background: rgba(34, 197, 94, .15); border-color: rgba(34, 197, 94, .5); }
+.chip--procesando { color: var(--procesando-texto); background: rgba(245, 158, 11, .15); border-color: rgba(245, 158, 11, .5); }
+.chip--pendiente  { color: var(--texto-apagado); background: rgba(100, 116, 139, .18); border-color: rgba(100, 116, 139, .6); }
+
+.giro {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+}
+
+/* "Próximamente": ambar, el color de "procesando" = esta en camino. */
+.pronto {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 8px;
+  border: 1px solid rgba(245, 158, 11, .45);
+  border-radius: 999px;
+  background: rgba(245, 158, 11, .12);
+  color: var(--procesando-texto);
+  font: 500 .6875rem/1.7 var(--fuente-mono);
+  letter-spacing: .02em;
+  white-space: nowrap;
+  vertical-align: 1px;
+}
+
+
+/* --- Pads: los circulos huecos donde terminan las pistas del logo ---------- */
+.pad {
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--cian-electrico);
+  border-radius: 50%;
+  background: var(--noche);
+}
+.pad--chico { width: 14px; height: 14px; }
+
+
+/* --- Marco de telefono ------------------------------------------------------
+   --tel es el ancho del telefono y TODO lo demas (borde, radio) sale de ahi,
+   asi el marco se ve igual de proporcionado grande o chico. Quien lo usa
+   define --tel (en el hero, un porcentaje del hero; en la galeria, el ancho
+   de la columna). OJO: --tel NO se declara aca adentro: si se declarara,
+   le ganaria al valor que viene heredado del hero o de la galeria. */
+.telefono {
+  width: var(--tel, 100%);
+  padding: calc(var(--tel) * .035);
+  border-radius: calc(var(--tel) * .16);
+  background: linear-gradient(155deg, #2A3A57 0%, #111B2E 42%, #0A1222 100%);
+  border: 1px solid var(--borde-medio);
+  box-shadow: var(--sombra-profunda), inset 0 1px 0 rgba(255, 255, 255, .08);
+}
+
+.telefono__pantalla {
+  position: relative;
+  aspect-ratio: 9 / 20;          /* la pantalla del Pixel 8 del emulador: 1080 x 2400 */
+  overflow: hidden;              /* recorta la CAPTURA a la pantalla redondeada (el logo del placeholder queda lejos del borde) */
+  border-radius: calc(var(--tel) * .125);
+  background: var(--noche);
+  container-type: inline-size;   /* lo de adentro se mide en cqi = % del ancho de la pantalla */
+}
+
+/* La camara "perforada" arriba al centro. */
+.telefono__pantalla::after {
+  content: '';
+  position: absolute;
+  z-index: 3;
+  top: 1.6%;
+  left: 50%;
+  width: 4.5%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  translate: -50% 0;
+  background: #02040A;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .07);
+}
+
+
+/* --- Marco de navegador ---------------------------------------------------- */
+.navegador {
+  overflow: hidden;
+  border: 1px solid var(--borde-medio);
+  border-radius: 14px;
+  background: var(--noche-profunda);
+  box-shadow: var(--sombra-profunda);
+}
+
+.navegador__barra {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--barra-nav);
+  padding: 0 12px;
+  background: #16203A;
+  border-bottom: 1px solid var(--borde);
+}
+
+.navegador__punto {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #33415A;
+}
+
+.navegador__url {
+  flex: 1;
+  min-width: 0;
+  margin-left: 8px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: rgba(2, 6, 23, .55);
+  color: var(--texto-apagado);
+  font: .6875rem/1.7 var(--fuente-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.navegador__pantalla {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  background: var(--noche);
+  container-type: inline-size;
+}
+
+
+/* --- La captura real (la pone js/capturas.js cuando el PNG existe) --------- */
+.captura-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+}
+.navegador__pantalla .captura-img { object-position: top left; }
+
+
+/* --- Placeholder mientras la captura no existe ------------------------------
+   Copia la pantalla de carga de la app: fondo azul noche y el isotipo en su
+   placa (la misma pieza que LogoNeuroDesk). Va en placa y no "suelto" porque
+   el PNG no tiene un fondo parejo: la franja de arriba es apenas mas clara
+   que el resto, y sobre una pantalla grande eso se notaba como un recuadro.
+   Adentro de la placa, ese detalle no se ve. */
+.captura-pendiente {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8cqi;
+  text-align: center;
+  background: var(--noche);
+}
+
+.placa--pantalla { --lado: 30cqi; }   /* 30% del ancho de la pantalla */
+
+.captura-pendiente__titulo {
+  margin-top: 7cqi;
+  font-family: var(--fuente-titulo);
+  font-weight: 600;
+  font-size: clamp(.6875rem, 6.4cqi, 1.0625rem);
+  line-height: 1.25;
+  color: var(--texto);
+}
+
+.captura-pendiente__esqueleto {
+  display: grid;
+  gap: 3cqi;
+  justify-items: center;
+  width: 64%;
+  margin-top: 7cqi;
+}
+.captura-pendiente__esqueleto i {
+  display: block;
+  width: 100%;
+  height: max(4px, 2.4cqi);
+  border-radius: 999px;
+  background: rgba(148, 163, 184, .14);
+}
+.captura-pendiente__esqueleto i:nth-child(2) { width: 82%; }
+.captura-pendiente__esqueleto i:nth-child(3) { width: 58%; }
+
+/* En el navegador la pantalla es ancha: logo mas chico y "tarjetas" de KPIs. */
+.navegador__pantalla .captura-pendiente { padding: 4cqi; }
+.navegador__pantalla .placa--pantalla { --lado: 12cqi; }
+.navegador__pantalla .captura-pendiente__titulo {
+  margin-top: 2.6cqi;
+  font-size: clamp(.6875rem, 2.9cqi, 1rem);
+}
+.captura-pendiente__esqueleto--panel {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 2cqi;
+  width: 62%;
+  margin-top: 4cqi;
+}
+.captura-pendiente__esqueleto--panel i,
+.captura-pendiente__esqueleto--panel i:nth-child(n) {
+  width: 100%;
+  height: 7cqi;
+  border-radius: 1.4cqi;
+  background: rgba(148, 163, 184, .1);
+  border: 1px solid rgba(148, 163, 184, .12);
+}
+
+
+/* ==========================================================================
+   4. CABECERA
+   ========================================================================== */
+.cabecera {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(15, 23, 42, .84);
+  -webkit-backdrop-filter: saturate(1.4) blur(12px);
+  backdrop-filter: saturate(1.4) blur(12px);
+  border-bottom: 1px solid var(--borde);
+}
+
+.cabecera__fila {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--cabecera);
+}
+
+.marca {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-right: auto;
+  color: var(--texto-fuerte);
+  font: 600 1.0625rem/1 var(--fuente-titulo);
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.marca:hover { color: var(--texto-fuerte); }
+
+.cabecera__acciones {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.enlace-panel {
+  display: none;
+  padding: 8px 12px;
+  border-radius: 8px;
+  color: var(--texto);
+  font-size: .9375rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.enlace-panel:hover { color: var(--texto-fuerte); background: rgba(148, 163, 184, .1); }
+
+.boton-menu {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--borde-medio);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--texto-fuerte);
+  cursor: pointer;
+}
+.boton-menu .icono { width: 22px; height: 22px; }
+.boton-menu .icono--cerrar { display: none; }
+.menu-abierto .boton-menu .icono--abrir { display: none; }
+.menu-abierto .boton-menu .icono--cerrar { display: block; }
+
+.nav__lista { list-style: none; }
+
+/* En el celular la lista es un desplegable debajo de la cabecera. */
+@media (max-width: 959px) {
+  .nav__lista {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    padding: 4px var(--margen) 16px;
+    background: var(--noche);
+    border-bottom: 1px solid var(--borde-medio);
+    box-shadow: 0 24px 40px -20px rgba(2, 6, 23, .9);
+  }
+  .menu-abierto .nav__lista { display: grid; }
+
+  .nav__lista a {
+    display: flex;
+    align-items: center;
+    min-height: 52px;
+    border-bottom: 1px solid var(--borde);
+    color: var(--texto-fuerte);
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .nav__lista li:last-child a { border-bottom: 0; }
+}
+
+/* En pantallas muy angostas no entran el nombre, el boton y el menu: el
+   boton "Pedí acceso" ya esta en el hero y en el menu no hace falta. */
+@media (max-width: 379px) {
+  .cabecera__acciones .boton--chico { display: none; }
+}
+
+@media (min-width: 960px) {
+  .cabecera__fila { gap: 16px; }
+  .marca { flex: 1; margin-right: 0; }
+  .cabecera__acciones { flex: 1; justify-content: flex-end; }
+
+  .nav__lista { display: flex; gap: 2px; }
+  .nav__lista a {
+    display: block;
+    padding: 8px 12px;
+    border-radius: 8px;
+    color: var(--texto-apagado);
+    font-size: .9375rem;
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .nav__lista a:hover { color: var(--texto-fuerte); background: rgba(148, 163, 184, .08); }
+
+  .nav__solo-movil,
+  .boton-menu { display: none; }
+  .enlace-panel { display: inline-block; }
+}
+
+
+/* ==========================================================================
+   5. SECCIONES
+   ========================================================================== */
+
+/* --- 5.1 Hero -------------------------------------------------------------- */
+.hero {
+  position: relative;
+  padding-block: clamp(2.5rem, 1.5rem + 4vw, 5rem) clamp(4rem, 2.5rem + 5vw, 6.5rem);
+  background: linear-gradient(180deg, #0A1330 0%, var(--noche) 78%);
+}
+
+.hero__grilla {
+  display: grid;
+  gap: 56px;
+  align-items: center;
+}
+
+.hero__etiqueta { margin-top: 22px; }
+.titulo-hero    { margin-top: 12px; }
+
+.hero__bajada {
+  margin-top: 20px;
+  max-width: 56ch;
+  font-size: clamp(1.0625rem, 1rem + .35vw, 1.25rem);
+  color: var(--texto-apagado);
+}
+
+.hero__acciones {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 28px;
+}
+.hero__acciones .boton { flex: 1 1 auto; }
+
+.hero__nota {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 18px;
+  margin-top: 14px;
+  color: var(--texto-apagado);
+  font-size: .9375rem;
+}
+
+@media (min-width: 560px) {
+  .hero__acciones .boton { flex: 0 0 auto; }
+}
+
+/* La composicion app + panel. Es un "container": todas las medidas de
+   adentro estan en cqi (1cqi = 1% del ancho de esta caja). */
+.hero__visual {
+  --tel: 36cqi;                  /* ancho del telefono */
+  --tel-arriba: 26cqi;           /* cuanto baja el telefono respecto del panel */
+  --nav: 86cqi;                  /* ancho del navegador */
+  /* alto del navegador = barra + bordes + pantalla de 16:10 */
+  --nav-alto: calc(var(--barra-nav) + 2px + (var(--nav) - 2px) * .625);
+  --pista-y: 88cqi;              /* altura de la pista horizontal */
+  --pista-x: 72cqi;              /* donde la pista sube al navegador */
+
+  position: relative;
+  width: 100%;
+  max-width: 620px;
+  margin-inline: auto;
+  container-type: inline-size;
+}
+
+.hero__navegador {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: var(--nav);
+}
+
+/* El telefono va "en el flujo": su margen + su alto le dan el alto a la caja. */
+.hero__telefono {
+  position: relative;
+  z-index: 2;
+  margin-top: var(--tel-arriba);
+}
+
+/* La pista que une el telefono con el panel. */
+.pista-sync {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.pista-sync__h,
+.pista-sync__v {
+  position: absolute;
+  background-color: var(--pista);
+  background-repeat: no-repeat;
+}
+.pista-sync__h {
+  left: var(--tel);
+  top: var(--pista-y);
+  width: calc(var(--pista-x) - var(--tel));
+  height: var(--pista-grosor);
+  background-image: linear-gradient(90deg, transparent, #CFFAFE, transparent);
+  background-size: 30% 100%;
+  background-position: -40% 0;
+}
+.pista-sync__v {
+  left: calc(var(--pista-x) - 1px);
+  top: var(--nav-alto);
+  width: var(--pista-grosor);
+  height: calc(var(--pista-y) - var(--nav-alto) + 1px);
+  background-image: linear-gradient(0deg, transparent, #CFFAFE, transparent);
+  background-size: 100% 30%;
+  background-position: 0 140%;
+}
+.pista-sync .pad { position: absolute; translate: -50% -50%; }
+.pista-sync__pad1 { left: var(--tel); top: calc(var(--pista-y) + 1px); z-index: 3; }
+.pista-sync__pad2 { left: var(--pista-x); top: var(--nav-alto); z-index: 3; }
+
+.hero__sync {
+  position: absolute;
+  left: calc(var(--tel) + 4cqi);
+  top: calc(var(--pista-y) + 12px);
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--texto-apagado);
+  font: .75rem/1.4 var(--fuente-mono);
+}
+
+.punto-vivo {
+  position: relative;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--listo);
+}
+
+@media (min-width: 960px) {
+  .hero__grilla {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.04fr);
+    gap: 56px;
+  }
+  .hero__visual { margin-inline: 0 0; justify-self: end; }
+}
+
+
+/* --- 5.2 El problema ------------------------------------------------------- */
+.problema__grilla {
+  display: grid;
+  gap: 48px;
+}
+
+.titulo-pregunta {
+  font-size: clamp(1.875rem, 1.2rem + 2.6vw, 3.125rem);
+}
+
+.dolores {
+  display: grid;
+  gap: 22px;
+  margin-top: 32px;
+}
+
+.dolor {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.dolor__icono {
+  width: 42px;
+  height: 42px;
+  padding: 10px;
+  border: 1px solid rgba(96, 165, 250, .3);
+  border-radius: 12px;
+  background: rgba(59, 130, 246, .12);
+  color: var(--azul-claro);
+}
+
+.dolor__titulo { font-size: 1.125rem; font-weight: 600; }
+.dolor p { margin-top: 2px; color: var(--texto-apagado); }
+
+/* Los "cabos sueltos": pedazos de informacion con su pad, sin conectar. */
+.caos {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px 10px;
+}
+
+.fragmento {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px 10px 12px;
+  border: 1px dashed rgba(148, 163, 184, .4);
+  border-radius: 12px;
+  background: rgba(30, 41, 59, .5);
+  color: var(--texto-apagado);
+  font-size: .9375rem;
+  line-height: 1.3;
+  rotate: var(--giro, 0deg);
+}
+.fragmento .icono { width: 18px; height: 18px; color: var(--azul-claro); }
+
+/* El pad suelto: un circulo hueco, como las terminales del logo, que no
+   llega a ningun lado. */
+.fragmento::before {
+  content: '';
+  flex: none;
+  order: -1;
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(148, 163, 184, .55);
+  border-radius: 50%;
+}
+
+.fragmento--persona { font-style: italic; }
+
+@media (min-width: 960px) {
+  .problema__grilla {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr);
+    gap: 64px;
+    align-items: center;
+  }
+  .caos {
+    display: block;
+    position: relative;
+    min-height: 420px;
+  }
+  .fragmento {
+    position: absolute;
+    left: var(--x);
+    top: var(--y);
+  }
+}
+
+
+/* --- 5.3 Como funciona ----------------------------------------------------- */
+.pasos__lista {
+  --pad-paso: 44px;
+  --gap-pasos: 44px;
+  display: grid;
+  gap: var(--gap-pasos);
+  margin-top: 48px;
+}
+
+.paso {
+  position: relative;
+  padding-left: calc(var(--pad-paso) + 20px);
+}
+
+/* El numero dentro de un pad del circuito. */
+.paso__pad {
+  position: absolute;
+  z-index: 1;
+  left: 0;
+  top: 0;
+  display: grid;
+  place-items: center;
+  width: var(--pad-paso);
+  height: var(--pad-paso);
+  border: 2px solid var(--cian-electrico);
+  border-radius: 50%;
+  background: var(--noche);
+  color: var(--cian-electrico);
+  font: 500 1.125rem/1 var(--fuente-mono);
+  box-shadow: 0 0 0 6px var(--noche), 0 0 24px rgba(34, 211, 238, .25);
+}
+
+/* La pista que une un paso con el siguiente (vertical en el celular). */
+.paso:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--pad-paso) / 2 - 1px);
+  top: calc(var(--pad-paso) / 2);
+  bottom: calc(-1 * (var(--gap-pasos) + var(--pad-paso) / 2));
+  width: var(--pista-grosor);
+  background: linear-gradient(180deg, var(--cian-electrico), var(--azul-royal));
+  opacity: .55;
+}
+
+.paso__titulo {
+  padding-top: 8px;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.paso > p { margin-top: 8px; color: var(--texto-apagado); }
+
+/* Las "viñetas": pedacitos de la interfaz real de la app, hechos en HTML. */
+.vineta {
+  margin-top: 20px;
+  padding: 16px;
+  border: 1px solid var(--borde);
+  border-radius: 14px;
+  background: var(--superficie-suave);
+}
+
+.vineta__tipos {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.tipo {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 10px 2px;
+  border: 1px solid var(--borde-medio);
+  border-radius: 10px;
+  color: var(--texto-apagado);
+  font-size: .75rem;
+}
+.tipo .icono { width: 18px; height: 18px; }
+.tipo--activo {
+  border-color: var(--cian);
+  background: rgba(6, 182, 212, .12);
+  color: var(--cian-electrico);
+}
+
+.vineta__rotulo {
+  margin: 14px 0 8px;
+  color: var(--texto-apagado);
+  font-size: .8125rem;
+}
+
+.vineta__visibilidad { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.opcion {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--borde-medio);
+  border-radius: 999px;
+  color: var(--texto-apagado);
+  font-size: .8125rem;
+}
+.opcion .icono { width: 15px; height: 15px; }
+.opcion--activa { border-color: var(--cian); background: var(--cian); color: var(--noche); font-weight: 700; }
+
+.vineta__items {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+}
+.vineta__items li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  background: var(--noche);
+  font-size: .875rem;
+  line-height: 1.3;
+}
+.vineta__items .icono { width: 16px; height: 16px; color: var(--texto-apagado); }
+.vineta__items small {
+  display: block;
+  color: var(--texto-apagado);
+  font: .6875rem/1.4 var(--fuente-mono);
+}
+
+.vineta__pregunta {
+  width: fit-content;
+  max-width: 92%;
+  margin: 0 0 10px auto;
+  padding: 8px 12px;
+  border: 1px solid rgba(34, 211, 238, .35);
+  border-radius: 12px 12px 4px 12px;
+  background: rgba(6, 182, 212, .14);
+  color: var(--texto-fuerte);
+  font-size: .875rem;
+}
+.vineta__respuesta { margin-top: 8px; font-size: .9375rem; }
+
+.cita-mini {
+  padding: 0 3px;
+  border-radius: 4px;
+  background: rgba(34, 211, 238, .12);
+  color: var(--cian-electrico);
+  font: 500 .85em var(--fuente-mono);
+}
+
+@media (min-width: 960px) {
+  .pasos__lista {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    --gap-pasos: 32px;
+  }
+  .paso { padding-left: 0; padding-top: calc(var(--pad-paso) + 22px); }
+
+  /* En la compu la pista va horizontal, de pad a pad. */
+  .paso:not(:last-child)::before {
+    left: calc(var(--pad-paso) / 2);
+    right: calc(-1 * (var(--gap-pasos) + var(--pad-paso) / 2));
+    top: calc(var(--pad-paso) / 2 - 1px);
+    bottom: auto;
+    width: auto;
+    height: var(--pista-grosor);
+    background: linear-gradient(90deg, var(--cian-electrico), var(--azul-royal));
+  }
+  .paso__titulo { padding-top: 0; }
+}
+
+
+/* --- 5.4 Diferencia y la demo ---------------------------------------------- */
+/* Una banda un poco mas oscura, hacia el azul del logo: es "el escenario". */
+.diferencia {
+  background: linear-gradient(180deg, var(--noche) 0%, #081129 14%, #081129 86%, var(--noche) 100%);
+}
+
+.demo {
+  margin-top: 48px;
+  padding: clamp(18px, 3vw, 36px);
+  border: 1px solid var(--borde-medio);
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(30, 41, 59, .7), rgba(15, 23, 42, .7));
+}
+
+.demo__cabeza {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 24px;
+}
+
+.demo__titulo { font-size: clamp(1.25rem, 1.1rem + .6vw, 1.5rem); font-weight: 600; }
+.demo__ayuda  { margin-top: 4px; color: var(--texto-apagado); }
+
+/* El selector "Ver como": dos radios con cara de interruptor. Siguen siendo
+   radios de verdad (se manejan con las flechas del teclado). */
+.selector-vista {
+  display: inline-flex;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--borde-medio);
+  border-radius: 14px;
+  background: var(--noche);
+}
+
+.selector-vista__opcion {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 6px 14px 6px 8px;
+  border-radius: 10px;
+  color: var(--texto-apagado);
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background-color .2s, color .2s;
+}
+.selector-vista__opcion input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.selector-vista__opcion small {
+  display: block;
+  color: var(--texto-apagado);
+  font: 400 .75rem/1.3 var(--fuente-mono);
+}
+.selector-vista__opcion:has(input:checked) {
+  background: var(--superficie);
+  color: var(--texto-fuerte);
+  box-shadow: inset 0 0 0 1px var(--borde-medio);
+}
+.selector-vista__opcion:has(input:focus-visible) {
+  outline: 2px solid var(--cian-electrico);
+  outline-offset: 2px;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border: 1px solid;
+  border-radius: 50%;
+  font: 700 .875rem/1 var(--fuente-titulo);
+}
+.avatar--admin   { color: var(--azul-claro); background: rgba(59, 130, 246, .18); border-color: rgba(96, 165, 250, .5); }
+.avatar--miembro { color: var(--cian-electrico); background: rgba(34, 211, 238, .12); border-color: rgba(34, 211, 238, .45); }
+
+/* El cuerpo: la respuesta, y las fuentes conectadas por pistas.
+   --bus es el lugar para la pista vertical que junta a todas las fuentes. */
+.demo__cuerpo {
+  --bus: 26px;
+  --gap-fuentes: 14px;
+  --gap-cuerpo: 28px;
+  display: grid;
+  gap: var(--gap-cuerpo);
+  margin-top: 28px;
+}
+
+.respuesta {
+  position: relative;
+  padding: 18px 20px 16px;
+  border: 1px solid var(--borde-medio);
+  border-radius: 18px;
+  background: var(--noche);
+  box-shadow: var(--sombra-profunda);
+}
+
+.respuesta__app {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--borde);
+  color: var(--texto-apagado);
+  font: 500 .8125rem/1.3 var(--fuente-mono);
+}
+.respuesta__app .icono { width: 16px; height: 16px; color: var(--cian-electrico); }
+
+.respuesta__pregunta {
+  width: fit-content;
+  max-width: 88%;
+  margin: 16px 0 14px auto;
+  padding: 10px 14px;
+  border: 1px solid rgba(34, 211, 238, .35);
+  border-radius: 14px 14px 4px 14px;
+  background: rgba(6, 182, 212, .14);
+  color: var(--texto-fuerte);
+}
+
+.respuesta__texto { margin-top: 10px; line-height: 1.65; }
+
+/* Las citas [1]: links de verdad a su tarjeta de fuente. */
+.cita {
+  padding: 0 3px;
+  border-radius: 4px;
+  background: rgba(34, 211, 238, .12);
+  color: var(--cian-electrico);
+  font: 500 .875em var(--fuente-mono);
+  text-decoration: none;
+  transition: background-color .2s, color .2s;
+}
+.cita:hover,
+.cita:focus-visible { background: var(--cian-electrico); color: var(--noche); }
+
+.respuesta__pie {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--borde);
+  color: var(--texto-apagado);
+  font: .8125rem/1.4 var(--fuente-mono);
+}
+
+.fuentes {
+  position: relative;
+  display: grid;
+  gap: var(--gap-fuentes);
+  padding-left: var(--bus);
+  margin-left: 14px;              /* en el celular la pista baja desde adentro de la respuesta */
+}
+
+.fuente {
+  position: relative;
+  padding: 14px 16px;
+  border: 1px solid var(--borde-medio);
+  border-radius: 14px;
+  background: var(--noche);
+  transition: border-color .25s, box-shadow .25s;
+}
+
+/* El tramo de la pista vertical que le toca a cada tarjeta. Cada una dibuja
+   desde su borde de arriba hasta la siguiente; la primera arranca en la
+   respuesta y la ultima termina en su propio centro. Asi la linea es
+   continua sin importar cuanto mida cada tarjeta. */
+.fuente::before {
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--bus) - 1px);
+  top: 0;
+  bottom: calc(-1 * var(--gap-fuentes));
+  width: var(--pista-grosor);
+  background: var(--pista);
+}
+.fuente:first-child::before { top: calc(-1 * var(--gap-cuerpo)); }
+.fuente:last-child::before  { bottom: 50%; }
+
+/* El tramo horizontal hasta la tarjeta, con su pad en la punta. */
+.fuente__pista {
+  position: absolute;
+  left: calc(-1 * var(--bus));
+  top: 50%;
+  width: var(--bus);
+  height: var(--pista-grosor);
+  background: var(--pista);
+  transition: background-color .25s, box-shadow .25s;
+}
+.fuente__pista::after {
+  content: '';
+  position: absolute;
+  right: -7px;
+  top: -5px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--cian-electrico);
+  border-radius: 50%;
+  background: var(--noche);
+}
+
+/* Numero + icono a la izquierda y el texto en su propia caja: si el texto
+   no entra en una linea, se parte adentro de su caja y no deja al numero
+   solo en un renglon. */
+.fuente__meta {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--texto-apagado);
+  font: .75rem/1.4 var(--fuente-mono);
+}
+.fuente__meta .icono { width: 14px; height: 14px; margin-top: 3px; }
+.fuente__tipo { flex: 1 1 auto; min-width: 0; padding-top: 2px; }
+
+/* El numero de la fuente, igual que en la app: cian con letra noche. */
+.fuente__n {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 6px;
+  background: var(--cian);
+  color: var(--noche);
+  font-weight: 500;
+}
+
+.fuente__titulo { margin-top: 6px; color: var(--texto-fuerte); font-weight: 700; line-height: 1.35; }
+.fuente__fragmento { margin-top: 4px; color: var(--texto-apagado); font-size: .9375rem; }
+
+.fuente__bloqueo {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(248, 113, 113, .4);
+  color: #FECACA;
+  font-size: .875rem;
+  line-height: 1.45;
+}
+.fuente__bloqueo .icono { width: 16px; height: 16px; margin-top: 2px; color: var(--error-texto); }
+
+/* --- La vista de Tomas: la nota privada queda desconectada --- */
+.demo[data-vista="miembro"] .fuente--privada { border-style: dashed; border-color: rgba(248, 113, 113, .45); }
+.demo[data-vista="miembro"] .fuente--privada .fuente__titulo,
+.demo[data-vista="miembro"] .fuente--privada .fuente__fragmento { opacity: .45; filter: blur(3px); }
+.demo[data-vista="miembro"] .fuente--privada .fuente__n { background: var(--borde-control); }
+.demo[data-vista="miembro"] .fuente--privada .fuente__pista {
+  background: repeating-linear-gradient(90deg, var(--error-texto) 0 4px, transparent 4px 8px);
+}
+.demo[data-vista="miembro"] .fuente--privada .fuente__pista::after { border-color: var(--error-texto); }
+.demo[data-vista="miembro"] .fuente--privada::before {
+  background: repeating-linear-gradient(180deg, rgba(248, 113, 113, .7) 0 4px, transparent 4px 8px);
+}
+
+/* --- Pasar el mouse (o el foco) por una cita ilumina su fuente --- */
+.demo[data-activa="1"] .fuente[data-n="1"],
+.demo[data-activa="2"] .fuente[data-n="2"],
+.demo[data-activa="3"] .fuente[data-n="3"] {
+  border-color: var(--cian-electrico);
+  box-shadow: 0 0 0 1px var(--cian-electrico), 0 0 32px -6px rgba(34, 211, 238, .45);
+}
+.demo[data-activa="1"] .fuente[data-n="1"] .fuente__pista,
+.demo[data-activa="2"] .fuente[data-n="2"] .fuente__pista,
+.demo[data-activa="3"] .fuente[data-n="3"] .fuente__pista {
+  background: var(--cian-electrico);
+  box-shadow: 0 0 10px rgba(34, 211, 238, .8);
+}
+
+.demo__explicacion {
+  margin-top: 24px;
+  padding: 14px 16px;
+  border-left: 3px solid var(--cian);
+  border-radius: 0 12px 12px 0;
+  background: rgba(6, 182, 212, .08);
+}
+.demo__explicacion b { color: var(--texto-fuerte); }
+
+.demo__aclaracion {
+  margin-top: 12px;
+  color: var(--texto-apagado);
+  font: .75rem/1.5 var(--fuente-mono);
+}
+
+@media (min-width: 900px) {
+  .demo__cuerpo {
+    --gap-cuerpo: 60px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: center;
+  }
+  .fuentes { margin-left: 0; }
+
+  /* En la compu la respuesta queda a la izquierda: sale una pista de su
+     costado derecho hasta la pista vertical de las fuentes. */
+  .respuesta::after {
+    content: '';
+    position: absolute;
+    left: 100%;
+    top: 50%;
+    width: calc(var(--gap-cuerpo) + 1px);
+    height: var(--pista-grosor);
+    background: var(--pista);
+  }
+  .respuesta::before {
+    content: '';
+    position: absolute;
+    z-index: 1;
+    right: -7px;
+    top: calc(50% - 5px);
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--cian-electrico);
+    border-radius: 50%;
+    background: var(--noche);
+  }
+  .fuente:first-child::before { top: 50%; }
+}
+
+.ventajas {
+  display: grid;
+  gap: 16px;
+  margin-top: 40px;
+}
+
+.ventaja {
+  padding: 24px;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--superficie-suave);
+}
+
+.ventaja__icono {
+  width: 44px;
+  height: 44px;
+  padding: 10px;
+  border: 1px solid rgba(34, 211, 238, .25);
+  border-radius: 12px;
+  background: rgba(34, 211, 238, .1);
+  color: var(--cian-electrico);
+}
+
+.ventaja__titulo { margin-top: 16px; font-size: 1.125rem; font-weight: 600; line-height: 1.3; }
+.ventaja p { margin-top: 8px; color: var(--texto-apagado); }
+
+@media (min-width: 640px)  { .ventajas { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1024px) { .ventajas { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+
+/* --- 5.5 Producto (las capturas) ------------------------------------------- */
+.subtitulo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 56px;
+  color: var(--texto);
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+.subtitulo .icono { color: var(--cian-electrico); }
+
+.galeria {
+  display: grid;
+  gap: 32px 16px;
+  margin-top: 24px;
+}
+.galeria--telefonos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.captura {
+  margin: 0;
+  container-type: inline-size;   /* el telefono mide el 100% de su columna */
+}
+.captura .telefono { --tel: 100cqi; }
+
+.captura figcaption {
+  margin-top: 14px;
+  color: var(--texto-apagado);
+  font-size: .9375rem;
+  line-height: 1.5;
+}
+.captura figcaption strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--texto-fuerte);
+}
+
+.producto__descarga {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  margin-top: 36px;
+}
+.producto__nota { max-width: 54ch; color: var(--texto-apagado); font-size: .9375rem; }
+
+.producto__panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 28px;
+  color: var(--texto-apagado);
+}
+
+@media (min-width: 900px) {
+  /* Tope de 250 px por telefono: mas grande, la fila de cuatro se come la
+     pantalla entera y obliga a scrollear para leer los epigrafes. */
+  .galeria--telefonos {
+    grid-template-columns: repeat(4, minmax(0, 250px));
+    justify-content: space-between;
+    gap: 32px 24px;
+  }
+  .galeria--panel { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px 24px; }
+}
+
+
+/* --- 5.6 Video ------------------------------------------------------------- */
+.video__marco {
+  margin-top: 32px;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--borde-medio);
+  border-radius: 18px;
+  background: var(--fondo-isotipo);
+  box-shadow: var(--sombra-profunda);
+}
+.video__marco iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+
+/* --- 5.7 Precios ----------------------------------------------------------- */
+.planes {
+  display: grid;
+  gap: 20px;
+  margin-top: 48px;
+}
+
+.plan {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 28px 24px 24px;
+  border: 1px solid var(--borde);
+  border-radius: 20px;
+  background: var(--superficie-suave);
+}
+
+.plan--destacado {
+  border-color: rgba(34, 211, 238, .6);
+  background: linear-gradient(180deg, rgba(6, 182, 212, .14), rgba(30, 41, 59, .6) 45%);
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, .25), 0 30px 60px -32px rgba(6, 182, 212, .6);
+}
+
+.plan__cinta {
+  position: absolute;
+  top: -12px;
+  left: 24px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--cian);
+  color: var(--noche);
+  font: 500 .75rem/1.6 var(--fuente-mono);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.plan__nombre { font-size: 1.25rem; font-weight: 600; }
+
+.plan__precio {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 14px;
+}
+.plan__monto {
+  color: var(--texto-fuerte);
+  font: 700 2.25rem/1 var(--fuente-titulo);
+  letter-spacing: -0.03em;
+}
+.plan__periodo { color: var(--texto-apagado); font: .9375rem/1 var(--fuente-mono); }
+
+.plan__para { margin-top: 10px; color: var(--texto-apagado); }
+
+.plan__lista {
+  display: grid;
+  gap: 10px;
+  margin: 20px 0 26px;
+  font-size: .96875rem;
+  line-height: 1.45;
+}
+.plan__lista li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+.plan__lista .icono { width: 18px; height: 18px; margin-top: 2px; color: var(--cian-electrico); }
+.plan__no,
+.plan__no .icono { color: var(--texto-apagado); }
+
+.plan__boton { margin-top: auto; }
+
+.precios__pago {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-top: 32px;
+  color: var(--texto);
+  font-weight: 700;
+}
+.precios__pago .icono { color: var(--cian-electrico); }
+.precios__aclaracion {
+  flex-basis: 100%;
+  color: var(--texto-apagado);
+  font-size: .875rem;
+  font-weight: 400;
+}
+
+@media (min-width: 680px)  { .planes { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1100px) { .planes { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; } }
+
+
+/* --- 5.8 Seguridad --------------------------------------------------------- */
+.garantias {
+  display: grid;
+  gap: 16px;
+  margin-top: 40px;
+}
+
+.garantia {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px;
+  padding: 22px;
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  background: var(--superficie-suave);
+}
+
+.garantia__icono {
+  width: 42px;
+  height: 42px;
+  padding: 10px;
+  border: 1px solid rgba(34, 211, 238, .25);
+  border-radius: 12px;
+  background: rgba(34, 211, 238, .1);
+  color: var(--cian-electrico);
+}
+.garantia__titulo { font-size: 1.0625rem; font-weight: 600; line-height: 1.35; }
+.garantia p { margin-top: 6px; color: var(--texto-apagado); }
+
+/* El aviso de beta va primero y en ambar: es lo que hay que leer si o si. */
+.garantia--aviso {
+  border-color: rgba(245, 158, 11, .45);
+  background: linear-gradient(180deg, rgba(245, 158, 11, .09), rgba(30, 41, 59, .5));
+}
+.garantia--aviso .garantia__icono {
+  border-color: rgba(245, 158, 11, .45);
+  background: rgba(245, 158, 11, .12);
+  color: var(--procesando-texto);
+}
+
+@media (min-width: 900px) {
+  .garantias { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .garantia--aviso { grid-column: 1 / -1; }
+}
+
+
+/* --- 5.9 Preguntas frecuentes ---------------------------------------------- */
+.preguntas__grilla {
+  display: grid;
+  gap: 32px;
+}
+
+.faq { display: grid; gap: 12px; }
+
+.faq__item {
+  border: 1px solid var(--borde);
+  border-radius: 14px;
+  background: var(--superficie-suave);
+  transition: border-color .2s;
+}
+.faq__item[open] { border-color: var(--borde-medio); }
+
+.faq__item summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 56px;
+  padding: 16px 20px;
+  border-radius: 14px;
+  color: var(--texto-fuerte);
+  font-weight: 700;
+  line-height: 1.4;
+  list-style: none;
+  cursor: pointer;
+}
+.faq__item summary::-webkit-details-marker { display: none; }
+.faq__item summary .icono { color: var(--texto-apagado); transition: transform .2s; }
+.faq__item[open] summary .icono { transform: rotate(180deg); }
+.faq__item summary:hover { color: #fff; }
+
+.faq__respuesta { padding: 0 20px 20px; color: var(--texto-apagado); }
+
+@media (min-width: 960px) {
+  .preguntas__grilla {
+    grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr);
+    gap: 64px;
+    align-items: start;
+  }
+}
+
+
+/* --- 5.10 Contacto --------------------------------------------------------- */
+.contacto {
+  background: linear-gradient(180deg, var(--noche) 0%, #0A1330 100%);
+}
+
+.contacto__grilla {
+  display: grid;
+  gap: 40px;
+}
+
+.contacto__subtitulo {
+  margin-top: 32px;
+  color: var(--texto);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+/* "Que pasa despues": otra secuencia real, otra pista con pads. */
+.despues {
+  display: grid;
+  gap: 16px;
+  margin-top: 16px;
+}
+.despues li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--texto);
+}
+.despues li:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 50%;
+  height: calc(100% + 16px);
+  width: var(--pista-grosor);
+  background: var(--pista);
+  opacity: .6;
+}
+.despues .pad { position: relative; z-index: 1; }
+
+.contacto__caja {
+  padding: clamp(20px, 3vw, 32px);
+  border: 1px solid var(--borde-medio);
+  border-radius: 22px;
+  background: var(--superficie-suave);
+  box-shadow: var(--sombra-profunda);
+}
+
+.formulario { display: grid; gap: 18px; }
+
+.campo { display: grid; gap: 6px; }
+.campo label { color: var(--texto); font-size: .9375rem; font-weight: 700; }
+.campo__opcional { color: var(--texto-apagado); font-weight: 400; }
+
+.campo input,
+.campo select,
+.campo textarea {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px 14px;
+  border: 1px solid var(--borde-control);
+  border-radius: 12px;
+  background: var(--noche-profunda);
+  color: var(--texto-fuerte);
+  font: inherit;
+  font-size: 1rem;               /* 16 px: el iPhone no hace zoom al tocar el campo */
+  transition: border-color .2s, box-shadow .2s;
+}
+.campo textarea { min-height: 120px; resize: vertical; }
+
+.campo input:focus-visible,
+.campo select:focus-visible,
+.campo textarea:focus-visible {
+  outline: 2px solid var(--cian-electrico);
+  outline-offset: 1px;
+  border-color: var(--cian-electrico);
+}
+
+.campo [aria-invalid="true"] { border-color: var(--error-texto); }
+
+.campo__select { position: relative; }
+.campo__select select { appearance: none; padding-right: 44px; cursor: pointer; }
+.campo__select .icono {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  translate: 0 -50%;
+  color: var(--texto-apagado);
+  pointer-events: none;
+}
+
+.campo__ayuda {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--texto-apagado);
+  font-size: .8125rem;
+  line-height: 1.45;
+}
+.campo__contador { flex: none; font-family: var(--fuente-mono); }
+.campo__contador.cerca { color: var(--procesando-texto); }
+
+.campo__error {
+  color: var(--error-texto);
+  font-size: .875rem;
+  line-height: 1.45;
+}
+
+/* La trampa para bots: afuera de la pantalla (no display:none, porque
+   algunos bots se saltean justo los campos ocultos asi). */
+.trampa {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+.formulario__error {
+  padding: 12px 14px;
+  border: 1px solid rgba(248, 113, 113, .45);
+  border-radius: 12px;
+  background: rgba(239, 68, 68, .1);
+  color: #FECACA;
+  font-size: .9375rem;
+}
+
+.formulario__estado {
+  min-height: 1.4em;
+  color: var(--texto-apagado);
+  font-size: .875rem;
+  text-align: center;
+}
+.formulario__estado:empty { display: none; }
+
+.formulario__sin-js { color: var(--procesando-texto); font-size: .9375rem; }
+
+.formulario__privacidad {
+  color: var(--texto-apagado);
+  font-size: .8125rem;
+  text-align: center;
+}
+
+.formulario-listo {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  padding: 28px 8px;
+  text-align: center;
+}
+.formulario-listo:focus { outline: none; }
+.formulario-listo__icono {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border: 2px solid var(--listo);
+  border-radius: 50%;
+  background: rgba(34, 197, 94, .12);
+  color: var(--listo);
+}
+.formulario-listo__icono .icono { width: 28px; height: 28px; stroke-width: 2.25; }
+.formulario-listo__titulo { font-size: 1.5rem; font-weight: 700; }
+.formulario-listo p { max-width: 40ch; color: var(--texto-apagado); }
+
+@media (min-width: 960px) {
+  .contacto__grilla {
+    grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
+    gap: 64px;
+    align-items: start;
+  }
+}
+
+
+/* ==========================================================================
+   6. PIE
+   El fondo es EXACTAMENTE el color que trae el PNG de la marca completa:
+   el logo se ve pintado sobre la pagina, sin un cuadrado alrededor.
+   ========================================================================== */
+.pie {
+  position: relative;
+  padding-block: 40px 28px;
+  background: var(--fondo-marca);
+}
+
+/* Una linea de azul a cian, como el degradé del cerebro del logo. */
+.pie::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--azul-royal) 30%, var(--cian-electrico) 70%, transparent);
+  opacity: .7;
+}
+
+.pie__grilla {
+  display: grid;
+  gap: 28px;
+}
+
+.pie__marca img { width: 220px; }
+
+.pie__titulo {
+  color: var(--texto);
+  font-size: .875rem;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+
+.pie__nav ul { display: grid; gap: 2px; margin-top: 10px; }
+.pie__nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  color: var(--texto-apagado);
+  text-decoration: none;
+}
+.pie__nav a:hover { color: var(--texto-fuerte); text-decoration: underline; }
+
+.pie__equipo p { margin-top: 10px; color: var(--texto-apagado); }
+.pie__equipo b { color: var(--texto); font-weight: 700; }
+
+.pie__legal {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 24px;
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px solid var(--borde);
+  color: var(--texto-apagado);
+  font-size: .875rem;
+}
+
+@media (min-width: 640px) {
+  .pie__grilla { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (min-width: 1024px) {
+  .pie__grilla {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, .9fr) minmax(0, .9fr) minmax(0, 1.1fr);
+    align-items: start;
+  }
+  .pie__nav, .pie__equipo { padding-top: 36px; }
+}
+
+
+/* ==========================================================================
+   7. MOVIMIENTO
+   Todo lo animado esta aca adentro: si la persona pidio "reducir
+   movimiento" en su sistema, nada de esto existe y la pagina queda quieta.
+   ========================================================================== */
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+
+  /* Entrada del hero, una sola vez, en cascada. */
+  .hero__texto > * { animation: entrar .8s var(--curva) both; }
+  .hero__texto > :nth-child(2) { animation-delay: .06s; }
+  .hero__texto > :nth-child(3) { animation-delay: .12s; }
+  .hero__texto > :nth-child(4) { animation-delay: .18s; }
+  .hero__texto > :nth-child(5) { animation-delay: .24s; }
+  .hero__texto > :nth-child(6) { animation-delay: .30s; }
+  .hero__navegador { animation: entrar 1s var(--curva) .2s both; }
+  .hero__telefono  { animation: entrar 1s var(--curva) .35s both; }
+  .pista-sync, .hero__sync { animation: aparecer .8s ease .9s both; }
+
+  /* Un pulso de luz viaja del telefono al panel: "se actualiza solo". */
+  .pista-sync__h { animation: pulso-h 4.5s linear 1.4s infinite; }
+  .pista-sync__v { animation: pulso-v 4.5s linear 1.4s infinite; }
+
+  .punto-vivo::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: var(--listo);
+    animation: latido 2.4s ease-out infinite;
+  }
+
+  .giro, .boton__giro { animation: girar .9s linear infinite; }
+
+  /* Aparicion al hacer scroll: js/main.js pone .js-revelar en <html> y
+     .visible en cada bloque cuando entra en pantalla. Sin JS, se ve todo. */
+  .js-revelar [data-revelar] {
+    opacity: 0;
+    transform: translateY(18px);
+    transition: opacity .7s var(--curva), transform .7s var(--curva);
+  }
+  .js-revelar [data-revelar].visible { opacity: 1; transform: none; }
+
+  .respuesta__texto [data-para],
+  .demo__explicacion [data-para] { animation: aparecer .35s ease both; }
+}
+
+@keyframes entrar   { from { opacity: 0; transform: translateY(16px); } }
+@keyframes aparecer { from { opacity: 0; } }
+@keyframes girar    { to { rotate: 360deg; } }
+@keyframes latido   { 0% { opacity: .7; scale: 1; } 70%, 100% { opacity: 0; scale: 2.6; } }
+@keyframes pulso-h  { 0% { background-position: -40% 0; } 35%, 100% { background-position: 140% 0; } }
+@keyframes pulso-v  { 0%, 35% { background-position: 0 140%; } 60%, 100% { background-position: 0 -40%; } }

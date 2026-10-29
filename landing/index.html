@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+   index.html  —  LANDING PAGE de NeuroDesk AI.
+
+   Que es: la pagina publica del producto. Explica que hace NeuroDesk, muestra
+   la app y el panel, los precios, y junta pedidos de acceso a la beta.
+
+   Sin frameworks y sin build: HTML + css/estilo.css + modulos ES en js/.
+   Se publica armada en sitio/ (la arma otro script, ver el contrato):
+     /                         -> esta carpeta (landing/)
+     /panel/                   -> el panel del dueño (panel/)
+     /descargas/neurodesk.apk  -> el APK de la app, SOLO si existe
+
+   COMO SE COMPLETA SIN TOCAR EL DISEÑO (lo que va a cambiar antes de entregar):
+     1. CAPTURAS: copiar los PNG a img/capturas/ con estos nombres exactos:
+          app-feed.png  app-captura.png  app-chat.png  app-seguimiento.png
+          panel-dashboard.png  panel-miembros.png
+        js/capturas.js las encuentra solas. Mientras falten, cada marco muestra
+        un placeholder con la marca. Los marcos se buscan con data-captura="...".
+     2. VIDEO: pegar el link de YouTube en data-video-url (seccion #video).
+        Mientras este vacio, la seccion no aparece (js/video.js).
+     3. TEXTO DE DIFERENCIACION: lo que esta entre los comentarios
+        COPY-DIFERENCIACION se puede reescribir sin tocar clases ni estructura.
+     4. APK: no se toca nada aca. js/descarga.js pregunta si existe el archivo
+        y, si no esta, el boton queda como "Pedí acceso a la beta".
+
+   OJO: los modulos ES no andan abriendo el archivo con doble clic (file://).
+   Hay que servirlo por HTTP, igual que el panel.
+
+   REGLA DEL LOGO: los PNG de img/ son copias byte a byte de marca/png/. Solo
+   se escalan con CSS: nunca se recortan, recolorean ni se redibujan.
+  ============================================================================
+-->
+<html lang="es-AR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NeuroDesk AI — El segundo cerebro de tu equipo</title>
+  <meta name="description" content="Capturá notas, fotos, PDF, Word y links desde el celular y preguntale a la IA: responde solo con lo que subió tu equipo y te muestra la fuente de cada dato. Beta abierta para pymes y equipos.">
+  <meta name="theme-color" content="#0F172A">
+  <meta name="color-scheme" content="dark">
+
+  <!-- Favicon: el isotipo oficial, el PNG tal cual (el navegador lo achica). -->
+  <link rel="icon" type="image/png" href="img/isotipo-oscuro.png">
+  <link rel="apple-touch-icon" href="img/isotipo-oscuro.png">
+
+  <!--
+    Open Graph: la tarjeta que se ve al compartir el link por WhatsApp o redes.
+    La imagen TIENE que ir con URL absoluta (los que leen estas etiquetas no
+    resuelven rutas relativas). Usamos el dominio por defecto de Firebase
+    Hosting del proyecto: si se publica en otro dominio, cambiar og:url y
+    og:image.
+  -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="NeuroDesk AI">
+  <meta property="og:locale" content="es_AR">
+  <meta property="og:title" content="NeuroDesk AI — El segundo cerebro de tu equipo">
+  <meta property="og:description" content="Capturá desde el celular, preguntá en lenguaje natural y recibí la respuesta con la fuente. Solo con lo que subió tu equipo y respetando qué puede ver cada uno.">
+  <meta property="og:url" content="https://neurodesk-6to.web.app/">
+  <meta property="og:image" content="https://neurodesk-6to.web.app/img/marca-completa-oscuro.png">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="601">
+  <meta property="og:image:height" content="601">
+  <meta property="og:image:alt" content="Logo de NeuroDesk AI: un cerebro mitad red neuronal y mitad circuito, con el lema «Tu información. Inteligente.»">
+  <meta name="twitter:card" content="summary">
+
+  <!--
+    Tipografias (Google Fonts), las tres pensadas para leer facil:
+      - Lexend: titulos. Geometrica, de la misma familia visual que el logo.
+      - Atkinson Hyperlegible Next: texto. Es del Braille Institute, pensada
+        para personas con baja vision: cada letra se distingue de las parecidas.
+      - Atkinson Hyperlegible Mono: datos, citas [1] y etiquetas.
+    display=swap: mientras bajan, se ve la letra del sistema (nunca texto invisible).
+  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@400..500&family=Atkinson+Hyperlegible+Next:wght@400..700&family=Lexend:wght@500..700&display=swap">
+
+  <link rel="stylesheet" href="css/estilo.css">
+
+  <!-- Un solo punto de entrada. type=module ya es diferido: corre al final. -->
+  <script type="module" src="js/main.js"></script>
+</head>
+
+<body>
+
+  <a class="saltar" href="#contenido">Saltar al contenido</a>
+
+  <!--
+    ICONOS: un solo "sprite" SVG con todos los dibujos, y cada icono se usa con
+    <svg><use href="#i-..."></use></svg>. Asi el mismo dibujo no se repite diez
+    veces en el HTML. Son trazos de Lucide (licencia ISC, libre).
+    Todos son decorativos: van con aria-hidden y el texto de al lado explica.
+  -->
+  <svg class="sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="i-nota" viewBox="0 0 24 24"><path d="M16 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8Z"/><path d="M15 3v4a2 2 0 0 0 2 2h4"/></symbol>
+    <symbol id="i-camara" viewBox="0 0 24 24"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></symbol>
+    <symbol id="i-documento" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+    <symbol id="i-candado" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="i-equipo" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="i-dispersion" viewBox="0 0 24 24"><path d="m18 14 4 4-4 4"/><path d="m18 2 4 4-4 4"/><path d="M2 18h1.973a4 4 0 0 0 3.3-1.7l5.454-7.6a4 4 0 0 1 3.3-1.7H22"/><path d="M2 6h1.972a4 4 0 0 1 3.6 2.2"/><path d="M22 18h-6.041a4 4 0 0 1-3.3-1.8l-.359-.45"/></symbol>
+    <symbol id="i-repetir" viewBox="0 0 24 24"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></symbol>
+    <symbol id="i-se-va" viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="22" x2="16" y1="11" y2="11"/></symbol>
+    <symbol id="i-verificada" viewBox="0 0 24 24"><path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-memoria" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></symbol>
+    <symbol id="i-panel" viewBox="0 0 24 24"><rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/><rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/></symbol>
+    <symbol id="i-celular" viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2" ry="2"/><path d="M12 18h.01"/></symbol>
+    <symbol id="i-charla" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M13 8H7"/><path d="M17 12H7"/></symbol>
+    <symbol id="i-matraz" viewBox="0 0 24 24"><path d="M10 2v7.527a2 2 0 0 1-.211.896L4.72 20.55a1 1 0 0 0 .9 1.45h12.76a1 1 0 0 0 .9-1.45l-5.069-10.127A2 2 0 0 1 14 9.527V2"/><path d="M8.5 2h7"/><path d="M7 16h10"/></symbol>
+    <symbol id="i-nube" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></symbol>
+    <symbol id="i-escudo" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-reloj" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+    <symbol id="i-tarjeta" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></symbol>
+    <symbol id="i-flecha" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></symbol>
+    <symbol id="i-bajar" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-menos" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+    <symbol id="i-menu" viewBox="0 0 24 24"><line x1="4" x2="20" y1="7" y2="7"/><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="17" y2="17"/></symbol>
+    <symbol id="i-cerrar" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+    <symbol id="i-abajo" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+  </svg>
+
+
+  <!-- =================================================================== -->
+  <!--  CABECERA                                                            -->
+  <!-- =================================================================== -->
+  <header class="cabecera" id="cabecera">
+    <div class="contenedor cabecera__fila">
+
+      <!-- alt="" porque el nombre ya esta escrito al lado: si no, el lector
+           de pantalla diria "NeuroDesk AI, NeuroDesk AI". -->
+      <a class="marca" href="#inicio">
+        <span class="placa placa--chica"><img src="img/isotipo-oscuro.png" alt="" width="601" height="601" fetchpriority="high"></span>
+        <span class="marca__nombre">NeuroDesk AI</span>
+      </a>
+
+      <nav class="nav" aria-label="Secciones">
+        <ul class="nav__lista" id="nav-lista">
+          <li><a href="#como-funciona">Cómo funciona</a></li>
+          <li><a href="#diferencia">Por qué NeuroDesk</a></li>
+          <li><a href="#precios">Precios</a></li>
+          <li><a href="#preguntas">Preguntas</a></li>
+          <li class="nav__solo-movil"><a href="/panel/">Entrar al panel</a></li>
+        </ul>
+      </nav>
+
+      <div class="cabecera__acciones">
+        <a class="enlace-panel" href="/panel/">Entrar al panel</a>
+        <a class="boton boton--principal boton--chico" href="#contacto">Pedí acceso</a>
+        <!-- Solo se ve en el celular. js/main.js le cambia aria-expanded. -->
+        <button class="boton-menu" type="button" aria-expanded="false" aria-controls="nav-lista">
+          <svg class="icono icono--abrir" aria-hidden="true"><use href="#i-menu"></use></svg>
+          <svg class="icono icono--cerrar" aria-hidden="true"><use href="#i-cerrar"></use></svg>
+          <span class="sr">Menú</span>
+        </button>
+      </div>
+
+    </div>
+  </header>
+
+
+  <main id="contenido">
+
+    <!-- ================================================================= -->
+    <!--  1. HERO                                                           -->
+    <!-- ================================================================= -->
+    <section class="hero" id="inicio" aria-labelledby="hero-titulo">
+      <div class="contenedor hero__grilla">
+
+        <div class="hero__texto">
+          <!-- El logo en su "placa": un cuadrado redondeado del MISMO color que
+               el fondo que trae el PNG, igual que en la app (LogoNeuroDesk en
+               app/lib/tema.dart). El margen interno hace que las esquinas de
+               la imagen no toquen las esquinas redondeadas: no se recorta nada. -->
+          <span class="placa placa--hero"><img src="img/isotipo-oscuro.png" alt="NeuroDesk AI" width="601" height="601"></span>
+
+          <p class="etiqueta-mono hero__etiqueta">Beta abierta · Pymes y equipos de 3 a 50 personas</p>
+
+          <!-- Titulo "en dos tiempos", como el lema del logo: "Tu información.
+               Inteligente." -> la segunda frase va en cian. -->
+          <h1 class="titulo-hero" id="hero-titulo">
+            El segundo cerebro de tu equipo.
+            <span class="segundo-tiempo">Te responde y te muestra la fuente.</span>
+          </h1>
+
+          <p class="hero__bajada">
+            Capturás notas, fotos, PDF, Word y links desde el celular. Preguntás
+            como le hablarías a un compañero. NeuroDesk responde solo con lo que
+            subió tu equipo y cita de dónde sacó cada dato.
+          </p>
+
+          <div class="hero__acciones">
+            <a class="boton boton--principal" href="#contacto">Pedí acceso a la beta</a>
+            <a class="boton boton--secundario" href="/panel/">Entrar al panel</a>
+          </div>
+
+          <p class="hero__nota">
+            Sin tarjeta: durante la beta no cobramos.
+            <!-- Aparece solo si hay video (js/video.js le saca el hidden). -->
+            <a class="enlace-flecha" href="#video" data-enlace-video hidden>Mirá el video <svg class="icono" aria-hidden="true"><use href="#i-play"></use></svg></a>
+          </p>
+        </div>
+
+        <!--
+          La app y el panel, uno sobre el otro: son dos vistas de la MISMA base
+          de datos en tiempo real. La linea con los dos "pads" (como las pistas
+          del circuito del logo) es esa conexion.
+          Las medidas usan unidades cqi (porcentaje del ancho de esta caja), asi
+          la composicion escala igual en el celular y en la compu.
+        -->
+        <div class="hero__visual">
+          <div class="navegador hero__navegador">
+            <div class="navegador__barra" aria-hidden="true">
+              <span class="navegador__punto"></span><span class="navegador__punto"></span><span class="navegador__punto"></span>
+              <span class="navegador__url">neurodesk-6to.web.app/panel</span>
+            </div>
+            <div class="navegador__pantalla" data-captura="panel-dashboard" data-alt="Captura del panel web: el resumen del espacio con indicadores y el gráfico de actividad">
+              <div class="captura-pendiente">
+                <span class="placa placa--pantalla"><img src="img/isotipo-oscuro.png" alt="" width="601" height="601"></span>
+                <span class="captura-pendiente__titulo">Panel del dueño · Resumen</span>
+                <span class="captura-pendiente__esqueleto captura-pendiente__esqueleto--panel" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="telefono hero__telefono">
+            <div class="telefono__pantalla" data-captura="app-chat" data-alt="Captura de la app: una respuesta de la IA con citas y el chip de confianza">
+              <div class="captura-pendiente">
+                <span class="placa placa--pantalla"><img src="img/isotipo-oscuro.png" alt="" width="601" height="601"></span>
+                <span class="captura-pendiente__titulo">Preguntale al equipo</span>
+                <span class="captura-pendiente__esqueleto" aria-hidden="true"><i></i><i></i><i></i></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="pista-sync" aria-hidden="true">
+            <span class="pista-sync__h"></span>
+            <span class="pista-sync__v"></span>
+            <span class="pad pista-sync__pad1"></span>
+            <span class="pad pista-sync__pad2"></span>
+          </div>
+          <p class="hero__sync"><span class="punto-vivo" aria-hidden="true"></span>Misma base, en tiempo real</p>
+        </div>
+
+      </div>
+    </section>
+
+
+    <!-- ================================================================= -->
+    <!--  2. EL PROBLEMA                                                    -->
+    <!-- ================================================================= -->
+    <section class="seccion problema" id="problema" aria-labelledby="problema-titulo">
+      <div class="contenedor problema__grilla">
+
+        <div class="problema__texto" data-revelar>
+          <h2 class="titulo-seccion titulo-pregunta" id="problema-titulo">«¿Quién tenía el presupuesto de agosto?»</h2>
+          <p class="bajada">
+            Es la pregunta que se repite en cualquier equipo. La respuesta está en
+            el WhatsApp de alguien, en un mail reenviado o en una carpeta que se
+            llama «Varios (2)».
+          </p>
+
+          <ul class="dolores" role="list">
+            <li class="dolor">
+              <svg class="icono dolor__icono" aria-hidden="true"><use href="#i-dispersion"></use></svg>
+              <div>
+                <h3 class="dolor__titulo">Disperso</h3>
+                <p>Fotos en WhatsApp, PDF en el mail, links en notas sueltas. Nadie sabe dónde quedó cada cosa.</p>
+              </div>
+            </li>
+            <li class="dolor">
+              <svg class="icono dolor__icono" aria-hidden="true"><use href="#i-repetir"></use></svg>
+              <div>
+                <h3 class="dolor__titulo">Repetido</h3>
+                <p>Lo que no se encuentra se vuelve a hacer: otro presupuesto, otra búsqueda, otra reunión.</p>
+              </div>
+            </li>
+            <li class="dolor">
+              <svg class="icono dolor__icono" aria-hidden="true"><use href="#i-se-va"></use></svg>
+              <div>
+                <h3 class="dolor__titulo">Se va con la gente</h3>
+                <p>Cuando alguien deja el equipo, lo que sabía se va con esa persona.</p>
+              </div>
+            </li>
+          </ul>
+        </div>
+
+        <!-- "Cabos sueltos": cada pedazo de informacion tiene su pad, pero no
+             esta conectado a nada. Mas abajo, en la demo, las pistas si
+             conectan cada dato con su fuente. Es decorativo. -->
+        <div class="caos" aria-hidden="true">
+          <span class="fragmento" style="--x:4%;--y:6%;--giro:-4deg"><svg class="icono"><use href="#i-camara"></use></svg>Foto del presupuesto · WhatsApp</span>
+          <span class="fragmento" style="--x:42%;--y:24%;--giro:3deg"><svg class="icono"><use href="#i-documento"></use></svg>PDF adjunto · mail de Juli</span>
+          <span class="fragmento" style="--x:10%;--y:44%;--giro:2deg"><svg class="icono"><use href="#i-nota"></use></svg>Carpeta «Varios (2)»</span>
+          <span class="fragmento" style="--x:46%;--y:62%;--giro:-3deg"><svg class="icono"><use href="#i-link"></use></svg>Link del proveedor · nota del celu</span>
+          <span class="fragmento fragmento--persona" style="--x:14%;--y:82%;--giro:-1deg"><svg class="icono"><use href="#i-charla"></use></svg>«Eso lo tenía Tomás»</span>
+        </div>
+
+      </div>
+    </section>
+
+
+    <!-- ================================================================= -->
+    <!--  3. COMO FUNCIONA (3 pasos: aca la numeracion SI es informacion,   -->
+    <!--     porque es una secuencia real)                                  -->
+    <!-- ================================================================= -->
+    <section class="seccion pasos" id="como-funciona" aria-labelledby="pasos-titulo">
+      <div class="contenedor">
+        <header class="encabezado-seccion" data-revelar>
+          <h2 class="titulo-seccion" id="pasos-titulo">Tres pasos. <span class="segundo-tiempo">Ninguna carpeta.</span></h2>
+          <p class="bajada">No hay que ordenar nada. Capturás, la IA lee, y cuando lo necesitás, preguntás.</p>
+        </header>
+
+        <ol class="pasos__lista" role="list">
+          <li class="paso" data-revelar>
+            <span class="paso__pad" aria-hidden="true">1</span>
+            <h3 class="paso__titulo">Capturás desde el celular</h3>
+            <p>Una nota, una foto del pizarrón, un PDF, un Word o un link, incluso de YouTube. Elegís si lo ve todo el equipo o solo vos.</p>
+            <div class="vineta" aria-hidden="true">
+              <div class="vineta__tipos">
+                <span class="tipo"><svg class="icono"><use href="#i-nota"></use></svg>Nota</span>
+                <span class="tipo tipo--activo"><svg class="icono"><use href="#i-camara"></use></svg>Foto</span>
+                <span class="tipo"><svg class="icono"><use href="#i-documento"></use></svg>Documento</span>
+                <span class="tipo"><svg class="icono"><use href="#i-link"></use></svg>Link</span>
+              </div>
+              <p class="vineta__rotulo">¿Quién lo puede ver?</p>
+              <div class="vineta__visibilidad">
+                <span class="opcion opcion--activa"><svg class="icono"><use href="#i-equipo"></use></svg>Todo el equipo</span>
+                <span class="opcion"><svg class="icono"><use href="#i-candado"></use></svg>Solo yo</span>
+              </div>
+            </div>
+          </li>
+
+          <li class="paso" data-revelar>
+            <span class="paso__pad" aria-hidden="true">2</span>
+            <h3 class="paso__titulo">La IA lo lee y lo indexa</h3>
+            <p>Saca el texto, también de fotos y PDF escaneados, y lo guarda en fragmentos para buscar por lo que dice, no por cómo se llama el archivo.</p>
+            <div class="vineta" aria-hidden="true">
+              <ul class="vineta__items">
+                <li><svg class="icono"><use href="#i-documento"></use></svg><span>Presupuesto Ruiz.pdf</span><span class="chip chip--listo">Listo</span></li>
+                <li><svg class="icono"><use href="#i-camara"></use></svg><span>Pizarrón de la reunión<small>Leído con OCR</small></span><span class="chip chip--procesando"><i class="giro"></i>Procesando</span></li>
+                <li><svg class="icono"><use href="#i-link"></use></svg><span>Link del proveedor</span><span class="chip chip--pendiente">Pendiente</span></li>
+              </ul>
+            </div>
+          </li>
+
+          <li class="paso" data-revelar>
+            <span class="paso__pad" aria-hidden="true">3</span>
+            <h3 class="paso__titulo">Preguntás y te responde con la fuente</h3>
+            <p>Una respuesta corta, con citas que te llevan al ítem original y un aviso de qué tan segura está. Si no lo encuentra, te lo dice.</p>
+            <div class="vineta" aria-hidden="true">
+              <p class="vineta__pregunta">¿Dónde quedó el presupuesto de agosto?</p>
+              <span class="chip chip--listo">Confianza alta</span>
+              <p class="vineta__respuesta">Está en «Presupuesto Ruiz.pdf», en la página 2 <span class="cita-mini">[1]</span>.</p>
+            </div>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+
+    <!-- ================================================================= -->
+    <!--  4. POR QUE NO ES "UN CHAT CON IA"                                 -->
+    <!-- ================================================================= -->
+    <!-- COPY-DIFERENCIACION -->
+    <section class="seccion diferencia" id="diferencia" aria-labelledby="diferencia-titulo">
+      <div class="contenedor">
+        <header class="encabezado-seccion" data-revelar>
+          <h2 class="titulo-seccion" id="diferencia-titulo">No es un chat con IA. <span class="segundo-tiempo">Es la memoria de tu equipo, con reglas.</span></h2>
+          <p class="bajada">
+            Un chat de IA sabe un poco de todo. NeuroDesk sabe lo que sabe tu
+            equipo, te dice de dónde lo sacó y no le cuenta a nadie lo que no le
+            corresponde.
+          </p>
+        </header>
+
+        <!--
+          LA DEMO: la misma pregunta hecha por la admin y por un miembro.
+          Es la prueba de la defensa (CONTRATO.md, endpoint 11) contada para
+          cualquiera: los permisos se aplican ANTES de buscar.
+          js/demo.js cambia data-vista y los hidden de los [data-para].
+          Las lineas entre la respuesta y las fuentes son puro CSS (bordes).
+        -->
+        <div class="demo" id="demo" data-vista="admin" data-revelar>
+          <div class="demo__cabeza">
+            <div>
+              <h3 class="demo__titulo">La misma pregunta, dos personas</h3>
+              <p class="demo__ayuda">Elegí quién pregunta y mirá qué fuentes puede usar la IA.</p>
+            </div>
+            <fieldset class="selector-vista">
+              <legend class="sr">Ver la respuesta como</legend>
+              <label class="selector-vista__opcion">
+                <input type="radio" name="vista" value="admin" checked>
+                <span class="avatar avatar--admin" aria-hidden="true">L</span>
+                <span>Lucía <small>administradora</small></span>
+              </label>
+              <label class="selector-vista__opcion">
+                <input type="radio" name="vista" value="miembro">
+                <span class="avatar avatar--miembro" aria-hidden="true">T</span>
+                <span>Tomás <small>miembro</small></span>
+              </label>
+            </fieldset>
+          </div>
+
+          <div class="demo__cuerpo">
+            <article class="respuesta" aria-labelledby="demo-pregunta">
+              <p class="respuesta__app"><svg class="icono" aria-hidden="true"><use href="#i-charla"></use></svg>Preguntale al equipo</p>
+              <p class="respuesta__pregunta" id="demo-pregunta">¿Cuánto le cotizamos a la familia Ruiz?</p>
+              <span class="chip chip--listo">Confianza alta</span>
+              <div class="respuesta__texto" aria-live="polite">
+                <p data-para="admin">
+                  Les cotizamos $ 4.850.000 + IVA <a class="cita" href="#fuente-1" data-n="1" aria-label="Fuente 1">[1]</a>.
+                  En la reunión del 12/8 quedó pendiente sumar un 10 % por las aberturas <a class="cita" href="#fuente-2" data-n="2" aria-label="Fuente 2">[2]</a>.
+                  Tu nota dice que el mínimo para cerrar es $ 4.500.000 <a class="cita" href="#fuente-3" data-n="3" aria-label="Fuente 3">[3]</a>.
+                </p>
+                <p data-para="miembro" hidden>
+                  Les cotizamos $ 4.850.000 + IVA <a class="cita" href="#fuente-1" data-n="1" aria-label="Fuente 1">[1]</a>.
+                  En la reunión del 12/8 quedó pendiente sumar un 10 % por las aberturas <a class="cita" href="#fuente-2" data-n="2" aria-label="Fuente 2">[2]</a>.
+                </p>
+              </div>
+              <p class="respuesta__pie" data-para="admin">Usó 3 fuentes que Lucía puede ver.</p>
+              <p class="respuesta__pie" data-para="miembro" hidden>Usó 2 fuentes que Tomás puede ver.</p>
+            </article>
+
+            <ul class="fuentes" role="list" aria-label="Fuentes del equipo">
+              <li class="fuente" id="fuente-1" data-n="1">
+                <span class="fuente__pista" aria-hidden="true"></span>
+                <p class="fuente__meta"><span class="fuente__n">1</span><svg class="icono" aria-hidden="true"><use href="#i-documento"></use></svg><span class="fuente__tipo">PDF · Del equipo · pág. 2</span></p>
+                <p class="fuente__titulo">Presupuesto Ruiz — agosto.pdf</p>
+                <p class="fuente__fragmento">«Total de la obra: $ 4.850.000 + IVA»</p>
+              </li>
+              <li class="fuente" id="fuente-2" data-n="2">
+                <span class="fuente__pista" aria-hidden="true"></span>
+                <p class="fuente__meta"><span class="fuente__n">2</span><svg class="icono" aria-hidden="true"><use href="#i-camara"></use></svg><span class="fuente__tipo">Foto · Del equipo · leída con OCR</span></p>
+                <p class="fuente__titulo">Pizarrón de la reunión 12/8</p>
+                <p class="fuente__fragmento">«Ruiz: sumar 10 % aberturas»</p>
+              </li>
+              <li class="fuente fuente--privada" id="fuente-3" data-n="3">
+                <span class="fuente__pista" aria-hidden="true"></span>
+                <p class="fuente__meta"><span class="fuente__n">3</span><svg class="icono" aria-hidden="true"><use href="#i-candado"></use></svg><span class="fuente__tipo">Nota · Privada de Lucía</span></p>
+                <p class="fuente__titulo">Negociación Ruiz</p>
+                <p class="fuente__fragmento">«Mínimo para cerrar: $ 4.500.000»</p>
+                <p class="fuente__bloqueo" data-para="miembro" hidden><svg class="icono" aria-hidden="true"><use href="#i-candado"></use></svg>Tomás no la ve, y la IA tampoco cuando le responde a él.</p>
+              </li>
+            </ul>
+          </div>
+
+          <p class="demo__explicacion" aria-live="polite">
+            <span data-para="admin"><b>Lucía es administradora:</b> la IA busca en todo el espacio del equipo, incluida su nota privada.</span>
+            <span data-para="miembro" hidden><b>Tomás es miembro:</b> la nota privada de Lucía no entra en su búsqueda. No es que la IA la lea y la esconda: nunca la lee.</span>
+          </p>
+          <p class="demo__aclaracion">Ejemplo con datos inventados de un estudio de arquitectura. El comportamiento es el de NeuroDesk: los permisos se aplican antes de buscar.</p>
+        </div>
+
+        <ul class="ventajas" role="list">
+          <li class="ventaja" data-revelar>
+            <svg class="icono ventaja__icono" aria-hidden="true"><use href="#i-candado"></use></svg>
+            <h3 class="ventaja__titulo">Respeta quién puede ver qué</h3>
+            <p>La IA busca solo en lo que puede ver quien pregunta. Los permisos se aplican antes de buscar, no después: lo privado nunca entra en la respuesta de otro.</p>
+          </li>
+          <li class="ventaja" data-revelar>
+            <svg class="icono ventaja__icono" aria-hidden="true"><use href="#i-verificada"></use></svg>
+            <h3 class="ventaja__titulo">Fuentes que podés verificar</h3>
+            <p>Cada dato trae su cita al ítem original, con el fragmento exacto. Las citas se validan en el código: la IA no puede inventar una fuente.</p>
+          </li>
+          <li class="ventaja" data-revelar>
+            <svg class="icono ventaja__icono" aria-hidden="true"><use href="#i-memoria"></use></svg>
+            <h3 class="ventaja__titulo">Memoria que no se va</h3>
+            <p>Lo que se sube queda en el espacio del equipo. Si alguien se va, lo que compartió sigue ahí para el que viene.</p>
+          </li>
+          <li class="ventaja" data-revelar>
+            <svg class="icono ventaja__icono" aria-hidden="true"><use href="#i-panel"></use></svg>
+            <h3 class="ventaja__titulo">El dueño tiene el control</h3>
+            <p>Desde el panel web ves el contenido y los miembros en tiempo real, invitás y das de baja, decidís quién es admin, y cada movimiento queda registrado.</p>
+          </li>
+          <li class="ventaja" data-revelar>
+            <svg class="icono ventaja__icono" aria-hidden="true"><use href="#i-celular"></use></svg>
+            <h3 class="ventaja__titulo">Captura sin fricción</h3>
+            <p>Foto, PDF, Word, nota o link en segundos, desde el celular. Sin señal, las notas se guardan igual y se suben solas cuando vuelve internet.</p>
+          </li>
+          <li class="ventaja" data-revelar>
+            <svg class="icono ventaja__icono" aria-hidden="true"><use href="#i-charla"></use></svg>
+            <h3 class="ventaja__titulo">Repreguntás sin repetir</h3>
+            <p>Seguís la charla como con una persona: «¿y para cuándo?» se entiende con lo que venían hablando.</p>
+          </li>
+        </ul>
+      </div>
+    </section>
+    <!-- /COPY-DIFERENCIACION -->
+
+
+    <!-- ================================================================= -->
+    <!--  5. LA APP Y EL PANEL (capturas en marcos de dispositivo)          -->
+    <!-- ================================================================= -->
+    <section class="seccion producto" id="producto" aria-labelledby="producto-titulo">
+      <div class="contenedor">
+        <header class="encabezado-seccion" data-revelar>
+          <h2 class="titulo-seccion" id="producto-titulo">Una app para capturar, un panel para el dueño. <span class="segundo-tiempo">La misma base, en tiempo real.</span></h2>
+          <p class="bajada">Lo que alguien sube desde el celular aparece al instante en el panel del administrador, sin recargar la página.</p>
+        </header>
+
+        <h3 class="subtitulo"><svg class="icono" aria-hidden="true"><use href="#i-celular"></use></svg>App para Android</h3>
+        <div class="galeria galeria--telefonos">
+          <figure class="captura" data-revelar>
+            <div class="telefono">
+              <div class="telefono__pantalla" data-captura="app-feed" data-alt="Captura de la app: el feed del equipo con los ítems y su estado">
+                <div class="captura-pendiente">
+                  <span class="placa placa--pantalla"><img src="img/isotipo-oscuro.png" alt="" width="601" height="601" loading="lazy"></span>
+                  <span class="captura-pendiente__titulo">Feed del equipo</span>
+                  <span class="captura-pendiente__esqueleto" aria-hidden="true"><i></i><i></i><i></i></span>
+                </div>
+              </div>
+            </div>
+            <figcaption><strong>Lo del equipo y lo tuyo</strong> El feed en tiempo real, con el estado de cada ítem.</figcaption>
+          </figure>
+
+          <figure class="captura" data-revelar>
+            <div class="telefono">
+              <div class="telefono__pantalla" data-captura="app-captura" data-alt="Captura de la app: la pantalla para agregar una nota, una foto, un documento o un link">
+                <div class="captura-pendiente">
+                  <span class="placa placa--pantalla"><img src="img/isotipo-oscuro.png" alt="" width="601" height="601" loading="lazy"></span>
+                  <span class="captura-pendiente__titulo">Agregar contenido</span>
+                  <span class="captura-pendiente__esqueleto" aria-hidden="true"><i></i><i></i><i></i></span>
+                </div>
+              </div>
+            </div>
+            <figcaption><strong>Capturar</strong> Nota, foto, documento o link. Elegís si lo ve todo el equipo o solo vos.</figcaption>
+          </figure>
+
+          <figure class="captura" data-revelar>
+            <div class="telefono">
+              <div class="telefono__pantalla" data-captura="app-chat" data-alt="Captura de la app: una respuesta de la IA con citas y el chip de confianza">
+                <div class="captura-pendiente">
+                  <span class="placa placa--pantalla"><img src="img/isotipo-oscuro.png" alt="" width="601" height="601" loading="lazy"></span>
+                  <span class="captura-pendiente__titulo">Preguntale al equipo</span>
+                  <span class="captura-pendiente__esqueleto" aria-hidden="true"><i></i><i></i><i></i></span>
+                </div>
+              </div>
+            </div>
+            <figcaption><strong>Preguntale al equipo</strong> Respuesta corta, citas a cada fuente y el nivel de confianza.</figcaption>
+          </figure>
+
+          <figure class="captura" data-revelar>
+            <div class="telefono">
+              <div class="telefono__pantalla" data-captura="app-seguimiento" data-alt="Captura de la app: una pregunta de seguimiento dentro de la misma charla">
+                <div class="captura-pendiente">
+                  <span class="placa placa--pantalla"><img src="img/isotipo-oscuro.png" alt="" width="601" height="601" loading="lazy"></span>
+                  <span class="captura-pendiente__titulo">Seguir la charla</span>
+                  <span class="captura-pendiente__esqueleto" aria-hidden="true"><i></i><i></i><i></i></span>
+                </div>
+              </div>
+            </div>
+            <figcaption><strong>Seguí la charla</strong> Repreguntás «¿y para cuándo?» y entiende de qué venían hablando.</figcaption>
+          </figure>
+        </div>
+
+        <!--
+          BOTON DE DESCARGA (contrato): arranca como "Pedí acceso a la beta"
+          y js/descarga.js lo convierte en descarga SOLO si el HEAD a
+          /descargas/neurodesk.apk contesta 200. Sin JS o sin APK, queda asi.
+        -->
+        <div class="producto__descarga" data-revelar>
+          <a class="boton boton--principal" href="#contacto" data-descarga>Pedí acceso a la beta</a>
+          <p class="producto__nota" data-descarga-nota>La app para Android se comparte con los equipos de la beta.</p>
+        </div>
+
+        <h3 class="subtitulo"><svg class="icono" aria-hidden="true"><use href="#i-panel"></use></svg>Panel del dueño</h3>
+        <div class="galeria galeria--panel">
+          <figure class="captura" data-revelar>
+            <div class="navegador">
+              <div class="navegador__barra" aria-hidden="true">
+                <span class="navegador__punto"></span><span class="navegador__punto"></span><span class="navegador__punto"></span>
+                <span class="navegador__url">neurodesk-6to.web.app/panel</span>
+              </div>
+              <div class="navegador__pantalla" data-captura="panel-dashboard" data-alt="Captura del panel web: el resumen del espacio con indicadores y el gráfico de actividad">
+                <div class="captura-pendiente">
+                  <span class="placa placa--pantalla"><img src="img/isotipo-oscuro.png" alt="" width="601" height="601" loading="lazy"></span>
+                  <span class="captura-pendiente__titulo">Resumen del espacio</span>
+                  <span class="captura-pendiente__esqueleto captura-pendiente__esqueleto--panel" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+                </div>
+              </div>
+            </div>
+            <figcaption><strong>Resumen del espacio</strong> Ítems cargados, listos, en cola y con error, y la actividad de los últimos días.</figcaption>
+          </figure>
+
+          <figure class="captura" data-revelar>
+            <div class="navegador">
+              <div class="navegador__barra" aria-hidden="true">
+                <span class="navegador__punto"></span><span class="navegador__punto"></span><span class="navegador__punto"></span>
+                <span class="navegador__url">neurodesk-6to.web.app/panel</span>
+              </div>
+              <div class="navegador__pantalla" data-captura="panel-miembros" data-alt="Captura del panel web: la lista de miembros con su rol y el formulario para invitar">
+                <div class="captura-pendiente">
+                  <span class="placa placa--pantalla"><img src="img/isotipo-oscuro.png" alt="" width="601" height="601" loading="lazy"></span>
+                  <span class="captura-pendiente__titulo">Miembros del espacio</span>
+                  <span class="captura-pendiente__esqueleto captura-pendiente__esqueleto--panel" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+                </div>
+              </div>
+            </div>
+            <figcaption><strong>Miembros</strong> Invitás por email, elegís el rol y das de baja a quien ya no está.</figcaption>
+          </figure>
+        </div>
+
+        <p class="producto__panel" data-revelar>
+          ¿Ya administrás un equipo en NeuroDesk?
+          <a class="enlace-flecha" href="/panel/">Entrar al panel <svg class="icono" aria-hidden="true"><use href="#i-flecha"></use></svg></a>
+        </p>
+      </div>
+    </section>
+
+
+    <!-- ================================================================= -->
+    <!--  6. VIDEO DEMO                                                     -->
+    <!--  Para mostrarlo: pegar el link de YouTube en data-video-url, por   -->
+    <!--  ejemplo data-video-url="https://youtu.be/XXXXXXXXXXX".            -->
+    <!--  Vacio = la seccion queda oculta (hidden) y no se carga nada.      -->
+    <!-- ================================================================= -->
+    <section class="seccion video" id="video" aria-labelledby="video-titulo" data-video-url="" hidden>
+      <div class="contenedor">
+        <header class="encabezado-seccion">
+          <h2 class="titulo-seccion" id="video-titulo">Mirá cómo funciona</h2>
+          <p class="bajada">Un recorrido corto por la app y el panel, con datos de prueba.</p>
+        </header>
+        <!-- js/video.js mete aca el iframe de youtube-nocookie.com -->
+        <div class="video__marco"></div>
+      </div>
+    </section>
+
+
+    <!-- ================================================================= -->
+    <!--  7. PRECIOS (los 4 planes de NEGOCIO.md)                           -->
+    <!--  Cada boton lleva al formulario con su plan ya elegido            -->
+    <!--  (data-plan, lo maneja js/formulario.js; no viaja nada en la URL). -->
+    <!-- ================================================================= -->
+    <section class="seccion precios" id="precios" aria-labelledby="precios-titulo">
+      <div class="contenedor">
+        <header class="encabezado-seccion" data-revelar>
+          <h2 class="titulo-seccion" id="precios-titulo">Pagás por equipo. <span class="segundo-tiempo">No por persona.</span></h2>
+          <p class="bajada">Durante la beta no cobramos. Estos son los precios de referencia para el lanzamiento, en pesos argentinos, por espacio de trabajo y por mes.</p>
+        </header>
+
+        <ul class="planes" role="list">
+          <li class="plan" data-revelar>
+            <h3 class="plan__nombre">Free</h3>
+            <p class="plan__precio"><span class="plan__monto">$ 0</span></p>
+            <p class="plan__para">Para probar con tu equipo.</p>
+            <ul class="plan__lista" role="list">
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>Hasta 3 miembros</span></li>
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>100 ítems en total</span></li>
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>30 preguntas a la IA por mes</span></li>
+              <li class="plan__no"><svg class="icono" aria-hidden="true"><use href="#i-menos"></use></svg><span>Sin OCR: no lee fotos ni PDF escaneados</span></li>
+            </ul>
+            <a class="boton boton--secundario plan__boton" href="#contacto" data-plan="free">Pedir acceso gratis</a>
+          </li>
+
+          <li class="plan plan--destacado" data-revelar>
+            <p class="plan__cinta">Recomendado</p>
+            <h3 class="plan__nombre">Equipo</h3>
+            <p class="plan__precio"><span class="plan__monto">$ 18.000</span><span class="plan__periodo">/mes</span></p>
+            <p class="plan__para">Para el equipo que lo usa todos los días.</p>
+            <ul class="plan__lista" role="list">
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>Hasta 10 miembros</span></li>
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>2.000 ítems</span></li>
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>500 preguntas a la IA por mes</span></li>
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>OCR incluido</span></li>
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>Resumen con gráficos</span></li>
+            </ul>
+            <a class="boton boton--principal plan__boton" href="#contacto" data-plan="equipo">Quiero el plan Equipo</a>
+          </li>
+
+          <li class="plan" data-revelar>
+            <h3 class="plan__nombre">Pyme</h3>
+            <p class="plan__precio"><span class="plan__monto">$ 40.000</span><span class="plan__periodo">/mes</span></p>
+            <p class="plan__para">Para pymes que guardan de todo.</p>
+            <ul class="plan__lista" role="list">
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>Hasta 25 miembros</span></li>
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>Ítems ilimitados</span></li>
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>2.000 preguntas a la IA por mes</span></li>
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>OCR incluido</span></li>
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>Dashboards avanzados <span class="pronto">Próximamente</span></span></li>
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>Soporte prioritario</span></li>
+            </ul>
+            <a class="boton boton--secundario plan__boton" href="#contacto" data-plan="pyme">Quiero el plan Pyme</a>
+          </li>
+
+          <li class="plan" data-revelar>
+            <h3 class="plan__nombre">Empresa</h3>
+            <p class="plan__precio"><span class="plan__monto">$ 85.000</span><span class="plan__periodo">/mes</span></p>
+            <p class="plan__para">Para pymes consolidadas que siguen creciendo.</p>
+            <ul class="plan__lista" role="list">
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>Hasta 60 miembros</span></li>
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>Ítems ilimitados</span></li>
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>8.000 preguntas a la IA por mes</span></li>
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>Áreas dentro del espacio <span class="pronto">Próximamente</span></span></li>
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>Reportes exportables <span class="pronto">Próximamente</span></span></li>
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>Onboarding asistido y soporte dedicado</span></li>
+            </ul>
+            <a class="boton boton--secundario plan__boton" href="#contacto" data-plan="empresa">Hablemos</a>
+          </li>
+        </ul>
+
+        <p class="precios__pago" data-revelar>
+          <svg class="icono" aria-hidden="true"><use href="#i-tarjeta"></use></svg>
+          <span>Pagás con Mercado Pago <span class="pronto">Próximamente</span></span>
+          <span class="precios__aclaracion">Precios de referencia: pueden cambiar antes de que empecemos a cobrar.</span>
+        </p>
+      </div>
+    </section>
+
+
+    <!-- ================================================================= -->
+    <!--  8. SEGURIDAD Y PRIVACIDAD (honesta: esto es una beta)             -->
+    <!-- ================================================================= -->
+    <section class="seccion seguridad" id="seguridad" aria-labelledby="seguridad-titulo">
+      <div class="contenedor">
+        <header class="encabezado-seccion" data-revelar>
+          <h2 class="titulo-seccion" id="seguridad-titulo">Seguridad y privacidad, <span class="segundo-tiempo">sin letra chica.</span></h2>
+          <p class="bajada">NeuroDesk está en beta. Esto es lo que hace hoy con lo que cargás, y lo que todavía no.</p>
+        </header>
+
+        <ul class="garantias" role="list">
+          <li class="garantia garantia--aviso" data-revelar>
+            <svg class="icono garantia__icono" aria-hidden="true"><use href="#i-matraz"></use></svg>
+            <div>
+              <h3 class="garantia__titulo">Es una versión beta</h3>
+              <p>Usalo con datos de prueba o con información que no sea sensible. No cargues contraseñas, datos de salud, documentos personales ni nada que no mandarías por mail.</p>
+            </div>
+          </li>
+          <li class="garantia" data-revelar>
+            <svg class="icono garantia__icono" aria-hidden="true"><use href="#i-nube"></use></svg>
+            <div>
+              <h3 class="garantia__titulo">Usa servicios externos</h3>
+              <p>Para entender y responder, el texto pasa por Google Gemini. Para leer fotos y PDF escaneados usamos OCR.space, también cuando el ítem es privado. En el plan gratuito de Gemini, Google puede usar lo que recibe para mejorar sus productos.</p>
+            </div>
+          </li>
+          <li class="garantia" data-revelar>
+            <svg class="icono garantia__icono" aria-hidden="true"><use href="#i-escudo"></use></svg>
+            <div>
+              <h3 class="garantia__titulo">Cada uno ve lo suyo</h3>
+              <p>Las reglas de la base de datos niegan todo por defecto y se prueban con tests automáticos. Un miembro ve lo del equipo y lo propio; el administrador del espacio ve todo, incluso lo privado.</p>
+            </div>
+          </li>
+          <li class="garantia" data-revelar>
+            <svg class="icono garantia__icono" aria-hidden="true"><use href="#i-documento"></use></svg>
+            <div>
+              <h3 class="garantia__titulo">Guarda el texto, no el archivo</h3>
+              <p>De cada PDF, Word o foto se queda con el texto que necesita la IA. El archivo original no se guarda en el servidor.</p>
+            </div>
+          </li>
+          <li class="garantia" data-revelar>
+            <svg class="icono garantia__icono" aria-hidden="true"><use href="#i-reloj"></use></svg>
+            <div>
+              <h3 class="garantia__titulo">Lo que todavía no resolvimos</h3>
+              <p>Si sacás a alguien del equipo, el servidor le corta el acceso al instante, pero la lectura directa de la base puede tardar hasta una hora más en cortarse.</p>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </section>
+
+
+    <!-- ================================================================= -->
+    <!--  9. PREGUNTAS FRECUENTES                                           -->
+    <!--  <details> es el acordeon nativo del navegador: anda con teclado y -->
+    <!--  con lector de pantalla sin una linea de JavaScript.              -->
+    <!-- ================================================================= -->
+    <section class="seccion preguntas" id="preguntas" aria-labelledby="preguntas-titulo">
+      <div class="contenedor preguntas__grilla">
+        <header class="encabezado-seccion" data-revelar>
+          <h2 class="titulo-seccion" id="preguntas-titulo">Preguntas frecuentes</h2>
+          <p class="bajada">Lo que más nos preguntan antes de probarlo.</p>
+        </header>
+
+        <div class="faq" data-revelar>
+          <!-- COPY-DIFERENCIACION -->
+          <details class="faq__item">
+            <summary>¿En qué se diferencia de preguntarle a un chat de IA?<svg class="icono" aria-hidden="true"><use href="#i-abajo"></use></svg></summary>
+            <div class="faq__respuesta">
+              <p>Un chat de IA responde con lo que sabe en general o con lo que le pegues en ese momento. NeuroDesk responde solo con lo que fue subiendo tu equipo, cita el ítem exacto de donde sacó cada dato y respeta qué puede ver cada persona. Y lo que se sube queda para todos, aunque alguien se vaya.</p>
+            </div>
+          </details>
+          <!-- /COPY-DIFERENCIACION -->
+
+          <details class="faq__item">
+            <summary>¿Puedo crear el espacio de mi equipo yo solo?<svg class="icono" aria-hidden="true"><use href="#i-abajo"></use></svg></summary>
+            <div class="faq__respuesta">
+              <p>Todavía no. En la beta damos de alta cada equipo a mano: pedí acceso con el <a href="#contacto">formulario</a>, coordinamos el alta del espacio y después invitás a tu gente desde el panel.</p>
+            </div>
+          </details>
+
+          <details class="faq__item">
+            <summary>¿Qué puedo subir?<svg class="icono" aria-hidden="true"><use href="#i-abajo"></use></svg></summary>
+            <div class="faq__respuesta">
+              <p>Notas, fotos (con la cámara o de la galería), PDF y Word (.docx) de hasta 10 MB, y links. De los videos de YouTube toma el título, la descripción y el canal: no mira el video.</p>
+            </div>
+          </details>
+
+          <details class="faq__item">
+            <summary>¿La IA puede inventar respuestas?<svg class="icono" aria-hidden="true"><use href="#i-abajo"></use></svg></summary>
+            <div class="faq__respuesta">
+              <p>Responde solo con los fragmentos que encontró en tu equipo y cita cada dato. Si no encuentra nada, te dice «No encontré esto en la base del equipo». Y las citas se validan en el código: no puede citar un ítem que no existe.</p>
+            </div>
+          </details>
+
+          <details class="faq__item">
+            <summary>¿Cuánto sale y cómo se paga?<svg class="icono" aria-hidden="true"><use href="#i-abajo"></use></svg></summary>
+            <div class="faq__respuesta">
+              <p>Durante la beta no cobramos. Cuando arranquen los planes pagos se van a pagar con Mercado Pago (próximamente). Los precios de referencia están en <a href="#precios">Precios</a>.</p>
+            </div>
+          </details>
+
+          <details class="faq__item">
+            <summary>¿Hay app para iPhone?<svg class="icono" aria-hidden="true"><use href="#i-abajo"></use></svg></summary>
+            <div class="faq__respuesta">
+              <p>Por ahora, solo Android. El panel del administrador anda en cualquier navegador, también desde la compu.</p>
+            </div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+
+    <!-- ================================================================= -->
+    <!--  10. CONTACTO / PEDIDO DE ACCESO A LA BETA                         -->
+    <!--  Crea un doc en la coleccion raiz "contactos" (js/formulario.js).  -->
+    <!--  El boton arranca DESHABILITADO: lo habilita el JS. Asi, sin JS, el -->
+    <!--  formulario no se puede mandar y nunca terminan datos en la URL.  -->
+    <!-- ================================================================= -->
+    <section class="seccion contacto" id="contacto" aria-labelledby="contacto-titulo">
+      <div class="contenedor contacto__grilla">
+
+        <div class="contacto__texto" data-revelar>
+          <h2 class="titulo-seccion" id="contacto-titulo">Pedí acceso <span class="segundo-tiempo">a la beta.</span></h2>
+          <p class="bajada">Contanos de tu equipo y te escribimos para sumarlo. Mientras dure la beta, es gratis.</p>
+
+          <h3 class="contacto__subtitulo">Qué pasa después</h3>
+          <ol class="despues" role="list">
+            <li><span class="pad pad--chico" aria-hidden="true"></span>Te escribimos al email que nos dejes.</li>
+            <li><span class="pad pad--chico" aria-hidden="true"></span>Coordinamos el alta del espacio de tu equipo.</li>
+            <li><span class="pad pad--chico" aria-hidden="true"></span>Invitás a tu gente desde el panel y cada uno usa la app.</li>
+          </ol>
+        </div>
+
+        <div class="contacto__caja" data-revelar>
+          <form class="formulario" id="formulario" method="post" action="#contacto" novalidate>
+
+            <div class="campo">
+              <label for="f-nombre">Nombre</label>
+              <input id="f-nombre" name="nombre" type="text" autocomplete="name" maxlength="80" required aria-describedby="f-nombre-error">
+              <p class="campo__error" id="f-nombre-error" hidden></p>
+            </div>
+
+            <div class="campo">
+              <label for="f-email">Email</label>
+              <input id="f-email" name="email" type="email" autocomplete="email" inputmode="email" maxlength="120" required aria-describedby="f-email-error">
+              <p class="campo__error" id="f-email-error" hidden></p>
+            </div>
+
+            <div class="campo">
+              <label for="f-empresa">Empresa o equipo <span class="campo__opcional">(opcional)</span></label>
+              <input id="f-empresa" name="empresa" type="text" autocomplete="organization" maxlength="80" aria-describedby="f-empresa-error">
+              <p class="campo__error" id="f-empresa-error" hidden></p>
+            </div>
+
+            <div class="campo">
+              <label for="f-plan">¿Qué plan te interesa?</label>
+              <div class="campo__select">
+                <select id="f-plan" name="plan" aria-describedby="f-plan-error">
+                  <option value="no-se" selected>Todavía no sé</option>
+                  <option value="free">Free</option>
+                  <option value="equipo">Equipo</option>
+                  <option value="pyme">Pyme</option>
+                  <option value="empresa">Empresa</option>
+                </select>
+                <svg class="icono" aria-hidden="true"><use href="#i-abajo"></use></svg>
+              </div>
+              <p class="campo__error" id="f-plan-error" hidden></p>
+            </div>
+
+            <div class="campo">
+              <label for="f-mensaje">Contanos de tu equipo <span class="campo__opcional">(opcional)</span></label>
+              <textarea id="f-mensaje" name="mensaje" rows="4" maxlength="1000" aria-describedby="f-mensaje-ayuda f-mensaje-error"></textarea>
+              <p class="campo__ayuda" id="f-mensaje-ayuda">
+                <span>¿Cuántos son, a qué se dedican y dónde guardan hoy las cosas?</span>
+                <span class="campo__contador" data-contador>0 / 1000</span>
+              </p>
+              <p class="campo__error" id="f-mensaje-error" hidden></p>
+            </div>
+
+            <!-- TRAMPA PARA BOTS: una persona no ve este campo; un robot que
+                 completa todo, si. Si llega con algo, js/formulario.js hace
+                 de cuenta que se envio y no escribe nada en la base. -->
+            <div class="trampa" aria-hidden="true">
+              <label for="f-nd-trampa">Dejá este campo vacío</label>
+              <input id="f-nd-trampa" name="nd-trampa" type="text" tabindex="-1" autocomplete="off">
+            </div>
+
+            <p class="formulario__error" id="formulario-error" role="alert" hidden></p>
+
+            <button class="boton boton--principal boton--ancho" type="submit" id="formulario-enviar" disabled>Pedir acceso</button>
+            <p class="formulario__estado" id="formulario-estado" role="status" aria-live="polite"></p>
+
+            <noscript><p class="formulario__sin-js">Para mandar el formulario hace falta tener JavaScript activado.</p></noscript>
+
+            <p class="formulario__privacidad">Usamos estos datos solo para responderte sobre la beta.</p>
+          </form>
+
+          <!-- Lo que se ve cuando el pedido se guardo. tabindex=-1 para poder
+               mover el foco aca y que el lector de pantalla lo anuncie. -->
+          <div class="formulario-listo" id="formulario-listo" tabindex="-1" hidden>
+            <span class="formulario-listo__icono" aria-hidden="true"><svg class="icono"><use href="#i-check"></use></svg></span>
+            <h3 class="formulario-listo__titulo" id="formulario-listo-titulo">¡Listo!</h3>
+            <p id="formulario-listo-texto">Recibimos tu pedido. Te vamos a escribir pronto.</p>
+            <button class="boton boton--secundario" type="button" id="formulario-otro">Enviar otro pedido</button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+
+  <!-- =================================================================== -->
+  <!--  11. PIE                                                             -->
+  <!--  El fondo del pie es EXACTAMENTE el color que trae el PNG de la marca -->
+  <!--  completa (#030E2C, medido en sus bordes): asi el logo se ve "pintado" -->
+  <!--  sobre la pagina, sin cuadrado alrededor y sin tocar el archivo.      -->
+  <!-- =================================================================== -->
+  <footer class="pie">
+    <div class="contenedor pie__grilla">
+      <div class="pie__marca">
+        <img src="img/marca-completa-oscuro.png" alt="NeuroDesk AI. Tu información. Inteligente." width="601" height="601" loading="lazy">
+      </div>
+
+      <nav class="pie__nav" aria-label="Pie de página">
+        <h2 class="pie__titulo">Producto</h2>
+        <ul role="list">
+          <li><a href="#como-funciona">Cómo funciona</a></li>
+          <li><a href="#diferencia">Por qué NeuroDesk</a></li>
+          <li><a href="#precios">Precios</a></li>
+          <li><a href="#seguridad">Seguridad y privacidad</a></li>
+          <li><a href="#preguntas">Preguntas frecuentes</a></li>
+        </ul>
+      </nav>
+
+      <nav class="pie__nav" aria-label="Accesos">
+        <h2 class="pie__titulo">Accesos</h2>
+        <ul role="list">
+          <li><a href="/panel/">Entrar al panel</a></li>
+          <li><a href="#contacto">Pedí acceso a la beta</a></li>
+        </ul>
+      </nav>
+
+      <div class="pie__equipo">
+        <h2 class="pie__titulo">El equipo</h2>
+        <p>Hecho en Argentina por <b>Valentino Mattio</b> y <b>Martín Ramírez</b>.</p>
+      </div>
+    </div>
+
+    <div class="contenedor pie__legal">
+      <p class="pie__academico">Proyecto académico: NeuroDesk AI es una startup desarrollada para Programación II (6º 1ª).</p>
+      <p>© 2026 NeuroDesk AI</p>
+    </div>
+  </footer>
+
+</body>
+</html>

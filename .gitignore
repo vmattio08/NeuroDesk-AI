@@ -20,6 +20,11 @@ firebase-debug.log
 firestore-debug.log
 ui-debug.log
 
+# ---- Sitio armado para Firebase Hosting ----
+# Lo arma scripts/armar-sitio.mjs (landing/ + panel/ + el APK) antes de cada
+# deploy. Es un resultado, como app/build/: las fuentes son landing/ y panel/.
+/sitio/
+
 # ---- Flutter / Dart ----
 app/.dart_tool/
 app/.flutter-plugins

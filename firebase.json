@@ -5,9 +5,29 @@
     "rules": "firebase/firestore.rules",
     "indexes": "firebase/firestore.indexes.json"
   },
+  "hosting": {
+    "public": "sitio",
+    "predeploy": "node scripts/armar-sitio.mjs",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**", "**/*.md"],
+    "cleanUrls": true,
+    "redirects": [
+      { "regex": "^/panel$", "destination": "/panel/", "type": 301 }
+    ],
+    "headers": [
+      {
+        "regex": "^[^.]*$|\\.(html|apk)$",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      },
+      {
+        "regex": "\\.(css|js|mjs|png|jpe?g|gif|svg|webp|avif|ico|woff2?)$",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=600" }]
+      }
+    ]
+  },
   "emulators": {
     "firestore": { "port": 8080 },
     "auth": { "port": 9099 },
+    "hosting": { "port": 5002 },
     "ui": { "enabled": true }
   }
 }

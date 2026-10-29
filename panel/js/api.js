@@ -18,26 +18,29 @@
 import { auth, signOut } from './firebase.js';
 
 
-// ############################################################################
-// ##   >>>>>>>>>>   COMPLETAR / ELEGIR SEGUN DONDE SE ESTE PROBANDO   <<<<<  ##
-// ##                                                                        ##
-// ##   El contrato manda que la URL del backend viva en UNA sola constante,  ##
-// ##   nunca hardcodeada en cada pantalla. Esta es esa constante.            ##
-// ##                                                                        ##
-// ##   Desarrollo (backend corriendo en la misma maquina):                   ##
-// ##       http://localhost:8080                                            ##
-// ##   Produccion (Render):                                                  ##
-// ##       https://neurodesk-api.onrender.com                                ##
-// ##                                                                        ##
-// ##   OJO CON CORS: el backend acepta pedidos SOLO desde el origen del      ##
-// ##   panel. En desarrollo ese origen es http://localhost:5500 (el puerto   ##
-// ##   por defecto de Live Server de VS Code). Si abris el panel en otro     ##
-// ##   puerto, el navegador va a bloquear la respuesta y en la consola vas   ##
-// ##   a ver un error de CORS que NO es culpa de este archivo: hay que       ##
-// ##   agregar ese origen a la lista del backend. Es lo primero que hay que  ##
-// ##   sospechar cuando "el fetch no llega" pero el backend loguea el pedido.##
-// ############################################################################
-export const URL_API = 'http://localhost:8080';
+// ----------------------------------------------------------------------------
+// URL_API  —  la UNICA constante con la direccion del backend (el contrato
+// prohibe una URL fija en cada pantalla). Se elige SOLA segun desde donde se
+// abrio el panel, asi nadie tiene que acordarse de cambiarla antes de publicar
+// (el error clasico: subir el panel apuntando a localhost):
+//   - localhost o 127.0.0.1 (Live Server, emulador de Hosting) -> el backend
+//     de la misma compu;
+//   - cualquier otro lado (neurodesk-6to.web.app/panel/) -> el de Render.
+//
+// OJO CON CORS: el backend le contesta solo a los origenes de su lista blanca
+// (CORS_ORIGENES, ver server.js). En Render, render.yaml ya trae
+// neurodesk-6to.web.app y neurodesk-6to.firebaseapp.com. En la compu, sin esa
+// variable, solo localhost y 127.0.0.1 en los puertos 5500 y 8080: desde otro
+// puerto (el 5002 del emulador de Hosting) Firestore anda igual, pero invitar
+// o quitar miembros falla hasta sumar ese origen a CORS_ORIGENES en el .env.
+// Es lo primero que hay que sospechar cuando "el fetch no llega" pero el
+// backend loguea el pedido.
+// ----------------------------------------------------------------------------
+const ES_LOCAL = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+
+export const URL_API = ES_LOCAL
+  ? 'http://localhost:8080'
+  : 'https://neurodesk-api.onrender.com';
 
 
 // ----------------------------------------------------------------------------

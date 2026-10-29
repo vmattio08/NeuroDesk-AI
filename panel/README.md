@@ -10,18 +10,17 @@ entrega nada: ver *"¿Es seguro?"* al final).
 
 ---
 
-## 1. Qué hay que completar antes de abrirlo
+## 1. Configuración (ya está completa)
 
-Son dos archivos y dos minutos. Los dos lugares están marcados con un cartel
-`>>>>> COMPLETAR <<<<<`.
+No hay nada que pegar antes de abrirlo.
 
-| Archivo | Qué va | De dónde sale |
-|---|---|---|
-| `js/firebase.js` | el objeto `configFirebase` | Consola de Firebase → ⚙ Configuración del proyecto → Tus apps → App web → **Config** |
-| `js/api.js` | la constante `URL_API` | `http://localhost:8080` mientras se desarrolla, `https://neurodesk-api.onrender.com` en producción |
+| Archivo | Qué tiene |
+|---|---|
+| `js/firebase.js` | el objeto `configFirebase` del proyecto `neurodesk-6to` (sale de Consola de Firebase → ⚙ Configuración del proyecto → Tus apps → App web → **Config**) |
+| `js/api.js` | `URL_API`, que **se elige sola** según desde dónde se abre el panel: desde `localhost` o `127.0.0.1`, el backend de la compu (`http://localhost:8080`); desde cualquier otro lado (el sitio publicado), el de Render (`https://neurodesk-api.onrender.com`). Así nunca se publica apuntando a `localhost`. |
 
-Si te olvidás de la config de Firebase, el login te lo dice con un cartel rojo
-en vez de tirar un error críptico en la consola.
+Si algún día la config de Firebase queda vacía, el login lo avisa con un cartel
+rojo en vez de tirar un error críptico en la consola.
 
 ---
 
@@ -57,6 +56,14 @@ cd fase2/panel
 npx serve -l 5500
 ```
 
+### Opción D — Como queda publicado (landing + panel juntos)
+
+Para ver el panel exactamente como lo va a servir Firebase Hosting, en
+`/panel/` y al lado de la landing: ver **"Publicar el sitio"** en
+`fase2/README.md`. Queda en `http://localhost:5002/panel/`. Ojo: desde el
+puerto 5002, invitar o quitar miembros contra el backend local necesita sumar
+ese origen a `CORS_ORIGENES` (ver la sección 6).
+
 ### Lo que además tiene que estar listo en Firebase
 
 - **Reglas desplegadas**: `firebase deploy --only firestore:rules`
@@ -68,57 +75,42 @@ npx serve -l 5500
   domains*. `localhost` ya viene autorizado. **Cuando publiques, hay que
   agregar el dominio nuevo a esa lista**, o el login falla con
   `auth/unauthorized-domain`.
-- **CORS en el backend**: el backend solo acepta pedidos desde el origen del
-  panel. En desarrollo, `http://localhost:5500`. Al publicar, agregar el
-  dominio nuevo a la lista de orígenes permitidos del backend.
+- **CORS en el backend**: el backend solo acepta pedidos desde los orígenes de
+  su lista (`CORS_ORIGENES`). En la compu, sin esa variable, acepta
+  `localhost` y `127.0.0.1` en los puertos 5500 y 8080. En Render,
+  `render.yaml` ya trae los dos dominios de Firebase Hosting
+  (`neurodesk-6to.web.app` y `neurodesk-6to.firebaseapp.com`).
 
 ---
 
-## 3. Cómo publicarlo gratis
+## 3. Cómo se publica
 
-Es HTML, CSS y JS estáticos: lo hostea cualquiera. Tres opciones, de más a
-menos recomendada.
+**Va junto con la landing, en Firebase Hosting, bajo `/panel/`:**
+`https://neurodesk-6to.web.app/panel/`. El paso a paso (armar, probar y
+publicar, siempre con el OK de los dos) está en **"Publicar el sitio"** en
+`fase2/README.md`.
 
-### A. Firebase Hosting (la mejor para este proyecto)
+Lo que hay que saber de este panel publicado:
 
-Ventaja concreta: el dominio que te da (`tu-proyecto.web.app`) **queda
-autorizado solo** en Authentication, así que el login funciona sin tocar nada
-más. Y es el mismo proyecto donde ya está Firestore.
+- **Se sirve tal cual está en esta carpeta**: `scripts/armar-sitio.mjs` lo
+  copia a `sitio/panel/` (menos este README) y Hosting publica `sitio/`. No hay
+  build ni nada que cambiar a mano: las rutas son relativas (`css/estilo.css`,
+  `./js/...`, `app.html`) y `URL_API` pasa sola a Render.
+- **Con `cleanUrls`**, Hosting saca el `.html` de las direcciones: `app.html`
+  redirige a `/panel/app` y `index.html` a `/panel/`. Las páginas siguen
+  enlazándose con `.html` a propósito, para que también anden con Live Server.
+- **`/panel` sin la barra final redirige a `/panel/`** (regla en
+  `firebase.json`). Sin la barra, el navegador resolvería `css/estilo.css` como
+  `/css/estilo.css`, que es de la landing, y el panel cargaría roto.
+- El dominio `neurodesk-6to.web.app` ya viene autorizado en Firebase Auth, y
+  `render.yaml` ya lo tiene en `CORS_ORIGENES`: no hay que tocar nada más.
 
-```bash
-# desde fase2/  (una sola vez)
-firebase init hosting
-#   ¿Public directory?          panel
-#   ¿Single-page app?           N     <-- NO. Nuestro router es por hash.
-#   ¿Sobrescribir index.html?   N     <-- NO, tenemos el nuestro.
+> **No correr `firebase init hosting`**: pisaría la configuración de hosting
+> de `firebase.json` (que publica `sitio/`, no `panel/`).
 
-firebase deploy --only hosting
-```
-
-Queda en `https://<tu-proyecto>.web.app`. Cada `deploy` publica la versión
-nueva y se puede volver atrás desde la consola.
-
-### B. GitHub Pages
-
-Gratis y sale del repo que ya tenemos.
-
-1. Repo → **Settings** → **Pages** → Source: `main`, carpeta `/root`.
-2. Queda en `https://<usuario>.github.io/<repo>/fase2/panel/index.html`.
-3. **Agregar `<usuario>.github.io` a los dominios autorizados de Firebase Auth.**
-
-Ojo: el repo tiene que ser público (o pagar Pages en privado), y todo el código
-del panel queda a la vista. **No es un problema**: la config de Firebase es
-pública por diseño (ver abajo) y no hay ninguna clave secreta en esta carpeta.
-
-### C. Netlify Drop
-
-Lo más rápido de todo: entrar a `app.netlify.com/drop` y **arrastrar la carpeta
-`panel`**. Da una URL al toque. Sirve para mostrarle algo a alguien en cinco
-minutos; para la entrega usamos A o B.
-
-En las tres: acordarse de **cambiar `URL_API`** a la URL de Render y de
-**agregar el dominio nuevo a CORS en el backend y a Authorized domains en
-Firebase Auth**.
+Si alguna vez hiciera falta publicarlo en otro lado (GitHub Pages, Netlify
+Drop), anda igual porque es estático, pero ese dominio nuevo hay que sumarlo a
+`CORS_ORIGENES` en Render.
 
 ---
 
@@ -131,10 +123,10 @@ panel/
 ├── css/estilo.css          todo el CSS, con la paleta arriba de todo
 ├── js/
 │   ├── firebase.js         initializeApp + Firestore con caché persistente
-│   │                       (>>> LA CONFIG SE COMPLETA ACÁ <<<)
+│   │                       (acá está la config del proyecto)
 │   ├── auth.js             entrar, salir y el guardia de admin
 │   ├── api.js              pedir(): la única función que llama al backend
-│   │                       (>>> LA URL DEL BACKEND SE COMPLETA ACÁ <<<)
+│   │                       (URL_API: local o Render, se elige sola)
 │   ├── util.js             esc() y las fechas
 │   └── pantallas/
 │       ├── items.js        tabla en vivo + buscador + filtros + badge
@@ -194,6 +186,8 @@ antes de montar la pantalla siguiente, siempre.
 | `failed-precondition` al filtrar | Falta el índice compuesto. El error de la consola trae el link para crearlo. |
 | `auth/unauthorized-domain` | Falta agregar el dominio en Authentication → Settings → Authorized domains. |
 | El fetch al backend "no llega" pero el backend loguea el pedido | CORS: el origen del panel no está en la lista del backend. |
+| Desde el emulador de Hosting (`localhost:5002`) se ve todo, pero invitar o quitar miembros da *"No hay conexión con el servidor"* | CORS otra vez: el backend local, sin `CORS_ORIGENES`, solo acepta los puertos 5500 y 8080. Agregá al `.env` de `api/` la línea `CORS_ORIGENES=http://localhost:5500,http://127.0.0.1:5500,http://localhost:8080,http://127.0.0.1:8080,http://localhost:5002,http://127.0.0.1:5002` (la variable **reemplaza** la lista por defecto: por eso van todos) y reiniciá el backend. |
+| Recién publicado, se sigue viendo lo viejo | Caché: el HTML se revisa siempre, pero CSS, JS e imágenes se guardan hasta 10 minutos. Ctrl+F5 para no esperar. |
 | Todo tarda 60 segundos la primera vez | Render free estaba dormido. Es normal, y por eso el panel llama a `/salud` al arrancar. |
 | El badge dice *Sin conexión* un instante al cargar | Normal: la primera foto siempre sale de la caché. Si **queda** en *Sin conexión*, ahí sí no hay internet. |
 

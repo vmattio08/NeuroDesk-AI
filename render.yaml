@@ -84,10 +84,13 @@ services:
       # Lista blanca de CORS (server.js, separada por comas). Solo la necesita
       # el PANEL web: la app Flutter no manda header Origin.
       # Sin esta variable, server.js usa SOLO origenes de localhost, que en
-      # Render no sirven. Van los dominios que da Firebase Hosting (la opcion A
-      # de panel/README.md) y localhost:5500 para probar el panel local contra
-      # el backend publicado. SI EL PANEL SE PUBLICA EN OTRO LADO (GitHub
-      # Pages, Netlify), hay que agregar ese dominio aca, exacto y sin "/" final.
+      # Render no sirven. Van los dos dominios de Firebase Hosting, donde se
+      # publica el panel en /panel/ junto con la landing ("Publicar el sitio"
+      # en el README de fase2/). localhost:5500 queda por si alguien apunta a
+      # mano el panel local a Render: hoy URL_API (panel/js/api.js) se elige
+      # sola y desde localhost va al backend local. SI EL PANEL SE PUBLICA EN
+      # OTRO LADO (GitHub Pages, Netlify), hay que agregar ese dominio aca,
+      # exacto y sin "/" final.
       - key: CORS_ORIGENES
         value: https://neurodesk-6to.web.app,https://neurodesk-6to.firebaseapp.com,http://localhost:5500
 
@@ -134,14 +137,14 @@ services:
 
       # ----------------------------------------------------------------------
       # IA — Google Gemini (servicios/ia.js). Solo la CLAVE es obligatoria: los
-      # modelos (gemini-3.8-flash para el chat, gemini-3.5-flash-lite de
-      # respaldo, gemini-embedding-001 para la busqueda) y el umbral de
-      # similitud tienen un valor por defecto en el codigo. Si algun dia hay que
-      # cambiar un modelo sin commitear, se agrega la variable a mano en
-      # Settings > Environment (GEMINI_MODELO_CHAT, GEMINI_MODELOS_CHAT_RESPALDO,
-      # GEMINI_MODELO_EMBED, UMBRAL_SIMILITUD). No se declaran aca a proposito:
-      # cada sync: false es un campo mas que Render obliga a completar al crear
-      # el Blueprint.
+      # modelos (gemini-3.6-flash para el chat, con gemini-3.1-flash-lite y
+      # gemini-3.5-flash-lite de respaldo, en ese orden; gemini-embedding-001
+      # para la busqueda) y el umbral de similitud tienen un valor por defecto
+      # en el codigo. Si algun dia hay que cambiar un modelo sin commitear, se
+      # agrega la variable a mano en Settings > Environment (GEMINI_MODELO_CHAT,
+      # GEMINI_MODELOS_CHAT_RESPALDO, GEMINI_MODELO_EMBED, UMBRAL_SIMILITUD). No
+      # se declaran aca a proposito: cada sync: false es un campo mas que Render
+      # obliga a completar al crear el Blueprint.
       # ----------------------------------------------------------------------
       - key: GEMINI_API_KEY
         sync: false
