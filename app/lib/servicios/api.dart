@@ -152,7 +152,7 @@ class Api {
     // escribimos nosotros, el backend no encuentra donde empieza cada parte.
     try {
       final String? token = await AuthServicio.tokenActual();
-      if (token == null) return _errorLocal('FALTA_TOKEN', 'Tenes que iniciar sesion para hacer esto.');
+      if (token == null) return _errorLocal('FALTA_TOKEN', 'Tenés que iniciar sesión para hacer esto.');
 
       final http.MultipartRequest pedido =
           http.MultipartRequest('POST', Uri.parse('$urlBase$ruta'));
@@ -166,7 +166,7 @@ class Api {
     } on TimeoutException {
       return _errorLocal(
         'SIGUE_PROCESANDO',
-        'Esta tardando. El archivo sigue procesandose: mira el estado en la lista.',
+        'Está tardando. El archivo sigue procesándose: mirá el estado en la lista.',
       );
     } catch (e) {
       return _errorDeRed(e);
@@ -235,7 +235,7 @@ class Api {
       //    esta por vencer (dura 1 hora).
       final String? token = await AuthServicio.tokenActual();
       if (token == null) {
-        return _errorLocal('FALTA_TOKEN', 'Tenes que iniciar sesion para hacer esto.');
+        return _errorLocal('FALTA_TOKEN', 'Tenés que iniciar sesión para hacer esto.');
       }
 
       final Uri url = Uri.parse('$urlBase$ruta');
@@ -265,7 +265,7 @@ class Api {
       // documento de Firestore, que el StreamBuilder ya esta escuchando.
       return _errorLocal(
         'SIGUE_PROCESANDO',
-        'Esta tardando mas de lo normal. Segui en la lista: te avisa cuando termina.',
+        'Está tardando más de lo normal. Seguí en la lista: te avisa cuando termina.',
       );
     } catch (e) {
       return _errorDeRed(e);
@@ -284,7 +284,7 @@ class Api {
     } catch (_) {
       return _errorLocal(
         'RESPUESTA_RARA',
-        'El servidor contesto algo que no entendemos. Proba de nuevo en un rato.',
+        'El servidor contestó algo que no entendemos. Probá de nuevo en un rato.',
         codigoHttp: respuesta.statusCode,
       );
     }
@@ -302,7 +302,7 @@ class Api {
       datos: cuerpo,
       codigo: (cuerpo['codigo'] ?? 'ERROR_INTERNO').toString(),
       mensaje: (cuerpo['mensaje'] ??
-              'Algo salio mal de nuestro lado. Proba de nuevo.')
+              'Algo salió mal de nuestro lado. Probá de nuevo.')
           .toString(),
       detalle: cuerpo['detalle']?.toString(),
       esperarSegundos: int.tryParse(respuesta.headers['retry-after'] ?? ''),
@@ -314,7 +314,7 @@ class Api {
     // El detalle tecnico va al log de nosotros, nunca a la pantalla.
     return _errorLocal(
       'SIN_CONEXION',
-      'No hay conexion con el servidor. Revisa tu internet y proba de nuevo.',
+      'No hay conexión con el servidor. Revisá tu internet y probá de nuevo.',
       detalle: e.toString(),
     );
   }

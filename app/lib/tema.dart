@@ -44,6 +44,68 @@ const Color superficie = Color(0xFF1E293B);
 /// Gris apagado para las leyendas y los textos secundarios.
 const Color grisApagado = Color(0xFF94A3B8);
 
+// --- EL LOGO OFICIAL --------------------------------------------------------
+// REGLA DURA: el logo es EXACTAMENTE el PNG de la marca (marca/png/), copiado
+// tal cual a assets/marca/. NO se redibuja, NO se vectoriza, NO se recolorea y
+// NO se recorta: solo se muestra mas grande o mas chico. Si hay que cambiarlo,
+// se cambia el archivo, nunca el dibujo en el codigo.
+//
+// Se usa la version "oscuro" porque la app es oscura. Ese PNG trae su propio
+// fondo azul (casi negro, 0xFF030D2A), un poco mas oscuro que azulNoche: por
+// eso va adentro de una "placa" redondeada del MISMO color que el fondo del
+// PNG, con margen suficiente para que las esquinas de la imagen no se toquen
+// con las esquinas redondeadas (asi no se le recorta ni un pixel).
+
+/// Ruta del isotipo oficial sobre fondo oscuro (declarado en pubspec.yaml).
+const String isotipoOscuro = 'assets/marca/isotipo-oscuro.png';
+
+/// El color del fondo que ya trae el PNG del isotipo oscuro (medido en sus
+/// bordes). La placa usa este color para que no se vea el borde de la imagen.
+const Color fondoDelIsotipo = Color(0xFF030D2A);
+
+/// El isotipo oficial dentro de su placa redondeada.
+class LogoNeuroDesk extends StatelessWidget {
+  const LogoNeuroDesk({super.key, this.tamano = 120});
+
+  /// Lado de la placa, en pixeles logicos. El PNG trae mucho margen propio
+  /// alrededor del cerebro: el dibujo ocupa mas o menos el 40% de la placa.
+  final double tamano;
+
+  @override
+  Widget build(BuildContext context) {
+    final double radio = tamano * 0.24;
+    return Center(
+      child: Container(
+        width: tamano,
+        height: tamano,
+        // El margen interno es 0.3 x radio: con eso el cuadrado de la imagen
+        // entra entero adentro de las esquinas redondeadas (hace falta
+        // radio x (1 - 1/raiz(2)) = 0.293 x radio).
+        padding: EdgeInsets.all(radio * 0.3),
+        decoration: BoxDecoration(
+          color: fondoDelIsotipo,
+          borderRadius: BorderRadius.circular(radio),
+          border: Border.all(color: cian.withValues(alpha: 0.25)),
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: cian.withValues(alpha: 0.18),
+              blurRadius: tamano * 0.2,
+            ),
+          ],
+        ),
+        child: Image.asset(
+          isotipoOscuro,
+          fit: BoxFit.contain,
+          semanticLabel: 'Logo de NeuroDesk AI',
+          // Si algun dia falta el archivo, mejor un hueco que el cuadro rojo
+          // (y NUNCA otro icono en su lugar: el logo es el PNG o nada).
+          errorBuilder: (_, _, _) => const SizedBox.shrink(),
+        ),
+      ),
+    );
+  }
+}
+
 // --- COLORES DE LOS ESTADOS DEL ITEM ---------------------------------------
 // pendiente / procesando / listo / error. Son los mismos cuatro estados del
 // modelo de datos: el chip de color es la maquina de estados hecha dibujo.
@@ -270,8 +332,8 @@ class ErrorMensaje extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Puede ser la conexion o que tu sesion haya vencido. '
-              'Proba salir y volver a entrar.',
+              'Puede ser la conexión o que tu sesión haya vencido. '
+              'Probá salir y volver a entrar.',
               textAlign: TextAlign.center,
               style: TextStyle(color: grisApagado, fontSize: 14),
             ),

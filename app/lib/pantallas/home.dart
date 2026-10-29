@@ -202,7 +202,7 @@ class _HomePantallaState extends State<HomePantalla>
     if ((tipo == 'pdf' || tipo == 'foto') && textoExtraido.isEmpty) {
       mostrarAviso(
         context,
-        'El archivo no se guarda en el servidor. Volvé a subirlo desde el boton Agregar.',
+        'El archivo no se guarda en el servidor. Volvé a subirlo desde el botón Agregar.',
         esError: true,
       );
       return;
@@ -216,7 +216,7 @@ class _HomePantallaState extends State<HomePantalla>
     } catch (e) {
       debugPrint('[NeuroDesk] reintentar exploto: $e');
       if (mounted) {
-        mostrarAviso(context, 'No pudimos reintentar. Proba de nuevo.', esError: true);
+        mostrarAviso(context, 'No pudimos reintentar. Probá de nuevo.', esError: true);
       }
     } finally {
       if (mounted) setState(() => _ocupados.remove(itemId));
@@ -236,7 +236,7 @@ class _HomePantallaState extends State<HomePantalla>
             title: const Text('¿Borrar este contenido?',
                 style: TextStyle(color: grisClaro)),
             content: Text(
-              '"$titulo" se borra junto con todo lo que la IA aprendio de el. '
+              '"$titulo" se borra junto con todo lo que la IA aprendió de él. '
               'No se puede deshacer.',
               style: const TextStyle(color: grisApagado),
             ),
@@ -267,7 +267,7 @@ class _HomePantallaState extends State<HomePantalla>
     } catch (e) {
       debugPrint('[NeuroDesk] borrar exploto: $e');
       if (mounted) {
-        mostrarAviso(context, 'No pudimos borrarlo. Proba de nuevo.', esError: true);
+        mostrarAviso(context, 'No pudimos borrarlo. Probá de nuevo.', esError: true);
       }
     } finally {
       if (mounted) setState(() => _ocupados.remove(itemId));
@@ -289,7 +289,7 @@ class _HomePantallaState extends State<HomePantalla>
     } catch (e) {
       debugPrint('[NeuroDesk] no se pudo cambiar de workspace: $e');
       if (!mounted) return;
-      mostrarAviso(context, 'No pudimos cambiar de equipo. Proba de nuevo.', esError: true);
+      mostrarAviso(context, 'No pudimos cambiar de equipo. Probá de nuevo.', esError: true);
     }
   }
 
@@ -375,7 +375,7 @@ class _HomePantallaState extends State<HomePantalla>
                   children: <Widget>[
                     Icon(Icons.logout, size: 18, color: grisApagado),
                     SizedBox(width: 10),
-                    Text('Cerrar sesion', style: TextStyle(color: grisClaro)),
+                    Text('Cerrar sesión', style: TextStyle(color: grisClaro)),
                   ],
                 ),
               ),
@@ -403,14 +403,14 @@ class _HomePantallaState extends State<HomePantalla>
               children: <Widget>[
                 _ListaDeItems(
                   stream: _itemsDelEquipo,
-                  vacioTitulo: 'Todavia no hay nada compartido',
+                  vacioTitulo: 'Todavía no hay nada compartido',
                   vacioDetalle:
-                      'Lo que suban tus companeros como "Todo el equipo" aparece aca.',
+                      'Lo que suban tus compañeros como "Todo el equipo" aparece acá.',
                   constructorDeFila: _fila,
                 ),
                 _ListaDeItems(
                   stream: _misItems,
-                  vacioTitulo: 'Todavia no subiste nada',
+                  vacioTitulo: 'Todavía no subiste nada',
                   vacioDetalle:
                       'Tocá Agregar para guardar tu primera nota, foto o PDF.',
                   constructorDeFila: _fila,
@@ -418,7 +418,7 @@ class _HomePantallaState extends State<HomePantalla>
                 if (_esAdmin)
                   _ListaDeItems(
                     stream: _todosLosItems!,
-                    vacioTitulo: 'El equipo todavia no cargo nada',
+                    vacioTitulo: 'El equipo todavía no cargó nada',
                     vacioDetalle:
                         'Como administrador ves todo, incluso lo privado de cada uno.',
                     constructorDeFila: _fila,
@@ -453,7 +453,7 @@ class _HomePantallaState extends State<HomePantalla>
     // Todo se lee con default. Un item cargado a mano desde la consola de
     // Firebase, o escrito por una version vieja de la app, puede tener campos
     // faltantes: eso NO puede romper la lista de todo el equipo.
-    final String titulo = (d['titulo'] ?? '(sin titulo)').toString();
+    final String titulo = (d['titulo'] ?? '(sin título)').toString();
     final String tipo = (d['tipo'] ?? 'nota').toString();
     final String estado = (d['estado'] ?? 'pendiente').toString();
     final String visibilidad = (d['visibilidad'] ?? 'privado').toString();
@@ -586,7 +586,7 @@ class _HomePantallaState extends State<HomePantalla>
                 icon: const Icon(Icons.refresh, size: 18),
                 label: Text(
                   estado == 'pendiente'
-                      ? 'Nunca se proceso: tocá para procesarlo'
+                      ? 'Nunca se procesó: tocá para procesarlo'
                       : 'Reintentar',
                 ),
                 style: TextButton.styleFrom(foregroundColor: cianElectrico),
@@ -681,7 +681,7 @@ class _BandaGuardadoLocal extends StatelessWidget {
           SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Estas viendo lo ultimo guardado en el telefono. Puede faltar algo nuevo.',
+              'Estás viendo lo último guardado en el teléfono. Puede faltar algo nuevo.',
               style: TextStyle(color: colorProcesando, fontSize: 12),
             ),
           ),
@@ -707,7 +707,7 @@ class _BandaSinConexion extends StatelessWidget {
           SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Sin conexion. Podes escribir notas: se envian solas cuando vuelva.',
+              'Sin conexión. Podés escribir notas: se envían solas cuando vuelva.',
               style: TextStyle(color: colorError, fontSize: 12),
             ),
           ),

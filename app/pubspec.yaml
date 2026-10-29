@@ -77,3 +77,11 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # El logo OFICIAL de la marca, copiado TAL CUAL de marca/png/ (mismo archivo,
+  # mismos bytes). No se edita: si cambia el logo, se reemplaza este PNG.
+  # Lo dibuja LogoNeuroDesk (lib/tema.dart) en el login y en "Preparando tu
+  # cuenta...". El icono del launcher de Android (mipmap-*/ic_launcher.png)
+  # es este mismo PNG escalado a 48/72/96/144/192 px.
+  assets:
+    - assets/marca/isotipo-oscuro.png

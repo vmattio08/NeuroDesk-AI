@@ -113,7 +113,7 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
     } catch (e) {
       debugPrint('[NeuroDesk] elegir foto fallo: $e');
       if (!mounted) return;
-      mostrarAviso(context, 'No pudimos abrir la camara o la galeria.', esError: true);
+      mostrarAviso(context, 'No pudimos abrir la cámara o la galería.', esError: true);
     }
   }
 
@@ -155,7 +155,7 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
     if (bytes <= maxBytesArchivo) return true;
     if (!mounted) return false;
     final String mb = (bytes / 1024 / 1024).toStringAsFixed(1);
-    mostrarAviso(context, 'El archivo pesa $mb MB y el maximo es 10 MB.', esError: true);
+    mostrarAviso(context, 'El archivo pesa $mb MB y el máximo es 10 MB.', esError: true);
     return false;
   }
 
@@ -172,15 +172,15 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
 
     // --- validaciones locales, con mensajes en castellano --------------------
     if (titulo.isEmpty) {
-      mostrarAviso(context, 'Poné un titulo para reconocerlo despues.', esError: true);
+      mostrarAviso(context, 'Poné un título para reconocerlo después.', esError: true);
       return;
     }
     if (titulo.length > maxCaracteresTitulo) {
-      mostrarAviso(context, 'El titulo no puede pasar de 140 caracteres.', esError: true);
+      mostrarAviso(context, 'El título no puede pasar de 140 caracteres.', esError: true);
       return;
     }
     if (_tipo == 'nota' && texto.isEmpty) {
-      mostrarAviso(context, 'Escribi el contenido de la nota.', esError: true);
+      mostrarAviso(context, 'Escribí el contenido de la nota.', esError: true);
       return;
     }
     if (_tipo == 'nota' && texto.length > maxCaracteresNota) {
@@ -192,7 +192,7 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
       return;
     }
     if ((_tipo == 'pdf' || _tipo == 'foto') && _archivo == null) {
-      mostrarAviso(context, 'Elegi primero el archivo.', esError: true);
+      mostrarAviso(context, 'Elegí primero el archivo.', esError: true);
       return;
     }
 
@@ -268,8 +268,8 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
       mostrarAvisoEn(
         mensajero,
         r.sigueProcesando
-            ? 'Se guardo y sigue procesandose. Mira el estado en la lista.'
-            : '${r.mensaje} Quedo guardado: podes reintentar desde la lista.',
+            ? 'Se guardó y sigue procesándose. Mirá el estado en la lista.'
+            : '${r.mensaje} Quedó guardado: podés reintentar desde la lista.',
         esError: !r.sigueProcesando,
       );
     } on TimeoutException {
@@ -277,7 +277,7 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
       navegador.pop();
       mostrarAvisoEn(
         mensajero,
-        'Sin conexion: se guardo en el telefono y se sube solo cuando vuelva internet.',
+        'Sin conexión: se guardó en el teléfono y se sube solo cuando vuelva internet.',
       );
     } catch (e) {
       // El caso tipico de aca es permission-denied: token viejo (todavia sin
@@ -286,7 +286,7 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
       if (!mounted) return;
       mostrarAviso(
         context,
-        'No pudimos guardarlo. Proba cerrar sesion y volver a entrar.',
+        'No pudimos guardarlo. Probá cerrar sesión y volver a entrar.',
         esError: true,
       );
     } finally {
@@ -312,7 +312,7 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              const _Etiqueta('¿Que queres guardar?'),
+              const _Etiqueta('¿Qué querés guardar?'),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
@@ -325,7 +325,7 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
               ),
               const SizedBox(height: 20),
 
-              const _Etiqueta('Titulo'),
+              const _Etiqueta('Título'),
               const SizedBox(height: 8),
               TextField(
                 controller: _titulo,
@@ -344,7 +344,7 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
                   maxLines: 9,
                   maxLength: maxCaracteresNota,
                   style: const TextStyle(color: grisClaro),
-                  decoration: _decoracion('Escribi lo que quieras que la IA recuerde...'),
+                  decoration: _decoracion('Escribí lo que quieras que la IA recuerde...'),
                 ),
               ],
 
@@ -357,7 +357,7 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
                       child: OutlinedButton.icon(
                         onPressed: _guardando ? null : () => _elegirFoto(ImageSource.camera),
                         icon: const Icon(Icons.photo_camera),
-                        label: const Text('Camara'),
+                        label: const Text('Cámara'),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -365,7 +365,7 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
                       child: OutlinedButton.icon(
                         onPressed: _guardando ? null : () => _elegirFoto(ImageSource.gallery),
                         icon: const Icon(Icons.photo_library),
-                        label: const Text('Galeria'),
+                        label: const Text('Galería'),
                       ),
                     ),
                   ],
@@ -404,7 +404,7 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
               ],
 
               if (_tipo == 'link') ...<Widget>[
-                const _Etiqueta('Direccion web'),
+                const _Etiqueta('Dirección web'),
                 const SizedBox(height: 8),
                 TextField(
                   controller: _url,
@@ -416,7 +416,7 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
               ],
 
               const SizedBox(height: 20),
-              const _Etiqueta('¿Quien lo puede ver?'),
+              const _Etiqueta('¿Quién lo puede ver?'),
               const SizedBox(height: 8),
               // Esta es la diferencia de rol del requisito 2 de la materia,
               // puesta en manos de la persona: 'equipo' lo ve cualquier
@@ -444,8 +444,8 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
                 const SizedBox(height: 14),
                 const Text(
                   'Aviso: para leer el texto de las fotos y de los PDF escaneados '
-                  'usamos OCR.space, un servicio externo. Pasa tambien con los '
-                  'items marcados como privados.',
+                  'usamos OCR.space, un servicio externo. Pasa también con los '
+                  'ítems marcados como privados.',
                   style: TextStyle(color: grisApagado, fontSize: 12),
                 ),
               ],
@@ -469,7 +469,7 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
               ),
               const SizedBox(height: 10),
               const Text(
-                'Se guarda al instante y despues la IA lo lee. Si el servidor esta '
+                'Se guarda al instante y después la IA lo lee. Si el servidor está '
                 'dormido puede tardar hasta un minuto: mientras tanto queda en '
                 '"Pendiente" y no se pierde nada.',
                 textAlign: TextAlign.center,

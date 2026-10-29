@@ -345,47 +345,47 @@ class AuthServicio {
     if (conGoogle) {
       switch (e.code) {
         case 'invalid-credential':
-          return 'Google no pudo confirmar tu cuenta. Proba de nuevo.';
+          return 'Google no pudo confirmar tu cuenta. Probá de nuevo.';
         case 'operation-not-allowed':
-          return 'El ingreso con Google no esta habilitado en el proyecto.';
+          return 'El ingreso con Google no está habilitado en el proyecto.';
       }
       // El resto de los codigos dicen lo mismo con o sin Google: siguen abajo.
     }
     switch (e.code) {
       case 'invalid-email':
-        return 'Ese email no parece valido. Revisalo.';
+        return 'Ese email no parece válido. Revisalo.';
       case 'user-disabled':
-        return 'Esta cuenta esta deshabilitada. Hablá con el administrador.';
+        return 'Esta cuenta está deshabilitada. Hablá con el administrador.';
       case 'user-not-found':
       case 'wrong-password':
       case 'invalid-credential':
         // La pista de Google no rompe la nota de seguridad: es la misma para
         // todos y no dice si ese mail tiene cuenta o no.
-        return 'El email o la contrasena no coinciden. '
-            'Si te registraste con Google, usa ese boton.';
+        return 'El email o la contraseña no coinciden. '
+            'Si te registraste con Google, usá ese botón.';
       case 'email-already-in-use':
-        return 'Ya existe una cuenta con ese email. Proba iniciar sesion '
-            '(con tu contrasena o con Google).';
+        return 'Ya existe una cuenta con ese email. Probá iniciar sesión '
+            '(con tu contraseña o con Google).';
       case 'account-exists-with-different-credential':
         // Pasa si el email ya tiene cuenta en Firebase con otra forma de
         // entrar y Firebase no las puede unir sola.
-        return 'Ya tenes una cuenta con ese email. Entra con tu email y '
-            'contrasena.';
+        return 'Ya tenés una cuenta con ese email. Entrá con tu email y '
+            'contraseña.';
       case 'google-sin-token':
         // Este codigo es NUESTRO (lo tira entrarConGoogle), no de Firebase.
-        return 'Google no nos paso los datos de tu cuenta. Proba de nuevo.';
+        return 'Google no nos pasó los datos de tu cuenta. Probá de nuevo.';
       case 'weak-password':
-        return 'La contrasena es muy corta: poné al menos 6 caracteres.';
+        return 'La contraseña es muy corta: poné al menos 6 caracteres.';
       case 'operation-not-allowed':
-        return 'El registro con email no esta habilitado en el proyecto.';
+        return 'El registro con email no está habilitado en el proyecto.';
       case 'too-many-requests':
-        return 'Demasiados intentos. Esperá un minuto y proba de nuevo.';
+        return 'Demasiados intentos. Esperá un minuto y probá de nuevo.';
       case 'network-request-failed':
-        return 'No hay conexion. Revisá tu internet.';
+        return 'No hay conexión. Revisá tu internet.';
       default:
         // El codigo crudo va al log para nosotros, no a la pantalla.
         debugPrint('[NeuroDesk] error de auth sin traducir: ${e.code}');
-        return 'No pudimos completar la accion. Proba de nuevo en un rato.';
+        return 'No pudimos completar la acción. Probá de nuevo en un rato.';
     }
   }
 
@@ -399,29 +399,29 @@ class AuthServicio {
       case GoogleSignInExceptionCode.canceled:
         // entrarConGoogle() ya convierte la cancelacion en null; esto queda
         // por si algun dia se llama desde otro lado.
-        return 'Se cancelo el ingreso con Google.';
+        return 'Se canceló el ingreso con Google.';
       case GoogleSignInExceptionCode.clientConfigurationError:
       case GoogleSignInExceptionCode.providerConfigurationError:
         // Casi siempre es configuracion: falta el client ID web en el
         // google-services.json, o el celular no tiene Google Play services.
         debugPrint('[NeuroDesk] Google mal configurado: ${e.description}');
-        return 'El ingreso con Google no esta disponible en este celular. '
-            'Entra con tu email.';
+        return 'El ingreso con Google no está disponible en este celular. '
+            'Entrá con tu email.';
       case GoogleSignInExceptionCode.interrupted:
       case GoogleSignInExceptionCode.uiUnavailable:
-        return 'Se interrumpio el ingreso con Google. Proba de nuevo.';
+        return 'Se interrumpió el ingreso con Google. Probá de nuevo.';
       case GoogleSignInExceptionCode.unknownError:
         // google_sign_in_android 7.2.11 usa unknownError + este texto cuando
         // el telefono no tiene ninguna cuenta de Google cargada.
         if ((e.description ?? '').startsWith('No credential available')) {
-          return 'No hay ninguna cuenta de Google en este celular. Agrega una '
-              'en Ajustes o entra con tu email.';
+          return 'No hay ninguna cuenta de Google en este celular. Agregá una '
+              'en Ajustes o entrá con tu email.';
         }
         debugPrint('[NeuroDesk] Google error desconocido: ${e.description}');
-        return 'No pudimos entrar con Google. Proba de nuevo en un rato.';
+        return 'No pudimos entrar con Google. Probá de nuevo en un rato.';
       default:
         debugPrint('[NeuroDesk] Google sin traducir: ${e.code} ${e.description}');
-        return 'No pudimos entrar con Google. Proba de nuevo en un rato.';
+        return 'No pudimos entrar con Google. Probá de nuevo en un rato.';
     }
   }
 }

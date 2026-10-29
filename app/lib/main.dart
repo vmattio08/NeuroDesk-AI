@@ -70,8 +70,8 @@ Future<void> main() async {
   ErrorWidget.builder = (FlutterErrorDetails detalles) {
     debugPrint('[NeuroDesk] build roto: ${detalles.exception}');
     return const _PantallaAmigableDeError(
-      titulo: 'Se rompio esta pantalla',
-      detalle: 'Volve atras y proba de nuevo. Tus datos estan guardados.',
+      titulo: 'Se rompió esta pantalla',
+      detalle: 'Volvé atrás y probá de nuevo. Tus datos están guardados.',
     );
   };
 
@@ -145,8 +145,8 @@ class AppNeuroDesk extends StatelessWidget {
           : const _PantallaAmigableDeError(
               titulo: 'No pudimos conectar con el servidor',
               detalle:
-                  'Cerra la app y volve a abrirla. Si sigue igual, revisa la '
-                  'configuracion de Firebase (google-services.json).',
+                  'Cerrá la app y volvé a abrirla. Si sigue igual, revisá la '
+                  'configuración de Firebase (google-services.json).',
             ),
     );
   }
@@ -278,7 +278,7 @@ class _PuertaDelUsuarioState extends State<_PuertaDelUsuario> {
       // el documento y redibuja solo. La fuente de verdad es Firestore.
     } catch (e) {
       if (!mounted) return;
-      setState(() => _errorDeFicha = 'No pudimos preparar tu cuenta. Proba de nuevo.');
+      setState(() => _errorDeFicha = 'No pudimos preparar tu cuenta. Probá de nuevo.');
     } finally {
       if (mounted) setState(() => _creandoFicha = false);
     }
@@ -424,7 +424,7 @@ class _PantallaPreparandoCuentaState extends State<_PantallaPreparandoCuenta> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: <Widget>[
-              const Icon(Icons.psychology_alt, size: 64, color: cianElectrico),
+              const LogoNeuroDesk(tamano: 120),
               const SizedBox(height: 24),
               const Text(
                 'Preparando tu cuenta...',
@@ -459,7 +459,7 @@ class _PantallaPreparandoCuentaState extends State<_PantallaPreparandoCuenta> {
               const SizedBox(height: 24),
               TextButton(
                 onPressed: () => AuthServicio.salir(),
-                child: const Text('Cerrar sesion'),
+                child: const Text('Cerrar sesión'),
               ),
             ],
           ),

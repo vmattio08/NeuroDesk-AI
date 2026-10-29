@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Icono ADAPTATIVO (Android 8+). Sin esto, Android 12+ envuelve el icono en un
+     circulo BLANCO (en el launcher y en la pantalla de arranque).
+     - background: el mismo color de fondo que trae el PNG oficial (#030D2A),
+       asi no se nota donde termina la imagen.
+     - foreground: el isotipo oficial TAL CUAL (ic_launcher_logo = el mismo PNG
+       escalado, sin tocarle nada). El sistema muestra solo el centro (un circulo
+       de 72 de 108 dp): el cerebro entra entero y queda afuera solo fondo. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/fondo_icono" />
+    <foreground android:drawable="@mipmap/ic_launcher_logo" />
+</adaptive-icon>

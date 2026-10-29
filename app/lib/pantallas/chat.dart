@@ -93,7 +93,7 @@ class _ChatPantallaState extends State<ChatPantalla> {
 
     final String texto = _pregunta.text.trim();
     if (texto.length < minPregunta) {
-      mostrarAviso(context, 'Escribi una pregunta un poco mas larga.', esError: true);
+      mostrarAviso(context, 'Escribí una pregunta un poco más larga.', esError: true);
       return;
     }
     if (texto.length > maxPregunta) {
@@ -136,14 +136,14 @@ class _ChatPantallaState extends State<ChatPantalla> {
     } on TimeoutException {
       mostrarAvisoEn(
         mensajero,
-        'Sin conexion: para preguntar hace falta internet.',
+        'Sin conexión: para preguntar hace falta internet.',
         esError: true,
       );
     } catch (e) {
       debugPrint('[NeuroDesk] no se pudo crear la respuesta: $e');
       mostrarAvisoEn(
         mensajero,
-        'No pudimos registrar la pregunta. Proba de nuevo.',
+        'No pudimos registrar la pregunta. Probá de nuevo.',
         esError: true,
       );
     } finally {
@@ -184,8 +184,8 @@ class _ChatPantallaState extends State<ChatPantalla> {
                       icono: Icons.forum_outlined,
                       titulo: 'Preguntá lo que quieras',
                       detalle:
-                          'La IA responde SOLO con lo que subio tu equipo, y te '
-                          'muestra de que item saco cada dato.',
+                          'La IA responde SOLO con lo que subió tu equipo, y te '
+                          'muestra de qué ítem sacó cada dato.',
                     );
                   }
                   return ListView.builder(
@@ -258,7 +258,7 @@ class _ChatPantallaState extends State<ChatPantalla> {
               maxLength: maxPregunta,
               style: const TextStyle(color: grisClaro),
               decoration: InputDecoration(
-                hintText: 'Ej: ¿Cuando es la mesa de Matematica?',
+                hintText: 'Ej: ¿Cuándo es la mesa de Matemática?',
                 hintStyle: const TextStyle(color: grisApagado),
                 counterText: '', // el contador de 500 ensucia la barra
                 filled: true,
@@ -360,7 +360,7 @@ class _RespuestaPantallaState extends State<RespuestaPantalla> {
     } catch (e) {
       debugPrint('[NeuroDesk] /preguntar exploto: $e');
       if (!mounted) return;
-      setState(() => _errorDelPedido = 'No pudimos preguntar. Proba de nuevo.');
+      setState(() => _errorDelPedido = 'No pudimos preguntar. Probá de nuevo.');
     }
   }
 
@@ -457,7 +457,7 @@ class _RespuestaPantallaState extends State<RespuestaPantalla> {
                 const SizedBox(height: 10),
                 SelectableText(
                   respuesta.isEmpty
-                      ? 'No encontre esto en la base del equipo.'
+                      ? 'No encontré esto en la base del equipo.'
                       : respuesta,
                   style: const TextStyle(color: grisClaro, fontSize: 16, height: 1.5),
                 ),
@@ -471,7 +471,7 @@ class _RespuestaPantallaState extends State<RespuestaPantalla> {
                   )
                 else ...<Widget>[
                   const Text(
-                    'De donde lo saque',
+                    'De dónde lo saqué',
                     style: TextStyle(
                       color: grisClaro,
                       fontSize: 15,
@@ -489,7 +489,7 @@ class _RespuestaPantallaState extends State<RespuestaPantalla> {
                 if (d['chunksMirados'] != null) ...<Widget>[
                   const SizedBox(height: 20),
                   Text(
-                    'Mire ${d['chunksMirados']} fragmentos del equipo y pude usar '
+                    'Miré ${d['chunksMirados']} fragmentos del equipo y pude usar '
                     '${d['chunksVisibles']}: el resto es privado de otras personas.',
                     style: const TextStyle(color: grisApagado, fontSize: 12),
                   ),
@@ -576,7 +576,7 @@ class _Fuente extends StatelessWidget {
     if (datos is! Map) return const SizedBox.shrink();
     final Map<dynamic, dynamic> f = datos as Map<dynamic, dynamic>;
 
-    final String titulo = (f['titulo'] ?? 'Sin titulo').toString();
+    final String titulo = (f['titulo'] ?? 'Sin título').toString();
     final String fragmento = (f['fragmento'] ?? '').toString();
     final Object? pagina = f['pagina'];
     final Object? n = f['n'];
@@ -624,7 +624,7 @@ class _Fuente extends StatelessWidget {
               ),
               if (pagina != null)
                 Text(
-                  'pag. $pagina',
+                  'pág. $pagina',
                   style: const TextStyle(color: grisApagado, fontSize: 12),
                 ),
             ],

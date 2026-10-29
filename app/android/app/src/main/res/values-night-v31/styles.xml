@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 12 o mas nuevo usa su propia pantalla de arranque (el icono en el
+         centro). Sin esto la pinta de blanco, y la app es oscura: el salto de
+         blanco a azul noche se nota. Fondo = el mismo azul noche de tema.dart. -->
+    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">@drawable/launch_background</item>
+        <item name="android:windowSplashScreenBackground">@color/fondo_arranque</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@color/fondo_icono</item>
+    </style>
+    <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
+        <item name="android:windowBackground">?android:colorBackground</item>
+    </style>
+</resources>

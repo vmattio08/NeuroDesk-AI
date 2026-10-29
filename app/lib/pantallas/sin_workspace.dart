@@ -56,7 +56,7 @@ class _SinWorkspacePantallaState extends State<SinWorkspacePantalla> {
     } catch (e) {
       if (!mounted) return;
       debugPrint('[NeuroDesk] no se pudo refrescar el token: $e');
-      mostrarAviso(context, 'No pudimos actualizar. Revisá tu conexion.', esError: true);
+      mostrarAviso(context, 'No pudimos actualizar. Revisá tu conexión.', esError: true);
     } finally {
       if (mounted) setState(() => _refrescando = false);
     }
@@ -71,7 +71,7 @@ class _SinWorkspacePantallaState extends State<SinWorkspacePantalla> {
         title: const Text('NeuroDesk AI'),
         actions: <Widget>[
           IconButton(
-            tooltip: 'Cerrar sesion',
+            tooltip: 'Cerrar sesión',
             icon: const Icon(Icons.logout),
             onPressed: () => AuthServicio.salir(),
           ),
@@ -86,7 +86,7 @@ class _SinWorkspacePantallaState extends State<SinWorkspacePantalla> {
               const Icon(Icons.groups_outlined, size: 80, color: azulRoyal),
               const SizedBox(height: 24),
               const Text(
-                'Todavia no perteneces a ningun equipo',
+                'Todavía no pertenecés a ningún equipo',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: grisClaro,
@@ -126,7 +126,7 @@ class _SinWorkspacePantallaState extends State<SinWorkspacePantalla> {
               if (widget.nombre.isNotEmpty) ...<Widget>[
                 const SizedBox(height: 10),
                 Text(
-                  'Estas entrando como ${widget.nombre}',
+                  'Estás entrando como ${widget.nombre}',
                   style: const TextStyle(color: grisApagado, fontSize: 13),
                 ),
               ],

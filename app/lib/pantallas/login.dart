@@ -92,7 +92,7 @@ class _LoginPantallaState extends State<LoginPantalla> {
       debugPrint('[NeuroDesk] error inesperado en el login: $e');
       mostrarAviso(
         context,
-        'No pudimos completar la accion. Proba de nuevo en un rato.',
+        'No pudimos completar la acción. Probá de nuevo en un rato.',
         esError: true,
       );
     } finally {
@@ -133,7 +133,7 @@ class _LoginPantallaState extends State<LoginPantalla> {
       debugPrint('[NeuroDesk] error inesperado con Google: $e');
       mostrarAviso(
         context,
-        'No pudimos completar la accion. Proba de nuevo en un rato.',
+        'No pudimos completar la acción. Probá de nuevo en un rato.',
         esError: true,
       );
     } finally {
@@ -162,8 +162,9 @@ class _LoginPantallaState extends State<LoginPantalla> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
-                    const Icon(Icons.psychology, size: 72, color: cianElectrico),
-                    const SizedBox(height: 12),
+                    // El logo OFICIAL (el PNG tal cual, ver LogoNeuroDesk).
+                    const LogoNeuroDesk(tamano: 160),
+                    const SizedBox(height: 18),
                     const Text(
                       'NeuroDesk AI',
                       textAlign: TextAlign.center,
@@ -196,7 +197,7 @@ class _LoginPantallaState extends State<LoginPantalla> {
                         validator: (String? v) {
                           final String t = (v ?? '').trim();
                           if (t.length < 2) return 'Poné al menos 2 caracteres.';
-                          if (t.length > 60) return 'Maximo 60 caracteres.';
+                          if (t.length > 60) return 'Máximo 60 caracteres.';
                           return null;
                         },
                       ),
@@ -214,7 +215,7 @@ class _LoginPantallaState extends State<LoginPantalla> {
                         // despues. La de verdad la hace Firebase; esta es solo
                         // para no gastar un viaje al servidor por un tipeo.
                         if (!t.contains('@') || !t.contains('.')) {
-                          return 'Escribi un email valido.';
+                          return 'Escribí un email válido.';
                         }
                         return null;
                       },
@@ -224,7 +225,7 @@ class _LoginPantallaState extends State<LoginPantalla> {
                     TextFormField(
                       controller: _contrasena,
                       obscureText: !_verContrasena,
-                      decoration: _decoracion('Contrasena', Icons.lock).copyWith(
+                      decoration: _decoracion('Contraseña', Icons.lock).copyWith(
                         suffixIcon: IconButton(
                           icon: Icon(
                             _verContrasena ? Icons.visibility_off : Icons.visibility,
@@ -330,10 +331,16 @@ class _LoginPantallaState extends State<LoginPantalla> {
                     ),
 
                     const SizedBox(height: 20),
+                    // Aviso de privacidad. Desde el cambio a Google Gemini
+                    // (free tier) Google puede usar lo que le mandamos para
+                    // mejorar sus productos: la persona tiene que saberlo ANTES
+                    // de cargar nada. Por eso la app es solo para datos de
+                    // prueba.
                     const Text(
-                      'Al entrar aceptas que el texto de los PDF escaneados y '
-                      'de las fotos se procesa en un servicio externo (OCR.space) '
-                      'para poder leerlo.',
+                      'Al entrar aceptás que lo que cargás se procesa con '
+                      'servicios externos (Google Gemini y OCR.space) para '
+                      'indexarlo y responder. Es una versión de prueba: no '
+                      'cargues datos reales ni privados.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: grisApagado, fontSize: 11.5),
                     ),

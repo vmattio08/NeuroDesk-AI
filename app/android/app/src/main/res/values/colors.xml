@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mismo azul noche que tema.dart (azulNoche #0F172A): asi la pantalla de
+         arranque de Android no aparece en blanco antes de la app, que es oscura. -->
+    <color name="fondo_arranque">#0F172A</color>
+    <!-- El fondo propio del PNG del isotipo oficial: Android 12+ dibuja el icono
+         adentro de un circulo, y con este color el cuadrado del logo se funde. -->
+    <color name="fondo_icono">#030D2A</color>
+</resources>

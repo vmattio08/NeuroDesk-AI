@@ -10,6 +10,7 @@
 //  Firebase y sin internet. Por eso prueban lo que NO depende de Firebase:
 //    - que la app arranque y muestre la pantalla amigable si Firebase falla
 //      (la capa anti pantalla roja de main.dart);
+//    - que el login dibuje el logo OFICIAL (el PNG de la marca) y no un icono;
 //    - la regla del nombre que se le manda a POST /v1/auth/registro;
 //    - la traduccion de errores de Firebase y de Google a castellano.
 //  El login con Google de verdad (hoja de cuentas, SHA-1, token) solo se
@@ -21,11 +22,14 @@
 // ============================================================================
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import 'package:neurodesk/main.dart';
+import 'package:neurodesk/pantallas/login.dart';
 import 'package:neurodesk/servicios/auth_servicio.dart';
+import 'package:neurodesk/tema.dart';
 
 void main() {
   testWidgets('Si Firebase no arranco, se ve la pantalla amigable (no la roja)',
@@ -33,6 +37,21 @@ void main() {
     await tester.pumpWidget(const AppNeuroDesk(firebaseListo: false));
 
     expect(find.text('No pudimos conectar con el servidor'), findsOneWidget);
+  });
+
+  // El login dibuja el PNG OFICIAL de la marca, no un icono de Material.
+  // LoginPantalla no toca Firebase al dibujarse (solo al tocar un boton), asi
+  // que se puede armar en la compu sin inicializar nada.
+  testWidgets('El login muestra el logo oficial (el PNG) y no un icono generico',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(theme: temaNeuroDesk(), home: const LoginPantalla()),
+    );
+
+    expect(find.byType(LogoNeuroDesk), findsOneWidget);
+    expect(find.image(const AssetImage(isotipoOscuro)), findsOneWidget);
+    expect(find.byIcon(Icons.psychology), findsNothing);
+    expect(find.text('Contraseña'), findsOneWidget);
   });
 
   group('armarNombreParaRegistro (el backend pide 2 a 60 caracteres)', () {
@@ -91,7 +110,7 @@ void main() {
         FirebaseAuthException(code: 'wrong-password'),
       );
       expect(a, b);
-      expect(a, startsWith('El email o la contrasena no coinciden.'));
+      expect(a, startsWith('El email o la contraseña no coinciden.'));
     });
 
     test('con Google, invalid-credential NO habla de contrasena', () {
@@ -99,7 +118,7 @@ void main() {
         FirebaseAuthException(code: 'invalid-credential'),
         conGoogle: true,
       );
-      expect(texto, isNot(contains('contrasena')));
+      expect(texto, isNot(contains('contraseña')));
       expect(texto, contains('Google'));
     });
 
@@ -118,7 +137,7 @@ void main() {
           FirebaseAuthException(code: 'account-exists-with-different-credential'),
           conGoogle: true,
         ),
-        startsWith('Ya tenes una cuenta con ese email.'),
+        startsWith('Ya tenés una cuenta con ese email.'),
       );
     });
 
@@ -138,7 +157,7 @@ void main() {
       ]) {
         expect(
           AuthServicio.traducirErrorDeGoogle(GoogleSignInException(code: codigo)),
-          contains('Entra con tu email'),
+          contains('Entrá con tu email'),
         );
       }
     });
