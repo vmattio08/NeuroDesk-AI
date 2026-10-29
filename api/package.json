@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch --env-file=.env src/server.js",
-    "test:rules": "firebase emulators:exec --only firestore --project demo-neurodesk \"node --test test/rules.test.js\"",
+    "test:rules": "npx --yes firebase-tools@15.34.1 emulators:exec --config ../firebase/firebase.emulador-tests.json --only firestore --project demo-neurodesk \"node --test test/rules.test.js\"",
     "modelos:vivos": "node --env-file=.env scripts/chequear-modelos.js",
     "probar:ia": "node --env-file=.env scripts/probar-ia.js",
     "probar:api": "node --env-file=.env scripts/probar-api.js",
@@ -24,5 +24,9 @@
     "multer": "^2.0.1",
     "pdf-parse": "^2.4.5",
     "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "5.0.2",
+    "firebase": "12.19.0"
   }
 }

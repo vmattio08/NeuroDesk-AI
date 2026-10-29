@@ -1,0 +1,159 @@
+# ============================================================================
+#  NeuroDesk AI — render.yaml  (Blueprint de Render, plan free)
+#
+#  QUE ES: la configuracion del backend en Render ESCRITA EN EL REPO, en vez
+#  de clickeada a mano en el panel. Render lee este archivo cuando se crea el
+#  Blueprint (New > Blueprint > elegir el repo) y en cada push a main.
+#  Va en la RAIZ del repo (fase2/), que es donde Render lo busca.
+#
+#  LO QUE HAY QUE SABER DECIR EN LA DEFENSA:
+#   1) Las claves NO estan aca. Cada secreto lleva "sync: false": Render pide el
+#      valor UNA vez, al crear el Blueprint, y lo guarda en su panel. El repo
+#      solo dice QUE variables existen, nunca cuanto valen. Si despues se agrega
+#      un secreto nuevo, se carga a mano en Settings > Environment (Render
+#      ignora los sync: false nuevos en un Blueprint que ya existe).
+#   2) PORT no se configura: lo inyecta Render (por defecto 10000) y server.js
+#      hace app.listen(process.env.PORT, '0.0.0.0'). Si lo fijaramos aca o
+#      escucharamos en 127.0.0.1, el health check nunca conecta y el deploy
+#      queda "in progress" para siempre.
+#   3) El plan free DUERME a los 15 minutos sin trafico y el primer pedido tarda
+#      hasta ~60 s: por eso la app y el panel llaman a /salud apenas abren.
+# ============================================================================
+
+services:
+  - type: web
+    name: neurodesk-api            # => https://neurodesk-api.onrender.com (la URL que ya figura en CONTRATO.md, la app y el panel)
+    runtime: node
+    plan: free
+
+    # La region NO se puede cambiar despues de crear el servicio. Render no
+    # tiene region en Sudamerica; Virginia (este de EE.UU.) es la mas cercana a
+    # Firestore (southamerica-east1, San Pablo) y a los usuarios de Argentina.
+    # Cada pedido lee members/{uid} en Firestore, asi que la distancia se nota.
+    region: virginia
+
+    # Despliega solo lo que esta en main (README: "trabajamos directo en main").
+    branch: main
+    # autoDeployTrigger es el nombre actual de "autoDeploy: true": cada commit
+    # que llega a main despliega solo.
+    autoDeployTrigger: commit
+
+    # El backend vive en api/. Con rootDir, un push que solo toca app/ o panel/
+    # NO rebuildea el backend (Render ignora cambios fuera de esta carpeta).
+    rootDir: api
+
+    # npm ci (y no npm install) porque api/ tiene package-lock.json: instala
+    # EXACTAMENTE las versiones del lock, igual que en las PCs del colegio, y
+    # falla si package.json y el lock no coinciden en vez de "arreglarlo" solo.
+    # Con NODE_ENV=production (abajo), npm ci saltea las devDependencies
+    # (firebase y @firebase/rules-unit-testing, que solo usan los tests).
+    buildCommand: npm ci
+
+    # node directo y no "npm start": un proceso menos en el medio, y el SIGTERM
+    # que manda Render al reiniciar le llega a server.js, que cierra ordenado.
+    startCommand: node src/server.js
+
+    # /salud es publico y hace una lectura REAL a Firestore: si la service
+    # account no sirve, responde 500 y Render NO da por bueno el deploy (y si
+    # directamente falta, firebase.js corta el arranque). Un health check que
+    # siempre da 200 mentiria.
+    healthCheckPath: /salud
+
+    envVars:
+      # ----------------------------------------------------------------------
+      # NO SECRETAS: van con su valor, a la vista en el repo.
+      # ----------------------------------------------------------------------
+
+      # Version de Node. Le gana al "engines" de package.json (>=22, sin techo,
+      # que agarraria la ultima que exista). "24" = la ultima 24.x, la misma
+      # version mayor con la que lo probamos en las PCs.
+      - key: NODE_VERSION
+        value: "24"
+
+      # Modo produccion: npm ci no instala las devDependencies y Express no
+      # arma paginas de error con stack trace.
+      - key: NODE_ENV
+        value: production
+
+      # Proyecto real de Firebase. Tiene que ser el mismo que el project_id de
+      # la service account: firebase.js lo usa explicito para que, si no
+      # coinciden, se note al toque y no "desaparezcan los datos".
+      - key: FIREBASE_PROJECT_ID
+        value: neurodesk-6to
+
+      # Lista blanca de CORS (server.js, separada por comas). Solo la necesita
+      # el PANEL web: la app Flutter no manda header Origin.
+      # Sin esta variable, server.js usa SOLO origenes de localhost, que en
+      # Render no sirven. Van los dominios que da Firebase Hosting (la opcion A
+      # de panel/README.md) y localhost:5500 para probar el panel local contra
+      # el backend publicado. SI EL PANEL SE PUBLICA EN OTRO LADO (GitHub
+      # Pages, Netlify), hay que agregar ese dominio aca, exacto y sin "/" final.
+      - key: CORS_ORIGENES
+        value: https://neurodesk-6to.web.app,https://neurodesk-6to.firebaseapp.com,http://localhost:5500
+
+      # Largo de cada vector de embeddings. Tiene que coincidir con lo que ya
+      # esta guardado en chunks: cambiarlo obliga a reindexar todo.
+      - key: EMBED_DIMS
+        value: "1024"
+
+      # Minutos en 'procesando' para que el barrido de server.js de un item por
+      # colgado (mismo valor que el default del codigo, escrito a la vista).
+      - key: MINUTOS_ITEM_COLGADO
+        value: "10"
+
+      # OCR local de respaldo (tesseract.js). En el plan free (512 MB, CPU
+      # compartida) una foto grande puede comerse la memoria y tumbar el
+      # proceso: si pasa en la demo, poner "0" aca y pushear. Ademas el
+      # diccionario spa.traineddata no esta en el repo (.gitignore): Render lo
+      # baja la primera vez que se usa y otra vez despues de cada reinicio.
+      - key: TESSERACT_HABILITADO
+        value: "1"
+
+      # "1" = solo se puede invitar a gente que ya tiene cuenta. Cualquier otro
+      # valor (el que usamos) = el backend crea la cuenta con una contrasena
+      # temporal que se muestra una sola vez (ver rutas/workspaces.js).
+      - key: INVITAR_SOLO_REGISTRADOS
+        value: "0"
+
+      # ----------------------------------------------------------------------
+      # SECRETAS: sync: false = Render pide el valor al crear el Blueprint y lo
+      # guarda el. NUNCA se escriben en este archivo.
+      # ----------------------------------------------------------------------
+
+      # El JSON de la service account de Firebase ENTERO, en base64 (en
+      # firebase.js esta el por que y el comando para generarla). Sin esta
+      # variable el servidor no arranca, a proposito.
+      - key: FIREBASE_SERVICE_ACCOUNT_B64
+        sync: false
+
+      # Clave de OCR.space (fotos y PDF escaneados). Si queda vacia: las FOTOS
+      # pasan al OCR local (tesseract) y los PDF ESCANEADOS no se pueden leer
+      # (tesseract no abre PDF; ver extraer.js), dan NO_SE_PUDO_EXTRAER_TEXTO.
+      - key: OCR_SPACE_API_KEY
+        sync: false
+
+      # ----------------------------------------------------------------------
+      # IA — Google Gemini (servicios/ia.js). Solo la CLAVE es obligatoria: los
+      # modelos (gemini-3.8-flash para el chat, gemini-3.5-flash-lite de
+      # respaldo, gemini-embedding-001 para la busqueda) y el umbral de
+      # similitud tienen un valor por defecto en el codigo. Si algun dia hay que
+      # cambiar un modelo sin commitear, se agrega la variable a mano en
+      # Settings > Environment (GEMINI_MODELO_CHAT, GEMINI_MODELOS_CHAT_RESPALDO,
+      # GEMINI_MODELO_EMBED, UMBRAL_SIMILITUD). No se declaran aca a proposito:
+      # cada sync: false es un campo mas que Render obliga a completar al crear
+      # el Blueprint.
+      # ----------------------------------------------------------------------
+      - key: GEMINI_API_KEY
+        sync: false
+      # Segunda clave, de OTRO proyecto de Google (los limites del free tier
+      # son por proyecto): si la principal se queda sin cupo del dia o la
+      # rechazan, el backend pasa a esta solo. Opcional: se puede dejar vacia.
+      - key: GEMINI_API_KEY_RESPALDO
+        sync: false
+
+      # NO VAN EN RENDER, a proposito:
+      #  - PORT: lo pone Render (ver arriba).
+      #  - FIRESTORE_EMULATOR_HOST / FIREBASE_AUTH_EMULATOR_HOST: si existieran,
+      #    el backend le hablaria al EMULADOR en vez de a la base real.
+      #  - SEED_PASSWORD, FIREBASE_WEB_API_KEY: solo los usan los scripts de
+      #    api/scripts (seed, probar-api), que se corren desde una PC.
