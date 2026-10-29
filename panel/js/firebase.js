@@ -30,7 +30,7 @@
 // ##   Ctrl+U. No es una contraseña: es la direccion del proyecto. Lo que    ##
 // ##   protege los datos son las REGLAS de Firestore (firebase/firestore.    ##
 // ##   rules) y el backend, que verifica el ID token en cada pedido.         ##
-// ##   Los que SI son secretos —la service account, la clave de NVIDIA, la   ##
+// ##   Los que SI son secretos —la service account, la clave de Gemini, la   ##
 // ##   de OCR.space y la de Mercado Pago— viven en el .env del backend y no  ##
 // ##   tocan nunca este archivo.                                             ##
 // ##                                                                        ##

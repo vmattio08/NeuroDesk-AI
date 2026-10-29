@@ -1,7 +1,7 @@
 # NeuroDesk AI — Informe de avance (Fase 2)
 
 **Materia:** Programación II · 6º 1ª · **Equipo:** Mattio, Valentino — Ramírez, Martín
-**Entrega parcial:** avance de desarrollo · actualizado al 2 de octubre de 2026
+**Entrega parcial:** avance de desarrollo · actualizado al 29 de octubre de 2026
 
 ---
 
@@ -75,10 +75,12 @@ Las capturas de la consola de Firebase van en el documento de la entrega.
 - ✅ **Backend probado contra la base real** (`api/src/`): los 11 endpoints del
   contrato que no son de pagos. `npm run probar:api` levanta el servidor, entra
   con las tres cuentas de prueba y recorre 24 casos (autenticación, autoría,
-  procesar/reprocesar/borrar, limpieza masiva, preguntar, roles): **24 de 24 OK**.
+  procesar/reprocesar/borrar, limpieza masiva, preguntar, roles): **24 de 24 OK**,
+  también después del cambio a Gemini (29/10).
 - ✅ **La IA responde citando la fuente**: a "¿Cuándo es la reunión de padres?"
-  contesta *"La reunión de padres es el jueves 17 de octubre a las 18 horas. [1]"*
-  en unos 3 segundos.
+  contesta *"La reunión de padres de sexto año es el jueves 17 de octubre a las 18
+  horas [1]. Se realiza en el aula 4 [1]."* en unos 5 segundos, con confianza alta
+  (0.76).
 - ✅ **Privacidad demostrada** (el test obligatorio del contrato): Martín pregunta
   por la contraseña que Camila guardó en una nota privada y recibe "No encontré
   esto en la base del equipo"; el admin hace la misma pregunta y sí la ve.
@@ -87,7 +89,16 @@ Las capturas de la consola de Firebase van en el documento de la entrega.
   con la IA. `flutter analyze` sin problemas y 13 tests OK (Flutter 3.41.6).
 - ✅ **Panel web del administrador conectado** (`panel/`): tablas de items y
   miembros en tiempo real y un dashboard con gráficos, contra la base real.
-- ✅ **Scripts de diagnóstico**: `npm run probar:ia` (NVIDIA y OCR con el código del
+- ✅ **Tests automáticos de las reglas de Firestore**: `npm.cmd run test:rules` las
+  prueba contra el emulador de Firebase (con el JDK que trae Android Studio):
+  **57 de 57 OK**.
+- ✅ **La app con la marca**: el logo oficial ya está en el login, en la pantalla
+  de carga y como ícono del launcher, y corregimos los textos de pantalla (tildes,
+  ñ y voseo).
+- ✅ **Despliegue preparado**: `render.yaml` deja el backend listo para Render; solo
+  pide cargar 4 secretos (`FIREBASE_SERVICE_ACCOUNT_B64`, `GEMINI_API_KEY`,
+  `GEMINI_API_KEY_RESPALDO`, que es opcional, y `OCR_SPACE_API_KEY`).
+- ✅ **Scripts de diagnóstico**: `npm run probar:ia` (Gemini y OCR con el código del
   backend), `npm run calibrar` (umbral de similitud con preguntas de respuesta
   conocida) y `npm run modelos:vivos` (que ningún modelo haya sido dado de baja).
 
@@ -97,28 +108,56 @@ Las capturas de la consola de Firebase van en el documento de la entrega.
 
 | API | Para qué | Estado |
 |---|---|---|
-| **NVIDIA NIM** | Genera los *embeddings* que indexan cada documento y redacta la respuesta final citando las fuentes | Funcionando con clave real (`api/src/servicios/nvidia.js`) |
-| **OCR.space** | Saca el texto de PDFs escaneados y fotos (25.000 usos gratis por mes) | Integrada (`api/src/servicios/extraer.js`); falta la clave. Mientras tanto anda el OCR local de respaldo (tesseract.js) |
+| **Google Gemini** (free tier de Google AI Studio) | Genera los *embeddings* que indexan cada documento y redacta la respuesta final citando las fuentes | Funcionando con clave real (`api/src/servicios/ia.js`) |
+| **OCR.space** | Saca el texto de PDFs escaneados y fotos (25.000 usos gratis por mes) | Integrada (`api/src/servicios/extraer.js`); falta la clave. Mientras tanto, las **fotos** se leen con el OCR local de respaldo (tesseract.js); los **PDF escaneados** necesitan OCR.space |
 | **Firebase** (Auth + Firestore) | Usuarios, roles y la base en tiempo real que comparten la app y el panel | Funcionando |
 | **Mercado Pago** | Suscripción mensual del workspace | Opcional — ver sección 7 |
 
-Con NVIDIA y OCR.space ya cumplimos el mínimo de dos APIs externas. Elegimos
-NVIDIA porque da acceso gratuito con una cuenta de desarrollador y su API es
-compatible con la de OpenAI: cambian la URL y la clave, el código es el mismo. Para los
-embeddings usamos `nemotron-3-embed-1b`.
+Con Gemini y OCR.space ya cumplimos el mínimo de dos APIs externas.
 
-**El modelo de chat lo elegimos midiendo.** Probamos ocho modelos gratuitos con la
-misma pregunta: varios figuran en el catálogo pero no están habilitados para
-nuestra cuenta (404), y GLM y DeepSeek se pasaban del minuto. Quedó
-`openai/gpt-oss-20b` como principal (1 a 6 s, en castellano y citando bien) y una
-**cadena de respaldo** (`nemotron-3-super-120b`, `nemotron-3.5-lightning`): si el
-principal se cae o lo dan de baja, el backend pasa solo al siguiente. Si se acaban
-los créditos de la cuenta, cambiar de modelo no sirve (son por cuenta): para eso
-está la clave de respaldo de otra cuenta.
+**Empezamos con NVIDIA NIM.** Lo elegimos porque da acceso gratuito con una cuenta
+de desarrollador y su API es compatible con la de OpenAI: cambian la URL y la clave,
+el código es el mismo. Para los embeddings usábamos `nemotron-3-embed-1b`, y el
+modelo de chat lo elegimos midiendo: probamos ocho modelos gratuitos con la misma
+pregunta; varios figuraban en el catálogo pero no estaban habilitados para nuestra
+cuenta (404), y GLM y DeepSeek se pasaban del minuto. Quedó `openai/gpt-oss-20b`
+como principal (1 a 6 s, en castellano y citando bien), con una cadena de respaldo
+(`nemotron-3-super-120b`, `nemotron-3.5-lightning`).
 
-Los nombres de los modelos viven en la configuración (`.env`: `NVIDIA_MODELO_CHAT`
-y `NVIDIA_MODELOS_CHAT_RESPALDO`) y no en el código. `npm run modelos:vivos` avisa
-si alguno dejó de existir.
+**El 22/10 nos pasamos a Google Gemini.** Preferimos trabajar con **una sola cuenta
+y una sola clave de Google**, y el free tier de Gemini alcanza para el proyecto, no
+pide tarjeta y está disponible en Argentina. Lo que hay que saber explicar: en el
+free tier Google puede usar lo que le mandamos para mejorar sus productos, y por eso
+la app tiene **solo datos de prueba**. El servicio quedó en `api/src/servicios/ia.js`
+(`nvidia.js` se borró): el chat va por el endpoint de Gemini compatible con OpenAI,
+y los embeddings por la API nativa (`batchEmbedContents`), que deja marcar si el
+texto es un documento o una pregunta (`RETRIEVAL_DOCUMENT` / `RETRIEVAL_QUERY`) y
+pedir vectores de 1024 dimensiones.
+
+**El modelo de chat lo volvimos a elegir midiendo** (29/10, misma pregunta, dos
+intentos cada uno):
+
+| Modelo | 1º intento / 2º intento | Quedó como |
+|---|---|---|
+| `gemini-3.6-flash` | 2,5 s / 3,4 s | Principal |
+| `gemini-3.1-flash-lite` | 3,0 s / 8,0 s | Primer respaldo |
+| `gemini-3.5-flash-lite` | 6,2 s / 8,4 s | Segundo respaldo |
+| `gemini-3.8-flash` | no contestó en 60 s | Afuera |
+
+`gemini-3.8-flash` es el "más inteligente" según Google, pero respondía 503 *high
+demand*, y un modelo que no contesta no sirve para la demo. Para los embeddings
+usamos `gemini-embedding-001`. Si el principal se cae o lo dan de baja, el backend
+pasa solo al siguiente de la cadena; y como los límites del free tier son **por
+modelo**, el respaldo también sirve cuando uno se queda sin cupo.
+
+Para arrancar alcanza con `GEMINI_API_KEY` en el `.env`. Opcionalmente,
+`GEMINI_API_KEY_RESPALDO` es una clave de **otro proyecto** de Google, porque los
+límites también son por proyecto. Los modelos tienen un valor por defecto en el
+código y se pueden pisar desde el `.env` sin tocarlo: `GEMINI_MODELO_CHAT`,
+`GEMINI_MODELOS_CHAT_RESPALDO` (separados por comas; `ninguno` apaga el respaldo),
+`GEMINI_MODELO_EMBED` y `GEMINI_RAZONAMIENTO` (por defecto `low`). Las variables
+`NVIDIA_*` ya no existen. `npm run modelos:vivos` avisa si algún modelo dejó de
+existir.
 
 ---
 
@@ -140,20 +179,20 @@ si alguno dejó de existir.
 
 ## 7. Dónde estamos trabados / qué falta
 
-1. **Probar la app en un celular.** En las compus del colegio no está el SDK de
-   Android, así que la app todavía no se compiló: pasa el análisis y los tests,
-   pero falta verla andar en un teléfono (login de Google incluido). Cada compu
-   que compile tiene que registrar su SHA-1 (ver `app/README.md`, sección 2.4).
+1. **Probar la app en un celular real.** En el emulador de Android Studio ya
+   compila y anda (Pixel 8, API 36), con el logo oficial y el login. Falta verla
+   en un teléfono de verdad, con el login de Google incluido. Cada compu que
+   compile tiene que registrar su SHA-1 (ver `app/README.md`, sección 2.4).
 2. **Desplegar el backend en Render** (gratis), para que el celular le pueda pegar
-   desde fuera de la red del colegio. Hoy corre en la compu.
-3. **La clave de OCR.space.** Sin ella, fotos y PDF escaneados se leen con el OCR
-   local de respaldo, que anda pero es más lento.
-4. **Pruebas automáticas de las reglas.** El emulador de Firebase necesita Java 11
-   o más y en las compus del colegio está instalado Java 8.
-5. **Mercado Pago pasó a ser opcional.** Con dos APIs ya cumplimos la consigna, y la
+   desde fuera de la red del colegio. Hoy corre en la compu. El `render.yaml` ya
+   está: falta desplegarlo y cargarle los 4 secretos.
+3. **La clave de OCR.space.** Sin ella, las fotos se leen con el OCR local de
+   respaldo (tesseract.js), que anda pero es más lento. Los PDF escaneados, en
+   cambio, no tienen respaldo: sin OCR.space dan `NO_SE_PUDO_EXTRAER_TEXTO`.
+4. **Mercado Pago pasó a ser opcional.** Con dos APIs ya cumplimos la consigna, y la
    suscripción recurrente es lo más caro de construir: la hacemos solo si llegamos
    con tiempo.
-6. **Una limitación que sabemos explicar:** si el admin saca a alguien del equipo,
+5. **Una limitación que sabemos explicar:** si el admin saca a alguien del equipo,
    esa persona puede seguir leyendo hasta una hora, porque su token sigue siendo
    válido. El backend revoca la sesión y vuelve a chequear la membresía, pero la
    lectura directa a la base tarda en cortarse.
@@ -170,10 +209,24 @@ si alguno dejó de existir.
 - **La IA decía "no encontré" teniendo el dato.** El umbral de similitud estaba a
   ojo en 0.35, y con datos reales la respuesta correcta daba entre 0.26 y 0.69:
   4 de 11 preguntas se hubieran quedado sin respuesta. Con `npm run calibrar` lo
-  bajamos a 0.20 y recalibramos la confianza (alta ≥ 0.45, media ≥ 0.30).
+  bajamos a 0.20 y recalibramos la confianza (alta ≥ 0.45, media ≥ 0.30). Esos
+  números eran del modelo de NVIDIA: al pasar a `gemini-embedding-001` volvimos a
+  calibrar (29/10). Las 11 preguntas con respuesta en el seed dieron entre 0.67 y
+  0.84 (mediana 0.72) y las 5 sin respuesta entre 0.51 y 0.61, así que los dos
+  grupos quedan separados. **Hoy el umbral es 0.64** (confianza alta ≥ 0.72, media
+  ≥ 0.66), y acierta el item correcto en 10 de 11 (la otra la contesta un fragmento
+  distinto que también es válido).
 - **El chat "pensaba en voz alta" en inglés.** Los modelos de razonamiento escribían
   su borrador antes de contestar. Lo apagamos según la familia de cada modelo y
-  limpiamos en código lo que se cuele.
+  limpiamos en código lo que se cuele. Con Gemini el razonamiento no se puede apagar
+  del todo: lo dejamos en el nivel más bajo (`low`) y la limpieza sigue.
+- **La primera clave de Gemini no andaba.** Daba 403 *Your project has been denied
+  access* en todos los modelos (lo único que funcionaba era listar los modelos). Se
+  resolvió creando el proyecto desde la consola de Google Cloud y sacando claves
+  nuevas.
+- **Los tests de las reglas no corrían en las compus del colegio.** El emulador de
+  Firebase necesita Java 11 o más y está instalado Java 8. Los corrimos con el JDK
+  que trae Android Studio (`npm.cmd run test:rules`): 57 de 57 OK.
 - **Otros bugs que salieron al probar:** el troceo cortaba sin solapar
   (`Number(undefined) ?? 200` da `NaN`), un error interno podía mandarle al
   cliente texto de la configuración del servidor, y un workspace inexistente

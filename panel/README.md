@@ -223,7 +223,7 @@ mostrarle pantallas rotas a quien no es admin. Cualquiera puede saltearlo desde
 la consola del navegador, y lo único que consigue es ver tablas vacías con
 errores rojos.
 
-Los secretos de verdad — la *service account*, la clave de NVIDIA, la de
+Los secretos de verdad — la *service account*, la clave de Gemini, la de
 OCR.space y la de Mercado Pago — están en el `.env` del backend y **nunca**
 tocan esta carpeta.
 
