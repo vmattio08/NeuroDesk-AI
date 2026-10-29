@@ -48,7 +48,7 @@ import {
 // ============================================================================
 //  PARTE 1 — EMBEDDINGS FALSOS PERO DEL LARGO CORRECTO
 // ============================================================================
-//  El seed NO llama a NVIDIA: gastaria creditos y tardaria minutos. Genera
+//  El seed sin clave NO llama a la IA (ver PASO 5). Genera
 //  vectores de 1024 numeros con un generador pseudo-azaroso SEMBRADO CON EL
 //  ID DEL CHUNK. Eso significa que el chunk "itm_seed_01_3" saca siempre el
 //  mismo vector, en esta maquina y en la de Martin: sin eso el seed no seria
@@ -244,7 +244,7 @@ const ITEMS = [
     creadoEn: "2026-08-29T15:00:00-03:00",
     actualizadoEn: "2026-08-29T15:00:05-03:00",
     trozos: [
-      { pagina: null, texto: "Valentino: backend en Node con Express, reglas de Firestore, integración con NVIDIA NIM y el script del seed." },
+      { pagina: null, texto: "Valentino: backend en Node con Express, reglas de Firestore, integración con Google Gemini y el script del seed." },
       { pagina: null, texto: "Martín: la app en Flutter con StatefulWidget y StreamBuilder, el panel web en JavaScript vanilla, y las pruebas." },
       { pagina: null, texto: "Los dos: el modelo de datos, el contrato de endpoints y la defensa oral. Nadie entrega código que no pueda explicar." },
     ],
@@ -281,7 +281,7 @@ const ITEMS = [
     actualizadoEn: "2026-08-31T08:10:04-03:00",
     trozos: [
       { pagina: null, texto: "El backend de desarrollo escucha en el puerto 3000. Desde el emulador de Android se llega con 10.0.2.2, no con localhost." },
-      { pagina: null, texto: "Las claves de NVIDIA y de OCR.space viven solamente en el archivo .env, que está en el .gitignore. Acá no se anota ninguna clave." },
+      { pagina: null, texto: "Las claves de Google Gemini y de OCR.space viven solamente en el archivo .env, que está en el .gitignore. Acá no se anota ninguna clave." },
     ],
   },
   {
@@ -733,23 +733,23 @@ async function main() {
   // que hace indexar() en el backend y lo que exige el invariante 5: si una
   // corrida anterior dejo mas chunks de los que escribe esta, los sobrantes
   // quedarian vivos con texto viejo y la IA los podria seguir citando.
-  // EMBEDDINGS REALES SI HAY CLAVE. Con NVIDIA_API_KEY en el .env, los 40
-  // trozos se mandan a NVIDIA (input_type 'passage', igual que /procesar) y
+  // EMBEDDINGS REALES SI HAY CLAVE. Con GEMINI_API_KEY en el .env, los 40
+  // trozos se mandan a Google (como documento, igual que /procesar) y
   // las preguntas de la demo encuentran lo que tienen que encontrar. Sin clave
   // quedan los falsos de la PARTE 1: la base existe y se ve, pero una pregunta
   // cita cualquier cosa. Se hace ACA y no reprocesando cada item por la API
   // porque asi cada trozo sigue siendo su propio chunk con su pagina: el
   // reproceso juntaria cada PDF corto en un solo chunk sin numero de pagina.
-  // Son 2 pedidos a NVIDIA (lotes de 32), unos segundos.
-  const conClave = Boolean((process.env.NVIDIA_API_KEY || "").trim());
+  // Es 1 pedido a Google (lotes de 50), unos segundos.
+  const conClave = Boolean((process.env.GEMINI_API_KEY || "").trim());
   if (conClave) {
-    const { pedirEmbeddings } = await import("../src/servicios/nvidia.js");
+    const { pedirEmbeddings } = await import("../src/servicios/ia.js");
     const vectores = await pedirEmbeddings(chunksAEscribir.map((c) => c.datos.texto), "passage");
     // Mismo redondeo a 6 decimales que los falsos: no cambia la busqueda y el
     // documento pesa la mitad.
     chunksAEscribir.forEach((c, i) => { c.datos.embedding = vectores[i].map((x) => Number(x.toFixed(6))); });
   }
-  console.log(`\nPASO 5/7  Chunks (embeddings ${conClave ? "REALES de NVIDIA" : "falsos"} de ${EMBED_DIMS} dimensiones)`);
+  console.log(`\nPASO 5/7  Chunks (embeddings ${conClave ? "REALES de Google Gemini" : "falsos"} de ${EMBED_DIMS} dimensiones)`);
   const chunksViejos = await borrarPorQuery(
     db,
     db.collection("chunks").where("workspaceId", "==", WS_ID)

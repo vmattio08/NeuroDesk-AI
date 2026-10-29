@@ -282,8 +282,9 @@ Volvé a la raíz → `chunks`. Que se vean ids del estilo `itm_seed_01_0`, `itm
 Abrí `itm_seed_01_0`. Desplegá el campo `embedding` y hacé click en **"Mostrar más"** hasta
 que se vea que es un **array largo de números**. Que entren en la captura los campos
 `workspaceId`, `itemId`, `idx`, `pagina`, `origen`, `visibilidad` y `creadoPor`.
-Si te preguntan: son **1024 números** (el largo que devuelve el modelo de embeddings), y en
-el seed están generados a propósito para no gastar créditos de la IA.
+Si te preguntan: son **1024 números** (el largo que devuelve el modelo de embeddings). Si el
+seed corrió con `GEMINI_API_KEY` en el `.env`, son los de Gemini; si no, el seed los genera a
+propósito (ver el detalle 1 al final de esta guía).
 
 ### Respuestas, auditoría y plan
 
@@ -378,14 +379,17 @@ nunca quedan chunks huérfanos con el texto de una nota privada dando vueltas en
 
 ## Dos detalles que conviene saber explicar en la defensa
 
-**1. Los embeddings del seed son falsos, y está bien.**
+**1. Sin clave de Gemini, los embeddings del seed son falsos, y está bien.**
 Son 1024 números generados con un generador pseudo-azaroso **sembrado con el id del chunk**.
 Eso hace dos cosas: que el vector de `itm_seed_01_3` sea siempre el mismo (si no, el seed no
-sería idempotente) y que no gastemos créditos de NVIDIA para llenar la base. Están
+sería idempotente) y que se pueda llenar la base sin gastar cupo de la IA. Están
 normalizados a norma 1 porque el backend compara por **similitud coseno**, y con vectores
 normalizados el coseno es simplemente el producto punto.
 Consecuencia honesta: si preguntás algo contra esta base sin reprocesar los items, la IA va a
-citar cualquier cosa. Los vectores de verdad los escribe el backend cuando procesa un item.
+citar cualquier cosa. Los vectores de verdad los escribe el backend cuando procesa un item, o
+el mismo seed si en `api/.env` está `GEMINI_API_KEY`: en ese caso le pide a Gemini los 40
+vectores (como documento, igual que `/procesar`) y las preguntas de la demo encuentran lo que
+tienen que encontrar.
 
 **2. El item en `procesando` va a pasar a `error` solo.**
 `itm_seed_13` queda en `procesando` con una fecha vieja. Cuando levantes el backend, el

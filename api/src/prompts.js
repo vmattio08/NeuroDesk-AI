@@ -1,5 +1,5 @@
 // ============================================================================
-//  prompts.js — TODO lo que le decimos al modelo de NVIDIA vive ACA.
+//  prompts.js — TODO lo que le decimos al modelo de chat (Google Gemini) vive ACA.
 //
 //  ¿Por qué un archivo aparte y no el prompt suelto adentro de preguntar.js?
 //  Porque el prompt es la parte del producto que MÁS se toca: se prueba una

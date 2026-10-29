@@ -23,7 +23,7 @@
 //
 //  QUIÉN HACE CADA COSA:
 //    - servicios/buscar.js  -> los pasos 1 y 2 (las dos cerraduras + el coseno).
-//    - servicios/nvidia.js  -> chatear(), el paso 3.
+//    - servicios/ia.js      -> chatear(), el paso 3 (Google Gemini).
 //    - prompts.js           -> lo que le decimos al modelo.
 //    - ESTE archivo         -> el documento respuestas/{respId} (sus estados),
 //                              la validación de las citas y la respuesta HTTP.
@@ -47,7 +47,7 @@ import { db, FieldValue } from '../firebase.js';
 import { ErrorApi, fallar, esErrorApi, CATALOGO_DE_ERRORES } from '../errores.js';
 import { requireAuth, exigirMiembro } from '../middleware/auth.js';
 import { buscarChunks } from '../servicios/buscar.js';
-import { chatear } from '../servicios/nvidia.js';
+import { chatear } from '../servicios/ia.js';
 import {
   PROMPT_SISTEMA_RAG,
   armarMensajeDeUsuario,
@@ -87,9 +87,9 @@ const MINUTOS_CONSULTA_EN_CURSO = 5;
 const PREGUNTAS_POR_MINUTO = 10;
 const VENTANA_DEL_LIMITE_MS = 60_000;
 
-// Cuando NVIDIA nos limita (429) después de sus 3 reintentos, nvidia.js no nos
+// Cuando Google nos limita (429) después de sus reintentos, ia.js no nos
 // pasa cuánto pidió esperar. Le decimos al cliente 20 s: alcanza para que se
-// vacíe la ventana de NVIDIA sin dejar el botón muerto un minuto entero.
+// vacíe la ventana de Google sin dejar el botón muerto un minuto entero.
 const RETRY_AFTER_IA_SEG = 20;
 
 // ============================================================================
@@ -173,7 +173,7 @@ function recortar(texto, largo) {
 /**
  * Lleva cualquier error a un ErrorApi del catálogo.
  *
- * nvidia.js y buscar.js tiran errores con la forma { codigo, mensaje, http,
+ * ia.js y buscar.js tiran errores con la forma { codigo, mensaje, http,
  * detalle }. NO los aplastamos todos a IA_NO_RESPONDE: si se acabaron los
  * créditos, el admin tiene que leer SIN_CREDITOS_IA (y avisarle a quien paga),
  * no "probá en un minuto", que no lo va a arreglar nunca.
@@ -181,8 +181,8 @@ function recortar(texto, largo) {
  * Dos reglas del contrato que se aplican acá:
  *   - Si el error no tiene un código del catálogo (un fallo de Firestore, un
  *     bug), es ERROR_INTERNO.
- *   - ERROR_INTERNO va SIEMPRE con detalle null. nvidia.js le pone un detalle
- *     a sus ERROR_INTERNO ("Falta NVIDIA_MODELO_CHAT...", "revisá la clave en
+ *   - ERROR_INTERNO va SIEMPRE con detalle null. ia.js le pone un detalle
+ *     a sus ERROR_INTERNO ("No hay GEMINI_API_KEY...", "revisá la clave en
  *     el .env") que sirve para el log pero que al cliente le cuenta cómo está
  *     configurado el servidor.
  */
@@ -198,7 +198,7 @@ function aErrorApi(err) {
 //  Todo adentro de una transacción: leer, chequear y marcar que la tomamos es
 //  UN solo paso atómico. Sin la transacción, dos POST seguidos con el mismo
 //  respId leen los dos 'buscando', pasan los dos, y pagamos dos veces la misma
-//  pregunta a NVIDIA (es la misma idea que el invariante 9 para los items).
+//  pregunta a la IA (es la misma idea que el invariante 9 para los items).
 //
 //  "Tomarla" es escribir actualizadoEn sin cambiar el estado: el documento
 //  sigue en 'buscando' (que es la verdad: estamos buscando), pero ya tiene la
@@ -405,7 +405,7 @@ async function responderLaConsulta({ wsId, ref, uid, esAdmin, pregunta }) {
     // ---- PASO 8: que redacte el modelo -----------------------------------
     // chatear() recibe la conversación como array de mensajes (system + user)
     // y ya devuelve el texto sin el <think>...</think> de los modelos de
-    // razonamiento. Temperatura baja (0.2, el default de nvidia.js) porque
+    // razonamiento. Temperatura baja (0.2, el default de ia.js) porque
     // queremos que copie lo que dicen los fragmentos, no que invente lindo.
     // Si falla, su error ya trae el código correcto (SIN_CREDITOS_IA,
     // DEMASIADOS_PEDIDOS, IA_NO_RESPONDE) y lo respetamos más abajo.
@@ -510,7 +510,7 @@ rutasDePreguntar.post('/preguntar', requireAuth, limitarPreguntas, exigirMiembro
     await marcarError(ref, errorApi.codigo, respId);
 
     if (errorApi.codigo === 'DEMASIADOS_PEDIDOS') {
-      // El contrato pide Retry-After también cuando el 429 viene de NVIDIA.
+      // El contrato pide Retry-After también cuando el 429 viene de Google.
       // Lo ponemos ACÁ porque el middleware final arma el JSON pero no toca
       // los headers que ya están puestos.
       res.set('Retry-After', String(RETRY_AFTER_IA_SEG));

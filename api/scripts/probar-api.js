@@ -7,7 +7,7 @@
 //  preguntar (con el test OBLIGATORIO de privacidad) y cambio de rol.
 //
 //  Uso:  npm run probar:api
-//  Requisitos: el seed cargado (npm run seed) y NVIDIA_API_KEY en el .env.
+//  Requisitos: el seed cargado (npm run seed) y GEMINI_API_KEY en el .env.
 //
 //  Todo lo que crea lleva el prefijo itm_test_ / resp_test_ y se borra al
 //  final, junto con los eventos que generaron las pruebas, para no ensuciar

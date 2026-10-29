@@ -30,7 +30,7 @@
 // OJO CON ESTE IMPORT: espera que exista src/firebase.js exportando `db`
 // (la instancia de Firestore del Admin SDK ya inicializada).
 import { db } from '../firebase.js';
-import { pedirEmbeddings } from './nvidia.js';
+import { pedirEmbeddings } from './ia.js';
 
 // --- Numeros -------------------------------------------------------------
 
@@ -42,17 +42,21 @@ export const MAX_FUENTES = 6;
 // Por debajo de esto consideramos que el chunk NO habla de la pregunta.
 // Con vectores normalizados el coseno va de -1 a 1.
 //
-// CALIBRADO EL 2/10/2026 con datos reales (npm run calibrar, modelo
-// nemotron-3-embed-1b recortado a 1024): 11 preguntas con respuesta en el seed
-// dieron entre 0.26 y 0.69 (mediana 0.45), y 5 que no tienen nada que ver
-// dieron entre 0.08 y 0.14 (salvo una de 0.26 que solo compartia la palabra
-// "Berazategui"). El 0.35 que teniamos a ojo dejaba afuera 4 de las 11
-// respuestas correctas: la IA hubiera dicho "No encontre esto" con el dato ahi.
-// 0.20 deja pasar todas las correctas. Lo que se cuele por arriba lo frena la
-// segunda barrera: el prompt le exige al modelo decir "No encontre" si los
-// fragmentos no contestan, y sin citas validas la respuesta sale con aviso.
-// Si se cambia el modelo de embeddings, HAY QUE VOLVER A CALIBRAR.
-const UMBRAL_POR_DEFECTO = 0.2;
+// CALIBRADO EL 29/10/2026 con datos reales (npm run calibrar, modelo
+// gemini-embedding-001 a 1024 dimensiones): 11 preguntas con respuesta en el
+// seed dieron entre 0.67 y 0.84 (mediana 0.72), y 5 que no tienen nada que ver
+// (el dolar, el mundial, empanadas...) dieron entre 0.51 y 0.61. Los dos grupos
+// NO se pisan, y 0.64 queda justo en el medio.
+//
+// OJO: el numero depende del MODELO, no es universal. Con el modelo anterior
+// (nemotron de NVIDIA) las correctas daban 0.26 a 0.69 y el ruido 0.08 a 0.14:
+// el umbral era 0.20. Gemini "aprieta" todo hacia arriba, ruido incluido. Si se
+// cambia el modelo de embeddings, HAY QUE VOLVER A CALIBRAR.
+//
+// Lo que se cuele por arriba lo frena la segunda barrera: el prompt le exige
+// al modelo decir "No encontre" si los fragmentos no contestan, y sin citas
+// validas la respuesta sale con aviso.
+const UMBRAL_POR_DEFECTO = 0.64;
 
 // Cuanto texto del chunk se guarda como cita visible en la respuesta.
 const LARGO_FRAGMENTO = 240;
@@ -84,7 +88,7 @@ function fallo(codigo, mensaje, http, detalle = null) {
  * apuntan para el mismo lado aunque tengan tamaños distintos; con distancia
  * comun, el largo del texto ensuciaria el resultado.
  *
- * Nuestros vectores ya salen normalizados (largo 1) de nvidia.js, asi que
+ * Nuestros vectores ya salen normalizados (largo 1) de ia.js, asi que
  * dividir por los largos es casi al pedo... pero lo hacemos igual: es una
  * linea, cuesta nada, y si algun dia entra un vector sin normalizar la
  * funcion sigue dando el numero correcto en vez de devolver cualquier cosa.
@@ -118,12 +122,14 @@ export function similitudCoseno(a, b) {
  * Es string y no numero a proposito: el numero crudo vive en fuentes[].similitud.
  */
 export function nivelDeConfianza(mejorSimilitud) {
-  // Cortes calibrados con la misma medicion que el umbral (ver arriba). El
-  // 0.60 / 0.45 original estaba pensado para otro modelo: con este, solo 1 de
-  // 11 respuestas correctas llegaba a 'alta'. 0.45 es la mediana de las
-  // respuestas correctas y 0.30 queda por encima de casi todo el ruido.
-  if (mejorSimilitud >= 0.45) return 'alta';
-  if (mejorSimilitud >= 0.3) return 'media';
+  // Cortes calibrados con la misma medicion que el umbral (ver arriba, Gemini,
+  // 29/10/2026). 0.72 es la mediana de las respuestas correctas: la mitad de
+  // las buenas salen 'alta'. 0.66 queda apenas debajo de la PEOR respuesta
+  // correcta (0.67): todo lo que se parece a una respuesta real es al menos
+  // 'media'. Entre el umbral (0.64) y 0.66 queda 'baja': paso el filtro, pero
+  // por poco.
+  if (mejorSimilitud >= 0.72) return 'alta';
+  if (mejorSimilitud >= 0.66) return 'media';
   return 'baja';
 }
 

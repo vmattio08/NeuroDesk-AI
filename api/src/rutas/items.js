@@ -44,7 +44,7 @@ import {
   quitarMarcasDePagina,
   TOPE_TEXTO_ITEM,
 } from '../servicios/texto.js';
-import { pedirEmbeddings } from '../servicios/nvidia.js';
+import { pedirEmbeddings } from '../servicios/ia.js';
 
 // mergeParams: true es OBLIGATORIO. Sin eso, req.params.wsId llega undefined
 // porque el :wsId está en la ruta donde montamos el router, no acá adentro.
@@ -102,7 +102,7 @@ const TOPE_ITEMS_PLAN_FREE = 200;
 // por un pago atrasado, solo dejamos de gastar créditos de IA.
 const ESTADOS_DE_PLAN_QUE_NO_INDEXAN = new Set(['pausada', 'cancelada']);
 
-// Cuando NVIDIA nos frena (429 después de sus 3 reintentos), el contrato pide
+// Cuando Google nos frena (429 después de sus 3 reintentos), el contrato pide
 // mandar Retry-After. 30 s alcanzan para que se libere el cupo por minuto.
 const SEGUNDOS_PARA_REINTENTAR = 30;
 
@@ -228,12 +228,12 @@ function exigirMiembroSegunContrato(req, res, next) {
 // ============================================================================
 //  TRADUCCIÓN DE ERRORES AL CONTRATO
 //
-//  Los servicios (extraer, link, nvidia) tiran errores con la forma
+//  Los servicios (extraer, link, ia) tiran errores con la forma
 //  { codigo, mensaje, http, detalle }. El codigo es del catálogo, pero el
 //  detalle a veces trae cosas que el contrato NO deja mandarle al cliente:
 //    - URL_NO_PERMITIDA trae el motivo exacto ("apunta a 10.0.0.0/8").
 //    - ERROR_INTERNO trae cosas como "Falta OCR_SPACE_API_KEY en el entorno".
-//    - Los de NVIDIA/OCR nombran al proveedor y cuentan HTTP internos.
+//    - Los de Google/OCR nombran al proveedor y cuentan HTTP internos.
 //  Acá se arma el ErrorApi que de verdad viaja. El detalle original no se
 //  pierde: se loguea en Render antes de llegar acá.
 // ============================================================================
@@ -392,7 +392,7 @@ function exigirTextoGuardadoSiEsArchivo(item) {
 //  El problema real: en la demo alguien toca "Subir" dos veces. Llegan dos
 //  requests casi juntos. Sin transacción, los dos leen 'pendiente', los dos
 //  dicen "puedo", y el archivo se procesa DOS VECES: el doble de créditos de
-//  NVIDIA, el doble de OCR y dos tandas de chunks pisándose.
+//  la IA, el doble de OCR y dos tandas de chunks pisándose.
 //
 //  Con runTransaction(), leer el estado y escribir 'procesando' son UN SOLO
 //  paso atómico. El segundo request lee un 'procesando' recién puesto y se va

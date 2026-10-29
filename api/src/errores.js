@@ -140,7 +140,7 @@ export const CATALOGO_DE_ERRORES = {
   },
   SIN_CREDITOS_IA: {
     http: 402,
-    mensaje: 'Se acabaron los créditos de la IA por este mes. Avisale al administrador.',
+    mensaje: 'Se terminó el cupo gratis de la IA. Avisale al administrador.',
   },
   IA_NO_RESPONDE: {
     http: 503,

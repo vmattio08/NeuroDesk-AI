@@ -197,7 +197,7 @@ app.use((err, req, res, next) => {
   // 1) Errores nuestros, ya clasificados con un codigo del catalogo.
   if (esErrorApi(err)) {
     // ERROR_INTERNO es la excepcion: su 'detalle' lo escribimos para NOSOTROS
-    // ("NVIDIA rechazo la clave", "Falta NVIDIA_MODELO_CHAT") y describe la
+    // ("Google rechazo la clave", "No hay GEMINI_API_KEY") y describe la
     // configuracion del servidor. Va al log de Render y al cliente le llega
     // null, igual que en el punto 3 de abajo. Se corta aca y no en cada ruta
     // para que ningun endpoint nuevo se lo pueda olvidar.

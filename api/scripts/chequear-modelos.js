@@ -1,50 +1,66 @@
 // ============================================================
-//  Chequeo de liveness de los modelos de NVIDIA.
+//  Chequeo de que los modelos de Google Gemini que usamos sigan existiendo.
 //  Correr TODOS LOS LUNES antes de empezar a laburar.
 //
-//  Truco: se llama SIN la API key a proposito.
-//    401 = el modelo existe y esta vivo (nos rechazo por falta de auth)
-//    410 = el modelo fue dado de baja  -> hay que cambiarlo en el .env
+//  Le pide a Google la lista de modelos disponibles PARA NUESTRA CLAVE y
+//  verifica que esten los del chat (principal + respaldos) y el de embeddings.
+//  Si Google da de baja uno, se cambia el ID en el .env (GEMINI_MODELO_CHAT,
+//  GEMINI_MODELOS_CHAT_RESPALDO o GEMINI_MODELO_EMBED) y listo.
 //
-//  Uso:  node scripts/chequear-modelos.js
+//  Uso:  npm run modelos:vivos
 // ============================================================
-const BASE = process.env.NVIDIA_BASE_URL || "https://integrate.api.nvidia.com/v1";
+import { modelosEnUso } from "../src/servicios/ia.js";
 
-// Los de respaldo tambien se chequean: un respaldo muerto es un respaldo que
-// no esta, y eso hay que saberlo un lunes y no el dia de la demo.
-const RESPALDOS = (process.env.NVIDIA_MODELOS_CHAT_RESPALDO || "").split(",").map((s) => s.trim()).filter(Boolean);
-const MODELOS = [
-  { uso: "chat", id: process.env.NVIDIA_MODELO_CHAT || "openai/gpt-oss-20b", ruta: "/chat/completions" },
-  ...RESPALDOS.map((id) => ({ uso: "chat-resp", id, ruta: "/chat/completions" })),
-  { uso: "embeddings", id: process.env.NVIDIA_MODELO_EMBED || "nvidia/nemotron-3-embed-1b", ruta: "/embeddings" },
+const BASE = (process.env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com/v1beta").replace(/\/+$/, "");
+const CLAVE = (process.env.GEMINI_API_KEY || "").trim();
+
+if (!CLAVE) {
+  console.log("\nFalta GEMINI_API_KEY en api/.env (se saca en aistudio.google.com -> Get API key).\n");
+  process.exit(1);
+}
+
+const { chat, embeddings } = modelosEnUso();
+const BUSCADOS = [
+  ...chat.map((id, i) => ({ uso: i === 0 ? "chat" : "chat-resp", id })),
+  { uso: "embeddings", id: embeddings },
 ];
 
-const LEYENDA = {
-  401: ["VIVO", "el modelo existe (nos rechazo por falta de key, que es lo esperado)"],
-  410: ["MUERTO", "dado de baja -> cambiar el ID en el .env AHORA"],
-  404: ["NO EXISTE", "el ID esta mal escrito"],
-};
-
 console.log(`\nChequeando modelos contra ${BASE}\n`);
-let hayProblema = false;
 
-for (const m of MODELOS) {
-  let estado, detalle;
-  try {
-    const res = await fetch(BASE + m.ruta, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: m.id, messages: [{ role: "user", content: "ping" }], input: "ping" }),
+// La lista viene paginada: la recorremos entera. La clave va en una cabecera,
+// nunca en la URL (las URLs quedan en logs).
+const disponibles = new Map();
+let pagina = "";
+try {
+  do {
+    const res = await fetch(`${BASE}/models?pageSize=1000${pagina ? `&pageToken=${pagina}` : ""}`, {
+      headers: { "x-goog-api-key": CLAVE },
     });
-    [estado, detalle] = LEYENDA[res.status] || [`HTTP ${res.status}`, "revisar a mano"];
-  } catch (err) {
-    estado = "SIN RED";
-    detalle = err.message;
-  }
-  if (estado !== "VIVO") hayProblema = true;
-  console.log(`  [${estado.padEnd(9)}] ${m.uso.padEnd(11)} ${m.id}`);
+    if (!res.ok) {
+      console.log(`  Google respondio HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      console.log(res.status === 400 || res.status === 403 ? "  -> Revisar que GEMINI_API_KEY este bien copiada.\n" : "");
+      process.exit(1);
+    }
+    const json = await res.json();
+    for (const m of json.models ?? []) disponibles.set(m.name.replace(/^models\//, ""), m);
+    pagina = json.nextPageToken ?? "";
+  } while (pagina);
+} catch (err) {
+  console.log(`  [SIN RED] ${err.message}\n`);
+  process.exit(1);
+}
+
+let hayProblema = false;
+for (const b of BUSCADOS) {
+  const m = disponibles.get(b.id);
+  if (!m) hayProblema = true;
+  const estado = m ? "VIVO" : "NO ESTA";
+  const detalle = m ? (m.displayName ?? "") : "Google no lo ofrece para esta clave -> cambiar el ID en el .env";
+  console.log(`  [${estado.padEnd(7)}] ${b.uso.padEnd(11)} ${b.id}`);
   console.log(`              ${detalle}\n`);
 }
 
 console.log(hayProblema ? "Revisar lo de arriba antes de seguir.\n" : "Todo en orden, a laburar.\n");
-process.exit(hayProblema ? 1 : 0);
+// exitCode y no process.exit(): en Windows, cortar el proceso con conexiones
+// de fetch todavia abiertas tira un "Assertion failed" de libuv que asusta.
+process.exitCode = hayProblema ? 1 : 0;

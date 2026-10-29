@@ -222,7 +222,7 @@ async function ocrSpace(buffer, { tipoMime, nombre, motor = 2 }) {
   if (res.status === 402 || res.status === 403) {
     throw fallo(
       'SIN_CREDITOS_IA',
-      'Se acabaron los créditos de la IA por este mes. Avisale al administrador.',
+      'Se terminó el cupo gratis de la IA. Avisale al administrador.',
       402,
       'OCR.space agotó el cupo mensual gratuito.',
     );

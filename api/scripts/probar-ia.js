@@ -1,33 +1,34 @@
 // ============================================================
-//  Prueba de punta a punta de las APIs externas: NVIDIA NIM y OCR.space.
+//  Prueba de punta a punta de las APIs externas: Google Gemini y OCR.space.
 //
-//  Usa EL MISMO codigo que el backend (servicios/nvidia.js y
+//  Usa EL MISMO codigo que el backend (servicios/ia.js y
 //  servicios/extraer.js), no un curl aparte: si esto anda, anda la busqueda
 //  y la respuesta con IA del servidor. Si falla, falla por lo mismo que
 //  fallaria en la demo, y lo vemos antes.
 //
-//  Uso:  npm run probar:ia                 -> solo NVIDIA
-//        npm run probar:ia -- foto.png     -> NVIDIA + OCR de esa imagen
+//  Uso:  npm run probar:ia                 -> solo Google Gemini
+//        npm run probar:ia -- foto.png     -> Gemini + OCR de esa imagen
 //
 //  NUNCA imprime las claves: solo dice si estan o no.
-//  Gasta 3 pedidos de NVIDIA (de ~40 por minuto) y, si le pasas una imagen,
+//  Gasta unos 4 pedidos del free tier de Gemini y, si le pasas una imagen,
 //  1 de OCR.space (de 25.000 por mes).
 // ============================================================
 import fs from "node:fs";
 import path from "node:path";
-import { pedirEmbeddings, chatear, dimensiones, estadoDeLaClave, cadenaDeModelosChat } from "../src/servicios/nvidia.js";
+import { pedirEmbeddings, chatear, dimensiones, estadoDeLaClave, cadenaDeModelosChat, modelosEnUso } from "../src/servicios/ia.js";
 import { extraerDeImagen } from "../src/servicios/extraer.js";
 
-// Que hacer segun lo que conteste NVIDIA. El 403 va primero porque es el caso
-// lento: no se arregla cambiando una linea, hay que pedir permiso y esperar.
+// Que hacer segun lo que conteste Google.
 const PISTAS = {
   ERROR_INTERNO:
-    "Si arriba dice HTTP 403 'Authorization failed': la cuenta todavia no tiene habilitada la API publica.\n" +
-    "  Hay que pedirla en el foro de NVIDIA Developer (puede tardar dias). Si dice 401: la clave esta mal copiada.\n" +
-    "  Si dice 'Falta NVIDIA_MODELO_...': faltan los IDs de los modelos en el .env.",
-  SIN_CREDITOS_IA: "Se acabaron los creditos de esa cuenta. Pone la clave de otra cuenta en NVIDIA_API_KEY_BACKUP.",
-  DEMASIADOS_PEDIDOS: "Nos pasamos de ~40 pedidos por minuto. Espera un minuto y volve a correrlo.",
-  IA_NO_RESPONDE: "NVIDIA no contesto a tiempo o dio un error de su lado. Proba de nuevo en un rato.",
+    "Google rechazo la clave: revisa que GEMINI_API_KEY este bien copiada (sin espacios ni comillas).\n" +
+    "  Si arriba dice 'API has not been used' o 'PERMISSION_DENIED', la clave es de un proyecto sin la API habilitada:\n" +
+    "  crea la clave desde aistudio.google.com -> Get API key.",
+  SIN_CREDITOS_IA: "Se termino la cuota GRATIS del dia de ese modelo (se renueva a la medianoche del Pacifico).\n" +
+    "  Para tener mas: GEMINI_API_KEY_RESPALDO con una clave de OTRO proyecto de Google.",
+  DEMASIADOS_PEDIDOS: "Nos pasamos del limite por minuto del free tier. Espera un minuto y volve a correrlo.",
+  IA_NO_RESPONDE: "Google no contesto a tiempo, esta sobrecargado o el modelo no existe (ver HTTP arriba). Proba de nuevo en un rato\n" +
+    "  y corre `npm run modelos:vivos` para ver si los modelos siguen disponibles.",
 };
 
 const ms = (desde) => `${Math.round(performance.now() - desde)} ms`;
@@ -42,8 +43,8 @@ function contarError(paso, err) {
   console.log(`  detalle: ${err?.detalle || err?.message}`);
   // Sin clave el codigo tambien es ERROR_INTERNO, pero la solucion es otra:
   // por eso se mira el detalle antes que la tabla de pistas.
-  const pista = /No hay NVIDIA_API_KEY/.test(err?.detalle || "")
-    ? "Falta pegar la clave en api/.env, en una linea asi: NVIDIA_API_KEY=nvapi-..."
+  const pista = /No hay GEMINI_API_KEY/.test(err?.detalle || "")
+    ? "Falta pegar la clave en api/.env, en una linea asi: GEMINI_API_KEY=... (se saca en aistudio.google.com -> Get API key)"
     : PISTAS[err?.codigo];
   if (pista) console.log(`  que hacer: ${pista}`);
   console.log("");
@@ -53,11 +54,12 @@ function contarError(paso, err) {
 // ---- 0. Configuracion ------------------------------------------------------
 const clave = estadoDeLaClave();
 console.log("\n== Configuracion (sin mostrar claves) ==");
-console.log(`  NVIDIA_API_KEY ............ ${si(clave.hayPrincipal)}`);
-console.log(`  NVIDIA_API_KEY_BACKUP ..... ${si(clave.hayRespaldo)}`);
-console.log(`  NVIDIA_MODELO_CHAT ........ ${process.env.NVIDIA_MODELO_CHAT || "NO (falta)"}`);
-console.log(`  NVIDIA_MODELOS_CHAT_RESPALDO ${process.env.NVIDIA_MODELOS_CHAT_RESPALDO || "(ninguno)"}`);
-console.log(`  NVIDIA_MODELO_EMBED ....... ${process.env.NVIDIA_MODELO_EMBED || "NO (falta)"}`);
+const modelos = modelosEnUso();
+console.log(`  GEMINI_API_KEY ............ ${si(clave.hayPrincipal)}`);
+console.log(`  GEMINI_API_KEY_RESPALDO ... ${si(clave.hayRespaldo)}`);
+console.log(`  chat (en orden) ........... ${modelos.chat.join(" -> ")}`);
+console.log(`  razonamiento .............. ${modelos.razonamiento}`);
+console.log(`  embeddings ................ ${modelos.embeddings}`);
 console.log(`  EMBED_DIMS ................ ${dimensiones()}`);
 console.log(`  OCR_SPACE_API_KEY ......... ${si((process.env.OCR_SPACE_API_KEY || "").trim())}`);
 
@@ -104,7 +106,7 @@ try {
   const respuesta = await chatear([
     { role: "system", content: "Respondé en castellano, en una sola oración, usando solo el fragmento que te dan." },
     { role: "user", content: `Fragmento: ${DOCUMENTOS[0]}\n\nPregunta: ${PREGUNTA}` },
-  ], { maxTokens: 120 });
+  ], { maxTokens: 1024 });
   console.log(`  OK en ${ms(t)}. Respuesta: ${respuesta.slice(0, 300)}`);
 } catch (err) {
   contarError("chat", err);
@@ -116,24 +118,26 @@ try {
 const cadena = cadenaDeModelosChat();
 if (cadena.length > 1) {
   console.log("\n== 3b. Cada modelo de la cadena de chat, por separado ==");
-  const principal = process.env.NVIDIA_MODELO_CHAT;
-  const respaldos = process.env.NVIDIA_MODELOS_CHAT_RESPALDO;
+  const principal = process.env.GEMINI_MODELO_CHAT;
+  const respaldos = process.env.GEMINI_MODELOS_CHAT_RESPALDO;
   for (const modelo of cadena) {
-    process.env.NVIDIA_MODELO_CHAT = modelo;
-    process.env.NVIDIA_MODELOS_CHAT_RESPALDO = "";
+    process.env.GEMINI_MODELO_CHAT = modelo;
+    process.env.GEMINI_MODELOS_CHAT_RESPALDO = "ninguno"; // sin respaldo: probamos ESTE solo
     const t = performance.now();
     try {
       const r = await chatear([
         { role: "system", content: "Respondé en castellano, en una sola oración, usando solo el fragmento." },
         { role: "user", content: `Fragmento [1]: ${DOCUMENTOS[0]}\n\nPregunta: ${PREGUNTA}` },
-      ], { maxTokens: 120 });
+      ], { maxTokens: 1024 });
       console.log(`  OK    ${modelo} en ${ms(t)}: ${r.replace(/\s+/g, " ").slice(0, 120)}`);
     } catch (err) {
       console.log(`  FALLA ${modelo} en ${ms(t)}: ${err?.codigo} ${err?.detalle ?? ""}`);
     }
   }
-  process.env.NVIDIA_MODELO_CHAT = principal;
-  process.env.NVIDIA_MODELOS_CHAT_RESPALDO = respaldos;
+  // Ojo: asignar undefined a process.env guarda el TEXTO "undefined". Si no
+  // estaban definidas, se borran para volver a los valores por defecto.
+  if (principal === undefined) delete process.env.GEMINI_MODELO_CHAT; else process.env.GEMINI_MODELO_CHAT = principal;
+  if (respaldos === undefined) delete process.env.GEMINI_MODELOS_CHAT_RESPALDO; else process.env.GEMINI_MODELOS_CHAT_RESPALDO = respaldos;
 }
 
 // ---- 4. OCR (opcional: solo si se pasa una imagen) --------------------------

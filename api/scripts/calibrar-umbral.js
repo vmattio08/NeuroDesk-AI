@@ -16,7 +16,7 @@
 //  Uso: npm run calibrar   (necesita el seed con embeddings reales y la clave)
 // ============================================================
 import { db } from "../src/firebase.js";
-import { pedirEmbeddings } from "../src/servicios/nvidia.js";
+import { pedirEmbeddings } from "../src/servicios/ia.js";
 
 const WS = "ws_seed_6to1ra";
 
