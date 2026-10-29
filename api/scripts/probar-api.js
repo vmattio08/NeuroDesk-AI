@@ -4,7 +4,9 @@
 //  Levanta el servidor en un puerto aparte, entra con las 3 cuentas del seed
 //  (Valentino = admin, Martin y Camila = miembros) y recorre los endpoints del
 //  contrato: auth, items (procesar, reprocesar, borrar, limpieza masiva),
-//  preguntar (con el test OBLIGATORIO de privacidad) y cambio de rol.
+//  preguntar (con el test OBLIGATORIO de privacidad), las preguntas de
+//  SEGUIMIENTO (la conversacion y su cadena fail-closed), el TITULO del item
+//  en los fragmentos que ve el modelo, y cambio de rol.
 //
 //  Uso:  npm run probar:api
 //  Requisitos: el seed cargado (npm run seed) y GEMINI_API_KEY en el .env.
@@ -22,6 +24,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { db, auth, FieldValue, Timestamp } from "../src/firebase.js";
+import { CATALOGO_DE_ERRORES } from "../src/errores.js";
 
 const AQUI = path.dirname(fileURLToPath(import.meta.url));
 const RAIZ_API = path.resolve(AQUI, "..");
@@ -84,7 +87,17 @@ function esperarError(r, status, codigo) {
 // ---- datos de prueba (los crea "el cliente", como haria la app) ------------
 const ITEM_EQUIPO = "itm_test_reunion";
 const ITEM_PRIVADO = "itm_test_wifi";
-const RESP_PRUEBA = ["resp_test_1", "resp_test_2", "resp_test_3"];
+// La nota del arreglo del TITULO: "olimpíada" y "robótica" estan SOLO en el
+// titulo. El cuerpo no dice de que evento habla.
+const ITEM_TITULO = "itm_test_titulo";
+const ITEMS_PRUEBA = [ITEM_EQUIPO, ITEM_PRIVADO, ITEM_TITULO];
+const RESP_PRUEBA = [
+  "resp_test_1", "resp_test_2", "resp_test_3",
+  // preguntas de seguimiento (las dos primeras son la conversacion buena)
+  "resp_test_seg_1", "resp_test_seg_2", "resp_test_seg_ajena", "resp_test_seg_inexistente",
+  "resp_test_seg_otra_conv", "resp_test_seg_a_medias",
+  "resp_test_titulo",
+];
 const itemRef = (id) => db.collection("workspaces").doc(WS).collection("items").doc(id);
 const respRef = (id) => db.collection("workspaces").doc(WS).collection("respuestas").doc(id);
 
@@ -95,18 +108,31 @@ async function crearNota(id, autor, visibilidad, titulo, textoOriginal) {
     textoOriginal, estado: "pendiente", creadoEn: FieldValue.serverTimestamp(),
   });
 }
-async function crearPregunta(id, autor, pregunta) {
-  await respRef(id).set({ pregunta, autorUid: autor, estado: "buscando", creadoEn: FieldValue.serverTimestamp() });
+// Una primera pregunta lleva EXACTAMENTE los 4 campos de siempre. Un
+// seguimiento suma conversacionId y anteriorRespId (siempre juntos, como pide
+// la regla): es lo que trae 'cadena'. Con el Admin SDK las reglas no aplican,
+// asi que tambien se pueden armar cadenas rotas a proposito.
+async function crearPregunta(id, autor, pregunta, cadena = null) {
+  await respRef(id).set({ pregunta, autorUid: autor, estado: "buscando", creadoEn: FieldValue.serverTimestamp(), ...(cadena ?? {}) });
 }
-async function preguntar(token, respId, autor, pregunta) {
-  await crearPregunta(respId, autor, pregunta);
+async function preguntar(token, respId, autor, pregunta, cadena = null) {
+  await crearPregunta(respId, autor, pregunta, cadena);
   return pedir("POST", `/v1/workspaces/${WS}/preguntar`, { token, body: { respId, pregunta } });
 }
 const citaA = (r, itemId) => (r.json?.fuentes ?? []).some((f) => f.itemId === itemId);
+// La respuesta sin las marcas [1] [2], para buscar un dato sin confundirlo con una cita.
+const sinMarcas = (texto) => String(texto ?? "").replace(/\[\d+\]/g, "");
+// Cuando un seguimiento falla, la consulta NUEVA tiene que quedar cerrada en
+// 'error' con el mensaje del catalogo (el mismo que viajo por HTTP).
+async function esperarConsultaEnError(respId, codigo) {
+  const doc = (await respRef(respId).get()).data();
+  esperar(doc?.estado === "error" && doc?.errorMsg === CATALOGO_DE_ERRORES[codigo].mensaje,
+    `la consulta ${respId} quedo con estado=${doc?.estado} errorMsg=${JSON.stringify(doc?.errorMsg)}`);
+}
 
 // ---- limpieza ---------------------------------------------------------------
 async function limpiar(desde) {
-  for (const id of [ITEM_EQUIPO, ITEM_PRIVADO]) {
+  for (const id of ITEMS_PRUEBA) {
     const chunks = await db.collection("chunks").where("itemId", "==", id).get();
     const lote = db.batch();
     chunks.forEach((d) => lote.delete(d.ref));
@@ -229,6 +255,95 @@ try {
   });
   await prueba("la consulta de otro -> 404 RESPUESTA_NO_ENCONTRADA", async () =>
     esperarError(await pedir("POST", `/v1/workspaces/${WS}/preguntar`, { token: T.camila, body: { respId: "resp_test_1", pregunta: "¿Cuándo es la reunión de padres?" } }), 404, "RESPUESTA_NO_ENCONTRADA"));
+
+  console.log("\n== Preguntas de seguimiento ==");
+  // La conversacion buena: la raiz es resp_test_1 (Martin: "¿Cuándo es la
+  // reunión de padres?"), y despues dos seguimientos que solo se entienden
+  // con lo anterior.
+  await prueba("seguimiento '¿Y en qué aula?': entiende la conversacion, dice el aula 4 y cita la nota", async () => {
+    const raiz = (await respRef("resp_test_1").get()).data();
+    esperar(raiz?.preguntaBuscada === null, `una primera pregunta queda con preguntaBuscada null y quedo ${JSON.stringify(raiz?.preguntaBuscada)}`);
+    // Lo que imprima el servidor desde aca es de ESTE pedido: las pruebas van de a una.
+    const desdeLinea = log.length;
+    const r = await preguntar(T.martin, "resp_test_seg_1", U.martin, "¿Y en qué aula?",
+      { conversacionId: "resp_test_1", anteriorRespId: "resp_test_1" });
+    esperar(r.status === 200 && r.json?.estado === "listo", `${r.status} ${JSON.stringify(r.json)}`);
+    esperar(citaA(r, ITEM_EQUIPO), `no cito la nota. respuesta="${r.json.respuesta}" fuentes=${JSON.stringify(r.json.fuentes)}`);
+    esperar(/\b4\b/.test(sinMarcas(r.json.respuesta)), `no dice el aula 4: "${r.json.respuesta}"`);
+    const doc = (await respRef("resp_test_seg_1").get()).data();
+    // La reformulacion tiene un plazo corto propio (12 s). Si GOOGLE no contesto
+    // en ese plazo, el contrato manda buscar con el RESPALDO (la pregunta
+    // anterior + la nueva) y dejar preguntaBuscada en null: no es una falla
+    // nuestra, y las tres aserciones de arriba ya probaron que igual entendio la
+    // conversacion. Solo se acepta si el log del servidor dice que fallo Google
+    // (el 29/10/2026 paso en 3 de 4 corridas, con Google en "high demand"). Si
+    // la reformulacion vino mal armada (vacia, en varias lineas), eso SI es falla.
+    const delServidor = log.slice(desdeLinea).join("");
+    if (doc.preguntaBuscada === null && /la reformulaci[oó]n fall[oó] \((IA_NO_RESPONDE|DEMASIADOS_PEDIDOS|SIN_CREDITOS_IA)\)/.test(delServidor)) {
+      return `Google no contestó la reformulación a tiempo: buscó con el RESPALDO (preguntaBuscada null) y contestó bien igual, ${r.json.tardoMs} ms — "${r.json.respuesta.slice(0, 100)}"`;
+    }
+    esperar(typeof doc.preguntaBuscada === "string" && /reuni/i.test(doc.preguntaBuscada),
+      `preguntaBuscada tiene que ser la pregunta reformulada (que nombre la reunión) y es ${JSON.stringify(doc.preguntaBuscada)}`);
+    return `buscó "${doc.preguntaBuscada}", ${r.json.tardoMs} ms — "${r.json.respuesta.slice(0, 100)}"`;
+  });
+  await prueba("tercera vuelta: sigue la cadena (seg_1 -> raiz) y contesta '¿Y qué hay que llevar?'", async () => {
+    const r = await preguntar(T.martin, "resp_test_seg_2", U.martin, "¿Y qué hay que llevar?",
+      { conversacionId: "resp_test_1", anteriorRespId: "resp_test_seg_1" });
+    esperar(r.status === 200 && r.json?.estado === "listo", `${r.status} ${JSON.stringify(r.json)}`);
+    esperar(citaA(r, ITEM_EQUIPO), `no cito la nota. respuesta="${r.json.respuesta}" fuentes=${JSON.stringify(r.json.fuentes)}`);
+    esperar(/bolet[ií]n/i.test(r.json.respuesta), `no dice lo del boletín: "${r.json.respuesta}"`);
+    const doc = (await respRef("resp_test_seg_2").get()).data();
+    return `buscó ${JSON.stringify(doc.preguntaBuscada)}, ${r.json.tardoMs} ms — "${r.json.respuesta.slice(0, 100)}"`;
+  });
+  let cuerpoDeLaAjena = null;
+  await prueba("seguimiento colgado de la consulta de OTRA persona -> 404 RESPUESTA_NO_ENCONTRADA y queda en error", async () => {
+    // resp_test_3 es de Valentino: Martin no la puede usar de historial.
+    const r = await preguntar(T.martin, "resp_test_seg_ajena", U.martin, "¿Y en qué aula?",
+      { conversacionId: "resp_test_3", anteriorRespId: "resp_test_3" });
+    esperarError(r, 404, "RESPUESTA_NO_ENCONTRADA");
+    await esperarConsultaEnError("resp_test_seg_ajena", "RESPUESTA_NO_ENCONTRADA");
+    cuerpoDeLaAjena = r.json;
+  });
+  await prueba("seguimiento de una consulta que NO existe -> el MISMO 404 que la ajena (no confirma nada)", async () => {
+    const r = await preguntar(T.martin, "resp_test_seg_inexistente", U.martin, "¿Y en qué aula?",
+      { conversacionId: "resp_test_no_existe", anteriorRespId: "resp_test_no_existe" });
+    esperarError(r, 404, "RESPUESTA_NO_ENCONTRADA");
+    await esperarConsultaEnError("resp_test_seg_inexistente", "RESPUESTA_NO_ENCONTRADA");
+    esperar(JSON.stringify(r.json) === JSON.stringify(cuerpoDeLaAjena),
+      `la ajena y la inexistente tienen que responder igual: ${JSON.stringify(cuerpoDeLaAjena)} vs ${JSON.stringify(r.json)}`);
+  });
+  await prueba("cadena inconsistente (conversacionId que no es el de la anterior) -> 400 DATOS_INVALIDOS", async () => {
+    // resp_test_1 es una raiz de Martin, pero el seguimiento dice que su
+    // conversacion es resp_test_2 (otra raiz de Martin).
+    const r = await preguntar(T.martin, "resp_test_seg_otra_conv", U.martin, "¿Y en qué aula?",
+      { conversacionId: "resp_test_2", anteriorRespId: "resp_test_1" });
+    esperarError(r, 400, "DATOS_INVALIDOS");
+    await esperarConsultaEnError("resp_test_seg_otra_conv", "DATOS_INVALIDOS");
+  });
+  await prueba("seguimiento a medio armar (conversacionId sin anteriorRespId) -> 400 DATOS_INVALIDOS", async () => {
+    // Desde la app esto lo frena la regla. Con el Admin SDK no hay regla, y
+    // el backend lo frena igual.
+    const r = await preguntar(T.camila, "resp_test_seg_a_medias", U.camila, "¿Y en qué aula?", { conversacionId: "resp_test_1" });
+    esperarError(r, 400, "DATOS_INVALIDOS");
+    await esperarConsultaEnError("resp_test_seg_a_medias", "DATOS_INVALIDOS");
+  });
+
+  console.log("\n== El titulo del item llega al modelo ==");
+  await prueba("una nota que solo se reconoce por su TITULO: contesta y la cita", async () => {
+    // Antes del arreglo, el modelo recibia "Es el viernes 21... en el club
+    // Ducilo" sin el titulo, no sabia que ESO era la olimpíada y contestaba
+    // "No encontré esto en la base del equipo" (medido el 29/10/2026).
+    await crearNota(ITEM_TITULO, U.camila, "equipo", "Olimpíada de robótica",
+      "Es el viernes 21 de noviembre a las 10 en el club Ducilo. Hay que confirmar la asistencia con la preceptora antes del miércoles.");
+    const p = await pedir("POST", `/v1/workspaces/${WS}/items/${ITEM_TITULO}/procesar`, { token: T.camila });
+    esperar(p.status === 200 && p.json?.item?.estado === "listo", `procesar: ${p.status} ${JSON.stringify(p.json)}`);
+    const r = await preguntar(T.camila, "resp_test_titulo", U.camila, "¿Dónde es la olimpíada de robótica?");
+    esperar(r.status === 200 && r.json?.estado === "listo", `${r.status} ${JSON.stringify(r.json)}`);
+    esperar(citaA(r, ITEM_TITULO), `no cito la nota. respuesta="${r.json.respuesta}" fuentes=${JSON.stringify(r.json.fuentes)}`);
+    esperar(/ducilo/i.test(r.json.respuesta), `no dice dónde es: "${r.json.respuesta}"`);
+    const sim = r.json.fuentes.find((f) => f.itemId === ITEM_TITULO)?.similitud;
+    return `confianza=${r.json.confianza}, sim=${sim} — "${r.json.respuesta.slice(0, 100)}"`;
+  });
 
   console.log("\n== Roles ==");
   await prueba("un miembro no puede cambiar roles -> 403 NO_ES_ADMIN", async () =>

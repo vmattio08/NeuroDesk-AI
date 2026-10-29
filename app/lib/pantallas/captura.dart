@@ -1,5 +1,5 @@
 // ============================================================================
-//  captura.dart — cargar una nota, una foto, un PDF o un link
+//  captura.dart — cargar una nota, una foto, un documento (PDF o Word) o un link
 //
 //  ================== LA REGLA DE ORO DEL PROYECTO, ACA =====================
 //  El orden es SIEMPRE este, y no se puede dar vuelta:
@@ -22,13 +22,21 @@
 //  Las reglas usan hasOnly(): si mandamos UN campo de mas, se rechaza la
 //  escritura ENTERA con permission-denied. Los unicos permitidos son:
 //     titulo, tipo, visibilidad, workspaceId, creadoPor, creadoEn, estado,
-//     y segun el tipo: url (link), nombreArchivo (pdf/foto), textoOriginal (nota).
+//     y segun el tipo: url (link), nombreArchivo (pdf/word/foto), textoOriginal (nota).
 //  NO va 'texto', NO va 'cantChunks', NO va 'actualizadoEn'. Esos los escribe
 //  el backend. Ese fue exactamente el bug que rompio la version 1 del proyecto.
 //
 //  textoOriginal (lo que escribe la PERSONA) y texto (lo que extrae el
 //  BACKEND) son dos campos distintos A PROPOSITO: asi el tipo 'nota' funciona
 //  sin abrirle al cliente el campo que alimenta a la IA.
+//
+//  ================== EL BOTON "DOCUMENTO" (PDF O WORD) =====================
+//  Un solo boton acepta .pdf y .docx, pero 'documento' NO es un tipo de item:
+//  el tipo que se guarda es 'pdf' o 'word' y lo decide la EXTENSION del
+//  archivo elegido (ver tipoDeDocumento). Los dos viajan igual: el item nace
+//  'pendiente' con su nombreArchivo y despues el archivo va por multipart.
+//  El .doc viejo (Word 97-2003) se frena aca: es otro formato y el backend
+//  solo sabe leer .docx.
 // ============================================================================
 
 import 'dart:async';
@@ -49,6 +57,26 @@ class CapturaPantalla extends StatefulWidget {
   final String wsId;
   final String miUid;
 
+  /// El 'tipo' del item para un archivo elegido con el boton "Documento":
+  /// 'pdf' para .pdf, 'word' para .docx y null para cualquier otra cosa.
+  ///
+  /// POR QUE SE MIRA LA EXTENSION ACA, si el selector ya filtra: el
+  /// allowedExtensions de file_picker es un PEDIDO, no una garantia. En
+  /// Android se traduce a tipos MIME y algunos exploradores de archivos (o
+  /// Drive) dejan elegir cualquier cosa igual.
+  ///
+  /// El .doc da null A PROPOSITO: es el formato binario viejo de Word y el
+  /// backend no lo sabe leer. Mejor frenarlo antes de gastar datos.
+  ///
+  /// Es estatica y publica para probarla con 'flutter test' sin armar la
+  /// pantalla y sin Firebase (igual que los helpers de AuthServicio).
+  static String? tipoDeDocumento(String nombreArchivo) {
+    final String nombre = nombreArchivo.trim().toLowerCase();
+    if (nombre.endsWith('.pdf')) return 'pdf';
+    if (nombre.endsWith('.docx')) return 'word';
+    return null;
+  }
+
   @override
   State<CapturaPantalla> createState() => _CapturaPantallaState();
 }
@@ -66,11 +94,25 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
   final TextEditingController _texto = TextEditingController();
   final TextEditingController _url = TextEditingController();
 
-  String _tipo = 'nota'; // nota | foto | pdf | link
+  // Lo que se eligio en los chips: nota | foto | documento | link.
+  // No se escribe tal cual en Firestore: 'documento' no es un tipo de item
+  // (ver _tipoDelItem). Por eso se llama _opcion y no _tipo.
+  String _opcion = 'nota';
   String _visibilidad = 'equipo'; // equipo | privado
   File? _archivo;
   String _nombreArchivo = '';
+  // 'pdf' o 'word': sale de la extension del documento elegido. Vacio
+  // mientras no haya documento (se limpia junto con _archivo).
+  String _tipoDeDocumento = '';
   bool _guardando = false;
+
+  /// El 'tipo' que se escribe en Firestore. Para nota, foto y link es la
+  /// opcion del chip; para "Documento" es lo que dijo la extension del archivo.
+  String get _tipoDelItem => _opcion == 'documento' ? _tipoDeDocumento : _opcion;
+
+  /// Foto y documento viajan con archivo (multipart). Nota y link no: el
+  /// backend lee su texto del propio documento de Firestore.
+  bool get _llevaArchivo => _opcion == 'foto' || _opcion == 'documento';
 
   @override
   void dispose() {
@@ -117,16 +159,32 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
     }
   }
 
-  /// PDF del telefono.
-  Future<void> _elegirPdf() async {
+  /// PDF o Word (.docx) del telefono.
+  Future<void> _elegirDocumento() async {
     try {
       final FilePickerResult? elegido = await FilePicker.platform.pickFiles(
         type: FileType.custom,
-        allowedExtensions: <String>['pdf'],
+        allowedExtensions: <String>['pdf', 'docx'],
       );
       final String? ruta = elegido?.files.single.path;
-      if (ruta == null) return;
+      if (ruta == null) return; // la persona cancelo: no es un error
       if (!mounted) return;
+
+      final String nombre = elegido!.files.single.name;
+
+      // El tipo se decide ANTES de mirar el tamano: si no es PDF ni Word no
+      // tiene sentido medirlo, y el mensaje correcto es el del formato.
+      final String? tipo = CapturaPantalla.tipoDeDocumento(nombre);
+      if (tipo == null) {
+        mostrarAviso(
+          context,
+          nombre.toLowerCase().endsWith('.doc')
+              ? 'Ese es un Word viejo (.doc). Abrilo en Word y guardalo como .docx.'
+              : 'Solo se pueden subir archivos PDF o Word (.docx).',
+          esError: true,
+        );
+        return;
+      }
 
       final File f = File(ruta);
       if (!await _tamanoOk(f)) return;
@@ -134,14 +192,18 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
 
       setState(() {
         _archivo = f;
-        _nombreArchivo = elegido!.files.single.name;
+        _nombreArchivo = nombre;
+        _tipoDeDocumento = tipo;
         if (_titulo.text.trim().isEmpty) {
-          // Titulo sugerido: el nombre del archivo sin el .pdf.
-          _titulo.text = _nombreArchivo.replaceAll(RegExp(r'\.pdf$', caseSensitive: false), '');
+          // Titulo sugerido: el nombre del archivo sin el .pdf o el .docx.
+          _titulo.text = nombre.replaceAll(
+            RegExp(r'\.(pdf|docx)$', caseSensitive: false),
+            '',
+          );
         }
       });
     } catch (e) {
-      debugPrint('[NeuroDesk] elegir pdf fallo: $e');
+      debugPrint('[NeuroDesk] elegir documento fallo: $e');
       if (!mounted) return;
       mostrarAviso(context, 'No pudimos abrir el archivo.', esError: true);
     }
@@ -179,20 +241,26 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
       mostrarAviso(context, 'El título no puede pasar de 140 caracteres.', esError: true);
       return;
     }
-    if (_tipo == 'nota' && texto.isEmpty) {
+    if (_opcion == 'nota' && texto.isEmpty) {
       mostrarAviso(context, 'Escribí el contenido de la nota.', esError: true);
       return;
     }
-    if (_tipo == 'nota' && texto.length > maxCaracteresNota) {
+    if (_opcion == 'nota' && texto.length > maxCaracteresNota) {
       mostrarAviso(context, 'La nota no puede pasar de 50.000 caracteres.', esError: true);
       return;
     }
-    if (_tipo == 'link' && !RegExp(r'^https?://.+').hasMatch(url)) {
+    if (_opcion == 'link' && !RegExp(r'^https?://.+').hasMatch(url)) {
       mostrarAviso(context, 'El enlace tiene que empezar con http:// o https://', esError: true);
       return;
     }
-    if ((_tipo == 'pdf' || _tipo == 'foto') && _archivo == null) {
-      mostrarAviso(context, 'Elegí primero el archivo.', esError: true);
+    if (_llevaArchivo && _archivo == null) {
+      mostrarAviso(
+        context,
+        _opcion == 'documento'
+            ? 'Elegí primero el PDF o el Word.'
+            : 'Elegí primero el archivo.',
+        esError: true,
+      );
       return;
     }
 
@@ -217,7 +285,7 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
     // EXACTAMENTE los campos permitidos. Uno de mas y hasOnly() rechaza todo.
     final Map<String, Object?> datos = <String, Object?>{
       'titulo': titulo,
-      'tipo': _tipo,
+      'tipo': _tipoDelItem, // 'pdf' o 'word' si vino del boton Documento
       'visibilidad': _visibilidad,
       'workspaceId': widget.wsId, // tiene que coincidir con el del path
       'creadoPor': widget.miUid, // la regla exige que sea request.auth.uid
@@ -225,9 +293,9 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
       // que el reloj del celular (que puede estar mal) no sirve.
       'creadoEn': FieldValue.serverTimestamp(),
       'estado': 'pendiente', // nace pendiente. No puede nacer 'listo'.
-      if (_tipo == 'nota') 'textoOriginal': texto,
-      if (_tipo == 'link') 'url': url,
-      if (_tipo == 'pdf' || _tipo == 'foto') 'nombreArchivo': _nombreArchivo,
+      if (_opcion == 'nota') 'textoOriginal': texto,
+      if (_opcion == 'link') 'url': url,
+      if (_llevaArchivo) 'nombreArchivo': _nombreArchivo, // pdf, word y foto
     };
 
     try {
@@ -246,7 +314,7 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
       final RespuestaApi r = await Api.procesarItem(
         wsId: widget.wsId,
         itemId: ref.id,
-        archivo: (_tipo == 'pdf' || _tipo == 'foto') ? _archivo : null,
+        archivo: _llevaArchivo ? _archivo : null,
       );
 
       if (!mounted) return;
@@ -319,7 +387,9 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
                 children: <Widget>[
                   _botonDeTipo('nota', 'Nota', Icons.sticky_note_2),
                   _botonDeTipo('foto', 'Foto', Icons.photo_camera),
-                  _botonDeTipo('pdf', 'PDF', Icons.picture_as_pdf),
+                  // Icono generico de archivo: el chip vale para PDF y para
+                  // Word. El especifico aparece cuando ya se eligio uno.
+                  _botonDeTipo('documento', 'Documento', Icons.insert_drive_file),
                   _botonDeTipo('link', 'Link', Icons.link),
                 ],
               ),
@@ -336,7 +406,7 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
               const SizedBox(height: 8),
 
               // --- el contenido cambia segun el tipo elegido -----------------
-              if (_tipo == 'nota') ...<Widget>[
+              if (_opcion == 'nota') ...<Widget>[
                 const _Etiqueta('Contenido de la nota'),
                 const SizedBox(height: 8),
                 TextField(
@@ -348,7 +418,7 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
                 ),
               ],
 
-              if (_tipo == 'foto') ...<Widget>[
+              if (_opcion == 'foto') ...<Widget>[
                 const _Etiqueta('Foto'),
                 const SizedBox(height: 8),
                 Row(
@@ -393,17 +463,30 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
                 ],
               ],
 
-              if (_tipo == 'pdf') ...<Widget>[
-                const _Etiqueta('Archivo PDF'),
+              if (_opcion == 'documento') ...<Widget>[
+                const _Etiqueta('Archivo PDF o Word'),
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
-                  onPressed: _guardando ? null : _elegirPdf,
-                  icon: const Icon(Icons.attach_file),
-                  label: Text(_nombreArchivo.isEmpty ? 'Elegir un PDF' : _nombreArchivo),
+                  onPressed: _guardando ? null : _elegirDocumento,
+                  // Ya elegido, el icono pasa a ser el del tipo que se va a
+                  // guardar (el mismo de la lista): asi la persona ve si se
+                  // tomo como PDF o como Word antes de tocar Guardar.
+                  icon: Icon(
+                    _archivo == null ? Icons.attach_file : iconoDeTipo(_tipoDeDocumento),
+                  ),
+                  label: Text(
+                    _nombreArchivo.isEmpty ? 'Elegir un PDF o un Word' : _nombreArchivo,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'PDF o Word (.docx) de hasta 10 MB. Si tenés un Word viejo '
+                  '(.doc), abrilo en Word y guardalo como .docx.',
+                  style: TextStyle(color: grisApagado, fontSize: 12),
                 ),
               ],
 
-              if (_tipo == 'link') ...<Widget>[
+              if (_opcion == 'link') ...<Widget>[
                 const _Etiqueta('Dirección web'),
                 const SizedBox(height: 8),
                 TextField(
@@ -440,7 +523,10 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
                     setState(() => _visibilidad = s.first),
               ),
 
-              if (_tipo == 'foto' || _tipo == 'pdf') ...<Widget>[
+              // Va con "Documento" entero, aunque hayan elegido un Word: el
+              // texto habla solo de fotos y de PDF escaneados (no miente), y
+              // en un aviso de privacidad es preferible que sobre a que falte.
+              if (_llevaArchivo) ...<Widget>[
                 const SizedBox(height: 14),
                 const Text(
                   'Aviso: para leer el texto de las fotos y de los PDF escaneados '
@@ -483,19 +569,21 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
   }
 
   Widget _botonDeTipo(String valor, String etiqueta, IconData icono) {
-    final bool elegido = _tipo == valor;
+    final bool elegido = _opcion == valor;
     return ChoiceChip(
       selected: elegido,
       onSelected: _guardando
           ? null
           : (_) => setState(() {
-                _tipo = valor;
-                // Al cambiar de tipo se limpia el archivo: si no, alguien
-                // elige un PDF, cambia a "Nota" y guarda, y el nombreArchivo
-                // del PDF viajaria en un item de tipo nota (que las reglas
-                // rechazan, porque nombreArchivo solo va en pdf y foto).
+                _opcion = valor;
+                // Al cambiar de opcion se limpia todo lo del archivo: si no,
+                // alguien elige un PDF, cambia a "Foto" y guarda, y el PDF
+                // viajaria como si fuera una foto. _tipoDeDocumento se
+                // limpia junto con el archivo porque es un dato DEL archivo
+                // (sale de su extension): sin archivo, no hay tipo.
                 _archivo = null;
                 _nombreArchivo = '';
+                _tipoDeDocumento = '';
               }),
       avatar: Icon(icono, size: 18, color: elegido ? azulNoche : grisApagado),
       label: Text(etiqueta),

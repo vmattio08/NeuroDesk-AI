@@ -3,8 +3,8 @@
 //  El unico archivo que le habla a la IA: Google Gemini (Google AI Studio).
 //
 //  Dos funciones y nada mas:
-//    - pedirEmbeddings(textos, 'passage'|'query') -> array de vectores
-//    - chatear(mensajes, opciones)                -> string con la respuesta
+//    - pedirEmbeddings(textos, 'passage'|'query', {titulos, hasta}) -> array de vectores
+//    - chatear(mensajes, {temperatura, maxTokens, topP, hasta, msPorModelo}) -> string con la respuesta
 //
 //  POR QUE GOOGLE (cambio del 22/10/2026): el free tier de la API de Gemini
 //  alcanza para el proyecto, no pide tarjeta y esta disponible en Argentina.
@@ -65,11 +65,31 @@ const PAUSA_ENTRE_LOTES_MS = 1000;
 // Cuantas veces reintentamos cuando la culpa NO es nuestra (429 o 5xx).
 const MAX_INTENTOS = 3;
 
-// El del chat esta atado al timeout de 90 s de la app: con el modelo principal
-// y dos de respaldo, 3 x 25 s = 75 s, y la respuesta llega antes de que el
-// celular corte. Un modelo sano contesta en 2 a 8 s: 25 s ya es "no anda".
+// TIEMPOS. Todos estan atados al timeout de 90 s que tiene la app para
+// /preguntar y /procesar.
+//  - Embeddings al INDEXAR ('passage'): hasta 50 trozos de ~1500 caracteres
+//    por pedido. 60 s es holgado a proposito.
+//  - Embedding de una PREGUNTA ('query'): un texto corto, que Google contesta
+//    en menos de 1 s. 15 s ya es "no anda": conviene cortar y reintentar en
+//    vez de quemar 60 s de los 90 que tiene la app.
+//  - Chat: un modelo sano contesta en 2 a 8 s, asi que 25 s ya es "no anda".
+//
+// OJO, CUENTA CORREGIDA (29/10/2026). Aca decia "3 x 25 s = 75 s", pero el
+// ULTIMO modelo de la cadena tiene 2 intentos con ~1 s de espera en el medio:
+// el peor caso real del chat solo era 25 + 25 + (25 + 1,4 + 25) = 101,4 s, y
+// el del embedding de la pregunta 60 + 1,4 + 60 + 3,4 + 60 = 184,8 s. Ninguno
+// de los dos entraba en los 90 s. Por eso ahora /preguntar le pasa a cada
+// llamado una FECHA LIMITE (la opcion 'hasta'): cada intento dura como mucho
+// lo que queda de la vuelta, y si no queda ni MINIMO_POR_INTENTO_MS ya no se
+// manda ni se espera para reintentar (ver pedirAGoogle).
 const TIMEOUT_EMBEDDINGS_MS = 60_000;
+const TIMEOUT_EMBED_PREGUNTA_MS = 15_000;
 const TIMEOUT_CHAT_MS = 25_000;
+
+// Con menos que esto por delante no vale la pena mandar un pedido: el modelo
+// de chat mas rapido tarda 2,5 s en contestar, asi que un intento de 1 s solo
+// gasta cupo y termina en timeout seguro.
+const MINIMO_POR_INTENTO_MS = 3_000;
 
 // --- Estado del modulo -----------------------------------------------------
 
@@ -115,6 +135,36 @@ const esperar = (ms) => new Promise((resolver) => setTimeout(resolver, ms));
 function esperaDelIntento(intento) {
   const base = [1000, 3000, 7000][Math.min(intento - 1, 2)];
   return base + Math.floor(Math.random() * 400);
+}
+
+// --- La fecha limite ('hasta') ----------------------------------------------
+// 'hasta' es una marca de Date.now() en ms. null = sin fecha limite, que es
+// como funciona todo lo que no la pasa (indexar, los scripts): igual que antes.
+
+/**
+ * Cuanto puede durar el proximo intento: el timeout de siempre o lo que queda
+ * hasta la fecha limite, lo que sea MENOR. 0 = no queda ni el minimo.
+ */
+function msParaUnIntento(msTimeout, hasta) {
+  if (hasta == null) return msTimeout;
+  const quedan = hasta - Date.now();
+  return quedan >= MINIMO_POR_INTENTO_MS ? Math.min(msTimeout, quedan) : 0;
+}
+
+/** Si despues de esperar `ms` todavia entra un intento minimo antes de la fecha limite. */
+function hayTiempoPara(ms, hasta) {
+  return hasta == null || Date.now() + ms + MINIMO_POR_INTENTO_MS <= hasta;
+}
+
+/**
+ * Se termino el tiempo de la vuelta. Para la persona es lo mismo que un
+ * Google que no contesta (IA_NO_RESPONDE), pero lleva la marca sinTiempo para
+ * que chatear() no pruebe el modelo siguiente: tampoco tendria tiempo.
+ */
+function sinTiempo() {
+  const err = culpaDelModelo(fallo('IA_NO_RESPONDE', MSG_IA_CAIDA, 503, 'Se terminó el tiempo de la vuelta antes de que contestara Google.'));
+  err.sinTiempo = true;
+  return err;
 }
 
 // --- Lectura del entorno ---------------------------------------------------
@@ -205,14 +255,18 @@ function esperaPedidaPorGoogle(cuerpoError) {
  * chatear() pasa al modelo de respaldo. El 429 tambien cuenta como culpa del
  * modelo porque en el free tier el cupo es POR MODELO.
  *
+ * CON FECHA LIMITE ('hasta'): cada intento dura como mucho lo que queda, y no
+ * se espera para reintentar si despues de la espera ya no entra un intento
+ * minimo. En ese caso sale el MISMO error que cuando se acaban los intentos.
+ *
  * @param {string} url   URL completa
  * @param {object} cuerpo
  * @param {number} msTimeout
- * @param {{maxIntentos?:number, autenticacion:'bearer'|'cabecera'}} opciones
+ * @param {{maxIntentos?:number, autenticacion:'bearer'|'cabecera', hasta?:number|null}} opciones
  *   'bearer' para el endpoint compatible con OpenAI, 'cabecera' (x-goog-api-key)
  *   para la API nativa: cada uno espera la clave en un lugar distinto.
  */
-async function pedirAGoogle(url, cuerpo, msTimeout, { maxIntentos = MAX_INTENTOS, autenticacion }) {
+async function pedirAGoogle(url, cuerpo, msTimeout, { maxIntentos = MAX_INTENTOS, autenticacion, hasta = null }) {
   let intento = 0;
   let cambiosDeClave = 0;
 
@@ -223,6 +277,11 @@ async function pedirAGoogle(url, cuerpo, msTimeout, { maxIntentos = MAX_INTENTOS
     if (!clave) {
       throw fallo('ERROR_INTERNO', MSG_INTERNO, 500, 'No hay GEMINI_API_KEY configurada en el servidor.');
     }
+
+    // Sin fecha limite es el timeout de siempre. Con fecha limite, lo que
+    // quede de la vuelta; y si no queda ni el minimo, ni lo mandamos.
+    const msDeEsteIntento = msParaUnIntento(msTimeout, hasta);
+    if (msDeEsteIntento === 0) throw sinTiempo();
 
     intento += 1;
     const cabeceras = { 'Content-Type': 'application/json', Accept: 'application/json' };
@@ -237,13 +296,14 @@ async function pedirAGoogle(url, cuerpo, msTimeout, { maxIntentos = MAX_INTENTOS
         body: JSON.stringify(cuerpo),
         // AbortSignal.timeout corta la conexion sola. Sin esto, un pedido
         // colgado se queda tomando memoria hasta que Render reinicie.
-        signal: AbortSignal.timeout(msTimeout),
+        signal: AbortSignal.timeout(msDeEsteIntento),
       });
     } catch (err) {
       // Aca caen: timeout, DNS caido, conexion cortada a la mitad.
       console.error('[ia] fetch fallo:', err?.name, err?.message);
-      if (intento < maxIntentos) {
-        await esperar(esperaDelIntento(intento));
+      const espera = esperaDelIntento(intento);
+      if (intento < maxIntentos && hayTiempoPara(espera, hasta)) {
+        await esperar(espera);
         continue;
       }
       throw culpaDelModelo(fallo('IA_NO_RESPONDE', MSG_IA_CAIDA, 503, 'Google no contestó dentro del tiempo de espera.'));
@@ -293,8 +353,11 @@ async function pedirAGoogle(url, cuerpo, msTimeout, { maxIntentos = MAX_INTENTOS
       }
       if (intento < maxIntentos) {
         const pedida = esperaPedidaPorGoogle(cuerpoError);
-        await esperar(Math.min(pedida ?? esperaDelIntento(intento), 15_000)); // nunca mas de 15 s
-        continue;
+        const espera = Math.min(pedida ?? esperaDelIntento(intento), 15_000); // nunca mas de 15 s
+        if (hayTiempoPara(espera, hasta)) {
+          await esperar(espera);
+          continue;
+        }
       }
       throw culpaDelModelo(fallo(
         'DEMASIADOS_PEDIDOS',
@@ -305,8 +368,11 @@ async function pedirAGoogle(url, cuerpo, msTimeout, { maxIntentos = MAX_INTENTOS
     }
 
     if (res.status >= 500 && intento < maxIntentos) {
-      await esperar(esperaDelIntento(intento));
-      continue;
+      const espera = esperaDelIntento(intento);
+      if (hayTiempoPara(espera, hasta)) {
+        await esperar(espera);
+        continue;
+      }
     }
 
     // Lo que queda: 400 (algo que este modelo no acepta), 404 (el modelo no
@@ -361,10 +427,26 @@ export function recortarYNormalizar(vector, dims = dimensiones()) {
 // ============================================================
 
 /**
+ * El titulo listo para mandar: sin espacios de mas, o null si no hay.
+ * Un titulo vacio NO se manda: "title: " a secas no le dice nada al modelo.
+ */
+function tituloParaEmbeber(titulo) {
+  if (typeof titulo !== 'string') return null;
+  const limpio = titulo.replace(/\s+/g, ' ').trim();
+  return limpio || null;
+}
+
+/**
  * Convierte textos en vectores.
  *
  * @param {string[]} textos    Los trozos a vectorizar, en orden.
  * @param {'passage'|'query'} inputType
+ * @param {{titulos?: (string|null)[], hasta?: number|null}} [opciones]
+ *   titulos: el titulo del documento de cada trozo, en un array PARALELO a
+ *   textos (titulos[i] es el de textos[i]). Opcional, y SOLO con 'passage'.
+ *   hasta: fecha limite (Date.now() en ms). La pasa /preguntar para que el
+ *   embedding de la pregunta no se coma el tiempo de la vuelta. Sin ella,
+ *   todo igual que siempre.
  * @returns {Promise<number[][]>} Un vector por texto, EN EL MISMO ORDEN.
  *
  * LA DIFERENCIA DOCUMENTO / PREGUNTA ES OBLIGATORIA. Estos modelos se entrenan
@@ -375,13 +457,41 @@ export function recortarYNormalizar(vector, dims = dimensiones()) {
  *   - gemini-embedding-001 lo recibe como taskType (RETRIEVAL_DOCUMENT/QUERY).
  *   - gemini-embedding-2 NO acepta taskType: la doc pide marcarlo con un
  *     prefijo en el texto. Soportamos los dos por si hay que cambiar de modelo.
+ *
+ * EL TITULO (desde el 29/10/2026): el titulo que le puso la persona al item
+ * ("Tienda online") casi nunca esta escrito adentro del texto, y sin el, una
+ * pregunta por "la tienda online" no encontraba el link. Google deja mandar
+ * el titulo del documento junto con cada trozo, y lo usa para armar el vector:
+ *   - gemini-embedding-001: campo `title` del pedido. La referencia de la API
+ *     dice que solo vale con taskType RETRIEVAL_DOCUMENT, o sea con 'passage'.
+ *   - gemini-embedding-2: va en el prefijo, "title: <titulo> | text: ...". Sin
+ *     titulo, la doc pide escribir "title: none".
+ * Una PREGUNTA no tiene titulo: mandar titulos con 'query' es un error de
+ * quien llama, y como con inputType, preferimos reventar antes que adivinar.
+ *
+ * OJO para la defensa: la referencia de la API marca como "deprecated" a
+ * taskType, title y outputDimensionality sueltos (los quiere adentro de
+ * embedContentConfig). Hoy andan, y lo medimos: el mismo texto con titulo da
+ * otro vector. Los dejamos sueltos los tres juntos, como estaban; si Google
+ * algun dia los apaga, se mudan los tres al mismo objeto.
  */
-export async function pedirEmbeddings(textos, inputType) {
+export async function pedirEmbeddings(textos, inputType, opciones = {}) {
   if (!Array.isArray(textos)) {
     throw fallo('ERROR_INTERNO', MSG_INTERNO, 500, 'pedirEmbeddings() esperaba un array de textos.');
   }
   if (inputType !== 'passage' && inputType !== 'query') {
     throw fallo('ERROR_INTERNO', MSG_INTERNO, 500, "inputType tiene que ser 'passage' (al indexar) o 'query' (al preguntar).");
+  }
+  const titulos = opciones?.titulos ?? null;
+  if (titulos !== null) {
+    if (inputType !== 'passage') {
+      throw fallo('ERROR_INTERNO', MSG_INTERNO, 500, "Los titulos solo van con 'passage': una pregunta no tiene titulo.");
+    }
+    // Paralelo quiere decir paralelo: si los largos no coinciden, el titulo
+    // de un item terminaria pegado al texto de OTRO, y eso no avisa nada.
+    if (!Array.isArray(titulos) || titulos.length !== textos.length) {
+      throw fallo('ERROR_INTERNO', MSG_INTERNO, 500, 'opciones.titulos tiene que traer un titulo por texto (mismo largo que textos).');
+    }
   }
   if (textos.length === 0) return [];
   for (const t of textos) {
@@ -394,6 +504,10 @@ export async function pedirEmbeddings(textos, inputType) {
   const dims = dimensiones();
   const conPrefijo = /embedding-2/i.test(modelo);
   const vectores = [];
+  const hasta = opciones?.hasta ?? null;
+  // Las preguntas son textos cortos: no necesitan los 60 s de un lote de 50
+  // trozos (ver TIMEOUT_EMBED_PREGUNTA_MS arriba de todo).
+  const msTimeout = inputType === 'query' ? TIMEOUT_EMBED_PREGUNTA_MS : TIMEOUT_EMBEDDINGS_MS;
 
   for (let i = 0; i < textos.length; i += TAMANO_LOTE) {
     const lote = textos.slice(i, i + TAMANO_LOTE);
@@ -401,27 +515,32 @@ export async function pedirEmbeddings(textos, inputType) {
     // al toque, asi una nota corta (un solo lote) no espera de mas.
     if (i > 0) await esperar(PAUSA_ENTRE_LOTES_MS);
 
-    const pedidos = lote.map((texto) => {
+    const pedidos = lote.map((texto, j) => {
+      // i + j: la posicion del trozo en el array ENTERO, no en el lote.
+      const titulo = titulos ? tituloParaEmbeber(titulos[i + j]) : null;
       const pedido = {
         model: `models/${modelo}`,
         content: {
           parts: [{
             text: conPrefijo
-              ? (inputType === 'query' ? `task: search result | query: ${texto}` : `title: none | text: ${texto}`)
+              ? (inputType === 'query' ? `task: search result | query: ${texto}` : `title: ${titulo ?? 'none'} | text: ${texto}`)
               : texto,
           }],
         },
         outputDimensionality: dims,
       };
-      if (!conPrefijo) pedido.taskType = inputType === 'query' ? 'RETRIEVAL_QUERY' : 'RETRIEVAL_DOCUMENT';
+      if (!conPrefijo) {
+        pedido.taskType = inputType === 'query' ? 'RETRIEVAL_QUERY' : 'RETRIEVAL_DOCUMENT';
+        if (titulo) pedido.title = titulo;
+      }
       return pedido;
     });
 
     const json = await pedirAGoogle(
       `${baseUrl()}/models/${modelo}:batchEmbedContents`,
       { requests: pedidos },
-      TIMEOUT_EMBEDDINGS_MS,
-      { autenticacion: 'cabecera' },
+      msTimeout,
+      { autenticacion: 'cabecera', hasta },
     );
 
     // batchEmbedContents devuelve los vectores EN EL MISMO ORDEN que los
@@ -457,7 +576,17 @@ export function sacarRazonamiento(texto) {
  * Le manda la conversacion al modelo de chat y devuelve el texto pelado.
  *
  * @param {{role:'system'|'user'|'assistant', content:string}[]} mensajes
- * @param {{temperatura?:number, maxTokens?:number, topP?:number}} opciones
+ * @param {{temperatura?:number, maxTokens?:number, topP?:number,
+ *          hasta?:number|null, msPorModelo?:number}} opciones
+ *   Las dos ultimas son opcionales; sin ellas chatear() hace lo de siempre.
+ *   - hasta: fecha limite (Date.now() en ms) para TODA la cadena de modelos.
+ *     Cada modelo tiene como mucho lo que queda, y si ya no queda, no se
+ *     prueba el siguiente.
+ *   - msPorModelo: timeout de cada modelo, en vez de los 25 s del chat.
+ *   /preguntar las usa asi: la respuesta va con lo que queda de los 75 s de
+ *   la vuelta; la reformulacion de un seguimiento, con un plazo corto propio
+ *   y un timeout por modelo mas corto todavia, para que si el principal se
+ *   cuelga el siguiente entre en el plazo.
  * @returns {Promise<string>}
  *
  * temperatura 0.2 y no 0.7: para un RAG queremos que copie lo que dicen los
@@ -473,6 +602,8 @@ export async function chatear(mensajes, opciones = {}) {
   // de la CLAVE cortan ahi nomas: con otro modelo de la misma clave pasaria
   // exactamente lo mismo.
   const modelos = cadenaDeModelosChat();
+  const hasta = opciones.hasta ?? null;
+  const msPorModelo = opciones.msPorModelo ?? TIMEOUT_CHAT_MS;
   const razonamiento = (process.env.GEMINI_RAZONAMIENTO || '').trim() || RAZONAMIENTO_POR_DEFECTO;
   let ultimoError = null;
 
@@ -494,10 +625,10 @@ export async function chatear(mensajes, opciones = {}) {
           reasoning_effort: razonamiento,
           stream: false, // sin streaming: la respuesta se guarda entera en Firestore
         },
-        TIMEOUT_CHAT_MS,
+        msPorModelo,
         // Con respaldo, un solo intento: probar otro modelo es mas rapido que
         // esperar al mismo. El ultimo de la cadena si se banca reintentos.
-        { maxIntentos: hayOtro ? 1 : 2, autenticacion: 'bearer' },
+        { maxIntentos: hayOtro ? 1 : 2, autenticacion: 'bearer', hasta },
       );
 
       const salida = sacarRazonamiento(json?.choices?.[0]?.message?.content);
@@ -508,7 +639,9 @@ export async function chatear(mensajes, opciones = {}) {
       return salida;
     } catch (err) {
       ultimoError = err;
-      if (!err?.culpaDelModelo || !hayOtro) throw err;
+      // Si se termino el tiempo de la vuelta, el modelo siguiente tampoco lo
+      // tendria: cortamos aca en vez de "probarlo" sin tiempo.
+      if (!err?.culpaDelModelo || !hayOtro || err.sinTiempo) throw err;
       console.warn(`[ia] El modelo ${modelo} falló (${err.detalle}). Pruebo con ${modelos[i + 1]}.`);
     }
   }

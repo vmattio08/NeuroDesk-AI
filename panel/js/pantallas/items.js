@@ -234,6 +234,7 @@ function plantilla() {
           <option value="todos">Todos</option>
           <option value="nota">Nota</option>
           <option value="pdf">PDF</option>
+          <option value="word">Word</option>
           <option value="link">Link</option>
           <option value="foto">Foto</option>
         </select>
@@ -393,10 +394,12 @@ function fila(item) {
         ${lineaError}
         ${lineaRecorte}
       </td>
-      <td><span class="etiqueta">${esc(item.tipo)}</span></td>
+      <td><span class="etiqueta">${esc(textoDeTipo(item.tipo))}</span></td>
       <td>
         ${chipDeEstado(item.estado)}
-        ${item.origen ? `<div class="sub chico apagado">${esc(item.origen)}</div>` : ''}
+        ${item.origen
+          ? `<div class="sub chico apagado" title="origen: ${esc(item.origen)}">${esc(textoDeOrigen(item.origen))}</div>`
+          : ''}
       </td>
       <td><span class="etiqueta">${item.visibilidad === 'privado' ? 'Privado' : 'Del equipo'}</span></td>
       <td>${esc(autor)}</td>
@@ -420,6 +423,46 @@ function chipDeEstado(estado) {
   };
   const clase = textos[estado] ? `chip-${estado}` : 'chip-desconocido';
   return `<span class="chip ${clase}">${esc(textos[estado] || estado || '—')}</span>`;
+}
+
+
+// ----------------------------------------------------------------------------
+// Tipo y origen en castellano, para la persona y no el valor crudo del modelo.
+//
+// Mismo criterio que chipDeEstado(): un valor que no esta en la lista (un doc
+// cargado a mano, o un tipo nuevo que el panel todavia no conoce) se muestra
+// crudo y escapado en vez de romper la fila. El que llama igual pasa el
+// resultado por esc(): el valor crudo lo escribio otra persona.
+//
+// 'documento' NO aparece a proposito: en la app es solo el boton que acepta
+// PDF y Word, y el item se guarda como 'pdf' o como 'word'.
+// ----------------------------------------------------------------------------
+const TEXTO_DE_TIPO = {
+  nota: 'Nota',
+  pdf:  'PDF',
+  word: 'Word',
+  link: 'Link',
+  foto: 'Foto'
+};
+
+// 'origen' es el enum CERRADO del modelo que escribe el backend: de donde
+// salio el texto que lee la IA. El valor crudo queda en el title de la celda.
+const TEXTO_DE_ORIGEN = {
+  'nota':      'Texto de la nota',
+  'pdf-texto': 'Texto del PDF',
+  'docx':      'Texto del Word',
+  'ocr-space': 'Leído con OCR',
+  'link':      'Texto de la página'
+};
+
+// Object.hasOwn y no TEXTO_DE_TIPO[tipo] a secas: con un tipo cargado a mano
+// como 'constructor' o 'toString', el objeto devolveria una funcion heredada.
+function textoDeTipo(tipo) {
+  return Object.hasOwn(TEXTO_DE_TIPO, tipo) ? TEXTO_DE_TIPO[tipo] : (tipo || '—');
+}
+
+function textoDeOrigen(origen) {
+  return Object.hasOwn(TEXTO_DE_ORIGEN, origen) ? TEXTO_DE_ORIGEN[origen] : origen;
 }
 
 

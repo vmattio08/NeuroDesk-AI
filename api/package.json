@@ -5,7 +5,9 @@
   "type": "module",
   "description": "Backend de NeuroDesk AI: el unico que tiene las claves secretas",
   "main": "src/server.js",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch --env-file=.env src/server.js",
@@ -21,6 +23,7 @@
   "dependencies": {
     "express": "^5.1.0",
     "firebase-admin": "^14.3.0",
+    "mammoth": "1.13.0",
     "multer": "^2.0.1",
     "pdf-parse": "^2.4.5",
     "tesseract.js": "^7.0.0"

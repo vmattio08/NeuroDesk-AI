@@ -170,11 +170,16 @@ String textoDeEstado(String estado) {
   }
 }
 
-/// Icono segun el tipo de item: nota, pdf, link o foto.
+/// Icono segun el tipo de item: nota, pdf, word, link o foto.
 IconData iconoDeTipo(String tipo) {
   switch (tipo) {
     case 'pdf':
       return Icons.picture_as_pdf;
+    case 'word':
+      // Material no trae el logo de Word (es una marca registrada). La hoja
+      // con renglones se distingue a simple vista del PDF y de la nota, que
+      // es lo que importa en la lista.
+      return Icons.description;
     case 'foto':
       return Icons.photo_camera;
     case 'link':
@@ -303,10 +308,19 @@ class VacioMensaje extends StatelessWidget {
 /// Firestore sin dibujar nada: el sintoma clasico es "la lista quedo vacia" y
 /// en realidad era un permission-denied (token viejo o falta un .where()).
 class ErrorMensaje extends StatelessWidget {
-  const ErrorMensaje({super.key, required this.error, this.alReintentar});
+  const ErrorMensaje({
+    super.key,
+    required this.error,
+    this.alReintentar,
+    this.titulo = 'No pudimos cargar esta lista',
+  });
 
   final Object error;
   final VoidCallback? alReintentar;
+
+  /// El titulo grande. Casi siempre es una lista; la conversacion del chat
+  /// (que es UN documento + su query) pone el suyo.
+  final String titulo;
 
   @override
   Widget build(BuildContext context) {
@@ -321,10 +335,10 @@ class ErrorMensaje extends StatelessWidget {
           children: <Widget>[
             const Icon(Icons.cloud_off, size: 56, color: colorError),
             const SizedBox(height: 16),
-            const Text(
-              'No pudimos cargar esta lista',
+            Text(
+              titulo,
               textAlign: TextAlign.center,
-              style: TextStyle(
+              style: const TextStyle(
                 color: grisClaro,
                 fontSize: 18,
                 fontWeight: FontWeight.w600,

@@ -1,6 +1,7 @@
 // ============================================================
 //  servicios/extraer.js
-//  Sacarle el texto a un PDF o a una foto. LA CASCADA DE 3 NIVELES.
+//  Sacarle el texto a un PDF, a un Word (.docx) o a una foto.
+//  LA CASCADA DE 3 NIVELES (para PDFs y fotos).
 //
 //    NIVEL 1 - pdf-parse (local, gratis, instantaneo)
 //              Sirve para el 90% de los PDFs: los que se hicieron desde una
@@ -27,10 +28,17 @@
 //  PDFs escaneados y de las fotos se procesa en OCR.space, que es un servicio
 //  EXTERNO, incluso cuando el item esta marcado como 'privado'.
 //
+//  EL WORD (.docx) NO TIENE CASCADA: el texto de un .docx SIEMPRE esta
+//  adentro del archivo (no existe un Word "escaneado" como un PDF), asi que
+//  mammoth lo lee de una sola vez, aca en el servidor. Un Word nunca viaja a
+//  OCR.space. Solo .docx: el .doc viejo (Word 97-2003) es otro formato
+//  binario y mammoth no lo abre.
+//
 //  Devuelve siempre: { texto, paginas, origen }
 // ============================================================
 
 import { limpiarTexto, caracteresUtiles, unirPaginas, marcaDePagina } from './texto.js';
+import { htmlATexto } from './link.js';
 
 // --- Numeros con su por que -----------------------------------------------
 
@@ -492,6 +500,113 @@ export async function extraerDeImagen(buffer, tipoMime, opciones = {}) {
 }
 
 // ============================================================
+//  WORD (.docx) - mammoth
+// ============================================================
+
+// El mimetype oficial del .docx. Se exporta para que items.js use EXACTAMENTE
+// el mismo string al validar el archivo: dos copias escritas a mano de un
+// texto tan largo terminan distintas por una letra y nadie se da cuenta.
+export const MIME_DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+// La firma del contenedor OLE de Office (D0 CF 11 E0 A1 B1 1A E1). Un .docx
+// sano es un ZIP. Si llega uno que empieza con ESTO, es un .docx al que le
+// pusieron contraseña: Word lo encripta entero y lo guarda adentro de ese
+// sobre (items.js ya miro que adentro diga "EncryptedPackage").
+const FIRMA_OLE = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+
+/**
+ * Saca el texto de un .docx con mammoth.
+ *
+ * POR QUE mammoth: un .docx es un ZIP con XML adentro (word/document.xml).
+ * mammoth lo abre y lo recorre. Es JavaScript puro: no necesita Word ni
+ * LibreOffice instalados, asi que anda igual en Render free.
+ *
+ * POR QUE convertToHtml Y NO extractRawText (lo medimos el 29/10/2026 con el
+ * TP real de la Bobina de Tesla): extractRawText se come los saltos de linea
+ * hechos con Shift+Enter, y la caratula quedaba "La Bobina de TeslaGrupo:
+ * 1Integrantes: [Completar nombres]Curso: ...", con las palabras PEGADAS (y
+ * "TeslaGrupo" no matchea ni con "Tesla" ni con "grupo"). convertToHtml marca
+ * esos saltos con <br>, y ese HTML lo pasamos a texto con htmlATexto(), la
+ * MISMA funcion que ya usamos para las paginas de los links: una sola forma
+ * de convertir HTML en texto en todo el backend. De yapa, las listas de Word
+ * salen con su guion adelante.
+ *
+ * UN WORD NO TIENE PAGINAS FIJAS: las calcula Word recien al dibujarlo, y
+ * cambian con la fuente, los margenes o la impresora. Por eso aca no hay
+ * marcas <<<PAGINA:n>>> y `paginas` va null, igual que en una nota. Citar una
+ * "pág. 3" que en la compu de otro es la 4 seria inventar.
+ *
+ * El import es dinamico, igual que el de pdf-parse: si falta la dependencia,
+ * se rompe SOLO la subida de Words y no el arranque de todo el backend.
+ *
+ * @returns {Promise<{texto:string, paginas:null, origen:'docx', paginasOcr:number[]}>}
+ */
+export async function extraerDeWord(buffer) {
+  // Con contraseña: el mismo criterio que el PDF con clave. mammoth tiraria
+  // "no es un zip", que es verdad pero no le explica nada a la persona.
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(FIRMA_OLE)) {
+    throw fallo(
+      'NO_SE_PUDO_EXTRAER_TEXTO',
+      'Ese Word está protegido con contraseña, así que no lo podemos leer.',
+      422,
+      'El Word está protegido con contraseña.',
+    );
+  }
+
+  let mammoth;
+  try {
+    const mod = await import('mammoth');
+    mammoth = mod.default ?? mod; // mammoth es CommonJS: la API viene en default
+  } catch {
+    throw fallo(
+      'ERROR_INTERNO',
+      'Algo salió mal de nuestro lado. Ya lo estamos viendo, probá de nuevo.',
+      500,
+      'Falta la dependencia mammoth. Correr npm install en api/.',
+    );
+  }
+
+  let crudo;
+  try {
+    const r = await mammoth.convertToHtml(
+      { buffer },
+      // Las imagenes NO: por defecto mammoth las mete enteras adentro del
+      // HTML en base64, y un Word de 10 MB con fotos serian ~13 MB de texto
+      // en memoria que despues htmlATexto() tira igual. Con esto queda un
+      // <img> vacio y la foto ni se lee.
+      { convertImage: mammoth.images.imgElement(() => ({ src: '' })) },
+    );
+    crudo = htmlATexto(String(r?.value ?? ''));
+  } catch (err) {
+    // Cae aca un ZIP roto o cortado a la mitad, o un ZIP que no es un Word
+    // de verdad. El motivo tecnico va al log; a la persona, uno que entienda.
+    console.error('[extraer] mammoth fallo:', err?.message);
+    throw fallo(
+      'NO_SE_PUDO_EXTRAER_TEXTO',
+      'Ese archivo de Word está dañado o no lo pudimos abrir. Probá subirlo de nuevo.',
+      422,
+      'El archivo de Word está dañado o no es un .docx de verdad.',
+    );
+  }
+
+  const texto = limpiarTexto(crudo);
+  if (caracteresUtiles(texto) < MINIMO_CARACTERES_UTILES_TOTAL) {
+    // Un Word que es todo imagenes (fotos de hojas pegadas) no trae letras.
+    // Aca NO hay OCR de rescate: habria que sacar cada imagen del ZIP y
+    // mandarla aparte, y es mas honesto pedirle a la persona que suba esas
+    // hojas como fotos, que si pasan por la cascada.
+    throw fallo(
+      'NO_SE_PUDO_EXTRAER_TEXTO',
+      MSG_SIN_TEXTO,
+      422,
+      'El Word no tiene texto (puede ser que tenga solo imágenes).',
+    );
+  }
+
+  return { texto, paginas: null, origen: 'docx', paginasOcr: [] };
+}
+
+// ============================================================
 //  Puerta de entrada unica
 // ============================================================
 
@@ -507,13 +622,16 @@ export async function extraerDeArchivo({ buffer, tipoMime, nombreArchivo }) {
   if (tipoMime === 'application/pdf') {
     return extraerDePdf(buffer, { nombreArchivo });
   }
+  if (tipoMime === MIME_DOCX) {
+    return extraerDeWord(buffer);
+  }
   if (tipoMime === 'image/jpeg' || tipoMime === 'image/png' || tipoMime === 'image/webp') {
     return extraerDeImagen(buffer, tipoMime, { nombreArchivo });
   }
 
   throw fallo(
     'TIPO_NO_SOPORTADO',
-    'Solo aceptamos PDF, JPG, PNG o WEBP.',
+    'Solo aceptamos PDF, Word (.docx), JPG, PNG o WEBP.',
     415,
     `Llegó un archivo de tipo "${tipoMime}".`,
   );

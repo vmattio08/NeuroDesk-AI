@@ -42,21 +42,27 @@ export const MAX_FUENTES = 6;
 // Por debajo de esto consideramos que el chunk NO habla de la pregunta.
 // Con vectores normalizados el coseno va de -1 a 1.
 //
-// CALIBRADO EL 29/10/2026 con datos reales (npm run calibrar, modelo
-// gemini-embedding-001 a 1024 dimensiones): 11 preguntas con respuesta en el
-// seed dieron entre 0.67 y 0.84 (mediana 0.72), y 5 que no tienen nada que ver
-// (el dolar, el mundial, empanadas...) dieron entre 0.51 y 0.61. Los dos grupos
-// NO se pisan, y 0.64 queda justo en el medio.
+// RECALIBRADO EL 29/10/2026, despues de sumar el TITULO del item a cada
+// embedding (npm run calibrar, gemini-embedding-001 a 1024 dimensiones, contra
+// los 48 chunks del workspace: los 40 del seed y 8 de items cargados desde la
+// app). Las 11 preguntas con respuesta en el seed dieron entre 0.649 y 0.804
+// (mediana 0.726), y las 11 encontraron su item en el PRIMER puesto. Las 5 que
+// no tienen nada que ver (el dolar, el mundial, empanadas...) dieron entre
+// 0.453 y 0.595. Los dos grupos NO se pisan, y 0.62 queda justo en el medio.
+// (La medicion anterior, sin titulos, habia dado 0.67-0.84 contra 0.51-0.61,
+// con el umbral en 0.64: con los titulos, ese 0.64 dejaba a la peor respuesta
+// correcta pasando por 0.009.)
 //
 // OJO: el numero depende del MODELO, no es universal. Con el modelo anterior
 // (nemotron de NVIDIA) las correctas daban 0.26 a 0.69 y el ruido 0.08 a 0.14:
 // el umbral era 0.20. Gemini "aprieta" todo hacia arriba, ruido incluido. Si se
-// cambia el modelo de embeddings, HAY QUE VOLVER A CALIBRAR.
+// cambia el modelo de embeddings (o lo que se le manda), HAY QUE VOLVER A
+// CALIBRAR.
 //
 // Lo que se cuele por arriba lo frena la segunda barrera: el prompt le exige
 // al modelo decir "No encontre" si los fragmentos no contestan, y sin citas
 // validas la respuesta sale con aviso.
-const UMBRAL_POR_DEFECTO = 0.64;
+const UMBRAL_POR_DEFECTO = 0.62;
 
 // Cuanto texto del chunk se guarda como cita visible en la respuesta.
 const LARGO_FRAGMENTO = 240;
@@ -122,14 +128,14 @@ export function similitudCoseno(a, b) {
  * Es string y no numero a proposito: el numero crudo vive en fuentes[].similitud.
  */
 export function nivelDeConfianza(mejorSimilitud) {
-  // Cortes calibrados con la misma medicion que el umbral (ver arriba, Gemini,
-  // 29/10/2026). 0.72 es la mediana de las respuestas correctas: la mitad de
-  // las buenas salen 'alta'. 0.66 queda apenas debajo de la PEOR respuesta
-  // correcta (0.67): todo lo que se parece a una respuesta real es al menos
-  // 'media'. Entre el umbral (0.64) y 0.66 queda 'baja': paso el filtro, pero
-  // por poco.
+  // Cortes calibrados con la misma medicion que el umbral (ver arriba, Gemini
+  // con titulos, 29/10/2026). 0.72 queda justo debajo de la mediana de las
+  // respuestas correctas (0.726): un poco mas de la mitad de las buenas salen
+  // 'alta' (7 de 11). 0.64 queda apenas debajo de la PEOR respuesta correcta
+  // (0.649): todo lo que se parece a una respuesta real es al menos 'media'.
+  // Entre el umbral (0.62) y 0.64 queda 'baja': paso el filtro, pero por poco.
   if (mejorSimilitud >= 0.72) return 'alta';
-  if (mejorSimilitud >= 0.66) return 'media';
+  if (mejorSimilitud >= 0.64) return 'media';
   return 'baja';
 }
 
@@ -190,6 +196,10 @@ export async function itemsVisibles(wsId, uid, esAdmin) {
  * @param {string} pregunta
  * @param {string} uid
  * @param {boolean} esAdmin
+ * @param {{hasta?: number|null}} [opciones]
+ *   hasta: fecha limite de la vuelta (Date.now() en ms) que pone /preguntar
+ *   para entrar en los 90 s de la app. SOLO llega al embedding de la pregunta:
+ *   el filtro de permisos no tiene apuro ni atajos, se hace entero siempre.
  * @returns {Promise<{
  *   fuentes: {n:number,chunkId:string,itemId:string,titulo:string,pagina:number|null,
  *             fragmento:string,texto:string,origen:string,similitud:number}[],
@@ -201,7 +211,7 @@ export async function itemsVisibles(wsId, uid, esAdmin) {
  * 'baja'. ESO NO ES UN ERROR: el endpoint responde 200 con "No encontré esto
  * en la base del equipo". Preferimos mil veces decir "no sé" que inventar.
  */
-export async function buscarChunks(wsId, pregunta, uid, esAdmin) {
+export async function buscarChunks(wsId, pregunta, uid, esAdmin, opciones = {}) {
   const texto = String(pregunta ?? '').trim();
   if (texto.length < 3) {
     throw fallo(
@@ -271,7 +281,7 @@ export async function buscarChunks(wsId, pregunta, uid, esAdmin) {
   // input_type 'query' y NO 'passage'. Es asimetrico y obligatorio: al indexar
   // va 'passage', al preguntar va 'query'. Si se manda mal, el buscador sigue
   // andando pero responde peor, y es un bug silencioso carisimo de encontrar.
-  const [vectorPregunta] = await pedirEmbeddings([texto], 'query');
+  const [vectorPregunta] = await pedirEmbeddings([texto], 'query', { hasta: opciones?.hasta ?? null });
 
   // --- 5. Rankear ----------------------------------------------------------
   const puntuados = permitidos.map((c) => ({

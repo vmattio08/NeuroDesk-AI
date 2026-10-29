@@ -49,7 +49,7 @@ volver a correr sin duplicar nada.
 | **usuarios** | `usuarios/{uid}` | Perfil de cada persona y a qué espacios de trabajo pertenece | 3 |
 | **workspaces** | `workspaces/{wsId}` | El espacio de trabajo del equipo: nombre, dueño y plan | 1 |
 | **members** | `workspaces/{wsId}/members/{uid}` | Quién está en el equipo y con qué rol (admin o miembro) | 3 |
-| **items** | `workspaces/{wsId}/items/{itemId}` | Cada cosa capturada (nota, PDF, link o foto) con su texto y su estado | 15 |
+| **items** | `workspaces/{wsId}/items/{itemId}` | Cada cosa capturada (nota, PDF, Word, link o foto) con su texto y su estado | 15 |
 | **respuestas** | `workspaces/{wsId}/respuestas/{id}` | Las preguntas hechas a la IA y la respuesta con sus fuentes | 3 |
 | **eventos** | `workspaces/{wsId}/eventos/{id}` | Registro de actividad para el panel del admin (auditoría) | 20 |
 | **suscripcion** | `workspaces/{wsId}/suscripcion/actual` | Estado del plan pago (Mercado Pago) | 1 |
@@ -85,13 +85,18 @@ Las capturas de la consola de Firebase van en el documento de la entrega.
   por la contraseña que Camila guardó en una nota privada y recibe "No encontré
   esto en la base del equipo"; el admin hace la misma pregunta y sí la ve.
 - ✅ **App Flutter conectada** (`app/`): paquete `com.neurodeskai.neurodesk`, login
-  con email y con Google, feed en tiempo real, captura de nota, foto o PDF, chat
-  con la IA. `flutter analyze` sin problemas y 13 tests OK (Flutter 3.41.6).
+  con email y con Google, feed en tiempo real, captura de nota, foto, PDF o Word,
+  chat con la IA. `flutter analyze` sin problemas y 13 tests OK (Flutter 3.41.6).
 - ✅ **Panel web del administrador conectado** (`panel/`): tablas de items y
   miembros en tiempo real y un dashboard con gráficos, contra la base real.
+- ✅ **Documentos de Word (`.docx`)**: son el quinto tipo de item (`word`) y se
+  tratan igual que un PDF. La app crea el item en `pendiente` y le manda el
+  archivo al backend, que saca el texto del `.docx` sin OCR (`origen: 'docx'`) y
+  lo indexa; el archivo no se guarda, solo su texto. Las reglas aceptan el tipo
+  `word` y siguen rechazando cualquier tipo inventado.
 - ✅ **Tests automáticos de las reglas de Firestore**: `npm.cmd run test:rules` las
   prueba contra el emulador de Firebase (con el JDK que trae Android Studio):
-  **57 de 57 OK**.
+  **61 de 61 OK** (incluye 4 casos nuevos del tipo Word).
 - ✅ **La app con la marca**: el logo oficial ya está en el login, en la pantalla
   de carga y como ícono del launcher, y corregimos los textos de pantalla (tildes,
   ñ y voseo).
@@ -164,7 +169,7 @@ existir.
 ## 6. Decisiones de arquitectura
 
 - **Sin Storage ni Cloud Functions.** Desde febrero de 2026 los dos exigen tarjeta
-  de crédito (plan Blaze). Por eso de cada PDF o foto guardamos solo el texto
+  de crédito (plan Blaze). Por eso de cada PDF, Word o foto guardamos solo el texto
   extraído —que es lo único que la IA necesita— y los roles los asigna nuestro
   propio backend con el SDK de administrador.
 - **Primero la base, después el archivo.** La app crea el item en Firestore con
@@ -213,9 +218,23 @@ existir.
   números eran del modelo de NVIDIA: al pasar a `gemini-embedding-001` volvimos a
   calibrar (29/10). Las 11 preguntas con respuesta en el seed dieron entre 0.67 y
   0.84 (mediana 0.72) y las 5 sin respuesta entre 0.51 y 0.61, así que los dos
-  grupos quedan separados. **Hoy el umbral es 0.64** (confianza alta ≥ 0.72, media
-  ≥ 0.66), y acierta el item correcto en 10 de 11 (la otra la contesta un fragmento
-  distinto que también es válido).
+  grupos quedan separados. Después sumamos el **título de cada item** al embedding
+  y recalibramos otra vez: las correctas dan entre 0.65 y 0.80, el ruido llega a
+  0.60, y acierta el item correcto en **11 de 11**. **Hoy el umbral es 0.62**
+  (confianza alta ≥ 0.72, media ≥ 0.64).
+- **Los links de YouTube solo traían el pie de página.** YouTube arma la página
+  con JavaScript, y el backend lee el HTML sin ejecutar nada: del video solo le
+  llegaba el texto del pie, así que la IA no tenía forma de saber de qué trataba.
+  Ahora a cada link le sumamos el título y la descripción de la página, y en
+  YouTube además el título del video y el nombre del canal, que salen del oEmbed
+  público de YouTube (no pide clave).
+- **El título del item no contaba en la búsqueda.** Si alguien preguntaba por
+  *"el video de la tienda online"*, el item titulado "Tienda online" no aparecía,
+  porque el *embedding* de cada fragmento se calculaba solo con su texto. Ahora,
+  al indexar, le pasamos a `gemini-embedding-001` también el título del item (lo
+  acepta como `title` cuando el texto va marcado como documento,
+  `RETRIEVAL_DOCUMENT`). Los items que ya estaban indexados lo toman al
+  reprocesarlos.
 - **El chat "pensaba en voz alta" en inglés.** Los modelos de razonamiento escribían
   su borrador antes de contestar. Lo apagamos según la familia de cada modelo y
   limpiamos en código lo que se cuele. Con Gemini el razonamiento no se puede apagar
@@ -226,7 +245,7 @@ existir.
   nuevas.
 - **Los tests de las reglas no corrían en las compus del colegio.** El emulador de
   Firebase necesita Java 11 o más y está instalado Java 8. Los corrimos con el JDK
-  que trae Android Studio (`npm.cmd run test:rules`): 57 de 57 OK.
+  que trae Android Studio (`npm.cmd run test:rules`): 61 de 61 OK.
 - **Otros bugs que salieron al probar:** el troceo cortaba sin solapar
   (`Number(undefined) ?? 200` da `NaN`), un error interno podía mandarle al
   cliente texto de la configuración del servidor, y un workspace inexistente

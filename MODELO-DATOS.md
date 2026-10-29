@@ -23,7 +23,7 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
     ├── members/{uid}                   quién está en el equipo y con qué rol.
     │                                   El backend lo lee en CADA request.
     │
-    ├── items/{itemId}                  el conocimiento: notas, pdf, links, fotos.
+    ├── items/{itemId}                  el conocimiento: notas, pdf, Word, links, fotos.
     │                                   LO CREA EL CLIENTE en estado 'pendiente'.
     │
     ├── respuestas/{respId}             preguntas a la IA + respuesta con citas.
@@ -95,19 +95,19 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 | Campo | Tipo | Quién lo escribe | Para qué |
 |---|---|---|---|
 | `titulo` | string (1 a 140) | **CLIENTE** | Título que ve el usuario y que aparece en la cita de la respuesta. El autor o el admin lo pueden editar después. |
-| `tipo` | string (`'nota'` \| `'pdf'` \| `'link'` \| `'foto'`) | **CLIENTE** | De dónde salió el contenido. Define qué pipeline usa el backend y qué otros campos son obligatorios. No se puede cambiar después. |
+| `tipo` | string (`'nota'` \| `'pdf'` \| `'word'` \| `'link'` \| `'foto'`) | **CLIENTE** | De dónde salió el contenido. Define qué pipeline usa el backend y qué otros campos son obligatorios. No se puede cambiar después. `'word'` es un documento de Word (solo `.docx`) y tiene el mismo trato que `'pdf'`. |
 | `visibilidad` | string (`'equipo'` \| `'privado'`) | **CLIENTE** | Quién lo puede leer. Es el campo que hace la diferencia de rol del requisito 2. El autor o el admin lo pueden cambiar después. |
 | `workspaceId` | string | **CLIENTE** | Mismo wsId que el del path; la regla exige que coincidan. Se guarda como campo para que el backend valide pertenencia sin parsear rutas. |
 | `creadoPor` | string (uid) | **CLIENTE** | Autor. La regla exige que sea igual a `request.auth.uid`: nadie firma un item con el uid de otro. Lo usa la regla de 'privado' y el feed de eventos. |
 | `creadoEn` | timestamp (obligatoriamente `FieldValue.serverTimestamp()`) | **CLIENTE** | Alta del item. La regla exige `request.time`, así que el reloj del celular no sirve. Orden por defecto de la lista: `creadoEn desc`. |
 | `estado` | string (`'pendiente'` \| `'procesando'` \| `'listo'` \| `'error'`) | **CLIENTE solo al crear** (siempre `'pendiente'`) → después **BACKEND** | Ciclo de vida del procesamiento. Es lo que pinta el chip de color. El cliente nunca lo vuelve a tocar: `edicionDeItemValida()` no lo incluye. |
 | `url` | string (≤ 2000) — solo si `tipo == 'link'` | **CLIENTE** | La dirección original del link. **Se llama `url` en las tres piezas** (en la v1 las reglas lo llamaban `fuenteUrl` y no se podía crear ni un link). El backend la valida contra SSRF antes de hacer fetch y la vuelve a leer del doc en cada reproceso. |
-| `nombreArchivo` | string (≤ 200) \| ausente | **CLIENTE** | Nombre del archivo subido (pdf o foto), para que el usuario reconozca de dónde vino. El archivo NO se guarda en ningún lado: Storage está descartado. |
+| `nombreArchivo` | string (≤ 200) \| ausente | **CLIENTE** | Nombre del archivo subido (pdf, Word o foto), para que el usuario reconozca de dónde vino. El archivo NO se guarda en ningún lado: Storage está descartado. |
 | `textoOriginal` | string (1 a 50.000) — solo si `tipo == 'nota'` | **CLIENTE** | **El contenido que escribió la persona.** Es el campo que hace que el tipo 'nota' exista. El autor lo puede editar y después tocar Reprocesar. |
-| `texto` | string (≤ 300.000) | **BACKEND** | El texto **extraído** y normalizado: lo que se trocea en chunks y lo que se le manda a la IA. Para una nota sale de `textoOriginal`; para pdf/foto del OCR; para link del fetch. El cliente NUNCA lo escribe: si pudiera, plantaría fuentes falsas en el índice. |
+| `texto` | string (≤ 300.000) | **BACKEND** | El texto **extraído** y normalizado: lo que se trocea en chunks y lo que se le manda a la IA. Para una nota sale de `textoOriginal`; para pdf/foto del OCR; para Word, del texto del `.docx`; para link del fetch. El cliente NUNCA lo escribe: si pudiera, plantaría fuentes falsas en el índice. |
 | `cantChunks` | number | **BACKEND** | Cuántos chunks generó. 0 mientras no está listo. Permite verificar que el indexado no quedó a medias. |
 | `paginas` | number \| null | **BACKEND** | Cantidad de páginas del PDF. null para nota, link y foto. |
-| `origen` | string (`'nota'` \| `'pdf-texto'` \| `'ocr-space'` \| `'link'`) | **BACKEND** | Cómo se extrajo el texto. El panel muestra "extraído por OCR" y ayuda a explicar respuestas malas. Se guarda en el item Y en cada chunk. |
+| `origen` | string (`'nota'` \| `'pdf-texto'` \| `'docx'` \| `'ocr-space'` \| `'link'`) | **BACKEND** | Cómo se extrajo el texto. El panel muestra "extraído por OCR" y ayuda a explicar respuestas malas. Se guarda en el item Y en cada chunk. |
 | `caracteres` | number | **BACKEND** | Largo REAL del texto extraído, antes de cualquier recorte. Sirve para explicar por qué un PDF escaneado dio 40 caracteres de basura. |
 | `recortado` | boolean | **BACKEND** | true si el texto superaba los 300.000 caracteres y hubo que recortarlo para no chocar con el límite de 1 MiB por documento. El panel avisa "documento muy largo, se indexó la primera parte". |
 | `errorMsg` | string \| null | **BACKEND** | Mensaje legible del fallo cuando `estado == 'error'` (ej: "El PDF está protegido con clave"). Es el MISMO texto que devolvió el HTTP, escrito a mano por nosotros: nunca un `err.message` crudo. |
@@ -129,7 +129,7 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 | `titulo` | string | **BACKEND** | Título del item, desnormalizado, para citar la fuente sin leer el item. |
 | `idx` | number (0..n-1) | **BACKEND** | Posición del trozo dentro del item. Junto al `itemId` forma el id del documento, y por eso reindexar pisa los mismos docs. |
 | `pagina` | number \| null | **BACKEND** | Página del PDF de la que salió, para citar "pág. 3". null en notas y links. |
-| `origen` | string (`'nota'` \| `'pdf-texto'` \| `'ocr-space'` \| `'link'`) | **BACKEND** | Cómo se extrajo ese trozo. Ayuda a explicar respuestas malas (el OCR ensucia). |
+| `origen` | string (`'nota'` \| `'pdf-texto'` \| `'docx'` \| `'ocr-space'` \| `'link'`) | **BACKEND** | Cómo se extrajo ese trozo. Ayuda a explicar respuestas malas (el OCR ensucia). |
 | `texto` | string (~1500 caracteres) | **BACKEND** | El trozo que se le manda a la IA como contexto y del que sale el fragmento citado. |
 | `embedding` | array de 1024 number (floats) | **BACKEND** | Vector del trozo. Se compara por similitud coseno contra el vector de la pregunta. Tiene `fieldOverride` con `indexes: []` o cada chunk generaría 1024 entradas de índice. |
 | `creadoEn` | timestamp | **BACKEND** | Cuándo se indexó. Sirve para limpiar huérfanos viejos si alguna vez quedan. |
@@ -150,7 +150,7 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 | `creadoEn` | timestamp (serverTimestamp obligatorio) | **CLIENTE** | Cuándo se preguntó. Orden del historial. |
 | `respuesta` | string (aparece recién cuando el backend la escribe) | **BACKEND** | Texto final redactado por la IA, con marcas `[1] [2]` que apuntan a `fuentes[].n`. Mientras el campo no exista, la pantalla muestra el spinner. |
 | `fuentes` | array de map `{n, itemId, titulo, pagina, fragmento, similitud}` | **BACKEND** | Las citas. Es el corazón del producto: cada afirmación se puede abrir y verificar en el item original. Solo entran items que el que preguntó puede ver. |
-| `confianza` | string (`'alta'` \| `'media'` \| `'baja'`) | **BACKEND** | Qué tan parecido era el mejor chunk. Es STRING en las tres piezas. El número crudo vive en `fuentes[].similitud` (≥ 0.72 alta, ≥ 0.66 media; calibrados con datos reales y gemini-embedding-001 el 29/10/2026). |
+| `confianza` | string (`'alta'` \| `'media'` \| `'baja'`) | **BACKEND** | Qué tan parecido era el mejor chunk. Es STRING en las tres piezas. El número crudo vive en `fuentes[].similitud` (≥ 0.72 alta, ≥ 0.64 media; umbral de descarte 0.62; calibrados con datos reales y gemini-embedding-001 el 29/10/2026). |
 | `chunksMirados` | number \| null | **BACKEND** | Cuántos chunks tenía el workspace. **`null` cuando quien preguntó no es admin**: decirle a un miembro cuántos hay en total le revela cuánto contenido privado ajeno existe. |
 | `chunksVisibles` | number | **BACKEND** | Cuántos de esos chunks quedaron después de filtrar por lo que ESE uid puede ver. Si el admin pregunta lo mismo, este número es más grande: eso es el requisito 2 mostrado con un número. |
 | `errorMsg` | string \| null | **BACKEND** | Motivo del fallo cuando `estado == 'error'` (ej: "la IA no respondió a tiempo"). |
@@ -194,9 +194,9 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 
 Reglas que siempre se cumplen. Si alguna se rompe, no es un detalle: es un bug.
 
-1. **QUIÉN ESCRIBE QUÉ (la invariante madre).** El CLIENTE escribe `titulo`, `tipo`, `visibilidad`, `workspaceId`, `creadoPor`, `creadoEn`, `estado: 'pendiente'`, `url` (links), `nombreArchivo` (pdf/foto) y `textoOriginal` (notas). TODO lo demás —`texto`, `cantChunks`, `paginas`, `origen`, `caracteres`, `recortado`, `errorMsg` y los estados que siguen a 'pendiente'— lo escribe el BACKEND. Si el modelo y las reglas no dicen exactamente esto, hay un bug.
+1. **QUIÉN ESCRIBE QUÉ (la invariante madre).** El CLIENTE escribe `titulo`, `tipo`, `visibilidad`, `workspaceId`, `creadoPor`, `creadoEn`, `estado: 'pendiente'`, `url` (links), `nombreArchivo` (pdf/Word/foto) y `textoOriginal` (notas). TODO lo demás —`texto`, `cantChunks`, `paginas`, `origen`, `caracteres`, `recortado`, `errorMsg` y los estados que siguen a 'pendiente'— lo escribe el BACKEND. Si el modelo y las reglas no dicen exactamente esto, hay un bug.
 
-2. **`textoOriginal` y `texto` son DOS CAMPOS DISTINTOS a propósito y nunca se mezclan.** `textoOriginal` lo escribe la persona y solo existe en las notas; `texto` lo escribe el backend en los cuatro tipos y es lo único que se trocea en chunks. Para una nota, `texto` sale de normalizar `textoOriginal`.
+2. **`textoOriginal` y `texto` son DOS CAMPOS DISTINTOS a propósito y nunca se mezclan.** `textoOriginal` lo escribe la persona y solo existe en las notas; `texto` lo escribe el backend en los cinco tipos y es lo único que se trocea en chunks. Para una nota, `texto` sale de normalizar `textoOriginal`.
 
 3. **El campo del link se llama `url`** en las reglas, en el modelo, en el ejemplo y en el contrato. No existe `fuenteUrl` en ningún lado.
 
@@ -261,7 +261,7 @@ Reglas que siempre se cumplen. Si alguna se rompe, no es un detalle: es un bug.
 
 **Detalles de cada paso**
 
-- **(1)** El cliente escribe SOLO sus campos: `titulo`, `tipo`, `visibilidad`, `workspaceId`, `creadoPor`, `creadoEn`, `estado`, y según el tipo `url` (link), `nombreArchivo` (pdf/foto) o `textoOriginal` (nota). Es lo primero que pasa, antes de hablar con el backend.
+- **(1)** El cliente escribe SOLO sus campos: `titulo`, `tipo`, `visibilidad`, `workspaceId`, `creadoPor`, `creadoEn`, `estado`, y según el tipo `url` (link), `nombreArchivo` (pdf/Word/foto) o `textoOriginal` (nota). Es lo primero que pasa, antes de hablar con el backend.
 - **(2)** El backend lee el item, chequea que el estado sea procesable y escribe `procesando` + `actualizadoEn` **en el mismo paso atómico**. Si entran dos taps a la vez, el segundo lee un 'procesando' reciente y se va con **`PROCESO_EN_CURSO` 409** ("Ya lo estamos procesando, esperá unos segundos"): no se procesa dos veces ni se gastan dos veces los créditos de IA.
 - **(3a)** En el mismo update setea `texto`, `cantChunks`, `paginas`, `origen`, `caracteres`, `recortado` y `actualizadoEn`.
 - **(3b)** Escribe `errorMsg` legible (el mismo texto que devolvió por HTTP, escrito a mano por nosotros) y deja `cantChunks` en 0.
@@ -274,7 +274,7 @@ Reglas que siempre se cumplen. Si alguna se rompe, no es un detalle: es un bug.
 
 **Qué estados acepta cada endpoint**
 - `/procesar`: `'pendiente'`, `'error'`, o `'procesando'` con más de 5 minutos. También acepta `'listo'`: volver a subir el archivo de un item ya procesado es legítimo y lo reindexa (los chunks se pisan solos porque su id es determinístico `itemId_idx`).
-- `/reprocesar`: `'pendiente'`, `'error'`, `'listo'`, o `'procesando'` con más de 5 minutos, **y además** necesita una fuente de texto en el documento: `textoOriginal` si es nota, `url` si es link, `texto` ya extraído si es pdf o foto. Un pdf/foto sin texto extraíble no se puede reprocesar porque el archivo no se guarda en ningún lado: hay que volver a elegirlo y llamar a `/procesar`. **Ese, y solo ese, es el caso de `ESTADO_INVALIDO`**; el doble tap ya tiene su propio código (`PROCESO_EN_CURSO`).
+- `/reprocesar`: `'pendiente'`, `'error'`, `'listo'`, o `'procesando'` con más de 5 minutos, **y además** necesita una fuente de texto en el documento: `textoOriginal` si es nota, `url` si es link, `texto` ya extraído si es pdf, Word o foto. Un pdf/Word/foto sin texto extraíble no se puede reprocesar porque el archivo no se guarda en ningún lado: hay que volver a elegirlo y llamar a `/procesar`. **Ese, y solo ese, es el caso de `ESTADO_INVALIDO`**; el doble tap ya tiene su propio código (`PROCESO_EN_CURSO`).
 - Si el que pide no es el autor ni admin: **`NO_SOS_EL_AUTOR` (HTTP 403)** — "Solo el autor o un administrador pueden hacer esto."
 
 ## De la RESPUESTA — campo `estado` en `workspaces/{wsId}/respuestas/{respId}`

@@ -7,9 +7,16 @@
 //  privacidad). Cada caso coincide con lo que ESTA ESCRITO en las reglas v3 y
 //  en MODELO-DATOS.md (tabla "quien escribe" + INVARIANTES):
 //    - items:      privado / equipo / admin ve todo, creacion SOLO con campos
-//                  CLIENTE y estado 'pendiente', edicion acotada, borrado cerrado
+//                  CLIENTE, estado 'pendiente' y un tipo de la lista cerrada
+//                  (nota, pdf, word, link, foto), edicion acotada, borrado cerrado
 //    - aislamiento entre workspaces (incluida la query collectionGroup)
 //    - respuestas: create con EXACTAMENTE 4 campos, la leen el autor o el admin
+//    - seguimientos (conversaciones): los 4 de siempre + conversacionId y
+//                  anteriorRespId, los dos o ninguno; preguntaBuscada es solo
+//                  del backend; la query con la que la app lista una
+//                  conversacion (autorUid + conversacionId + orderBy creadoEn);
+//                  lectura y borrado iguales que cualquier respuesta; y un doc
+//                  ajeno con mi conversacionId no rompe mi conversacion
 //    - eventos y suscripcion: solo admin
 //    - chunks: cerrada para todos, incluso el admin
 //    - usuarios / members: el cliente no los crea ni se sube el rol
@@ -51,6 +58,7 @@
 // ============================================================================
 
 import { describe, test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -66,6 +74,7 @@ import {
   collectionGroup,
   query,
   where,
+  orderBy,
   getDoc,
   getDocs,
   setDoc,
@@ -161,6 +170,26 @@ function notaNueva(cambios = {}) {
   };
 }
 
+/**
+ * Lo que manda la app al subir un Word (.docx): los MISMOS campos CLIENTE que
+ * un pdf, con nombreArchivo y sin textoOriginal ni url. Despues manda el
+ * archivo al backend, que saca el texto y lo guarda en 'texto' con origen
+ * 'docx'. OJO: 'docx' es el ORIGEN del texto; el TIPO del item es 'word'.
+ */
+function wordNuevo(cambios = {}) {
+  return {
+    titulo: 'Acta de la reunion de padres',
+    tipo: 'word',
+    nombreArchivo: 'acta-reunion-de-padres.docx',
+    visibilidad: 'equipo',
+    workspaceId: WS,
+    creadoPor: UID.ana,
+    creadoEn: serverTimestamp(),
+    estado: 'pendiente',
+    ...cambios,
+  };
+}
+
 /** Lo que manda la app al preguntar: EXACTAMENTE estos cuatro campos. */
 function preguntaNueva(cambios = {}) {
   return {
@@ -171,6 +200,31 @@ function preguntaNueva(cambios = {}) {
     ...cambios,
   };
 }
+
+/**
+ * Lo que manda la app en una pregunta de SEGUIMIENTO: los mismos cuatro campos
+ * de siempre + los dos de la cadena, que van SIEMPRE juntos. Por defecto es la
+ * TERCERA pregunta de la conversacion sembrada de Ana:
+ *   conversacionId = la raiz (resp_de_ana)
+ *   anteriorRespId = la ultima pregunta que ya tiene (seg_de_ana_1)
+ */
+function seguimientoNuevo(cambios = {}) {
+  return preguntaNueva({
+    pregunta: 'Y para cuando lo necesitan?',
+    conversacionId: 'resp_de_ana',
+    anteriorRespId: 'seg_de_ana_1',
+    ...cambios,
+  });
+}
+
+/**
+ * La query con la que la app lista una conversacion (la que usa el indice
+ * compuesto autorUid + conversacionId + creadoEn). El emulador no exige
+ * indices, asi que aca se prueba SOLO la regla; el indice se prueba al
+ * publicarlo en el proyecto real.
+ */
+const consultaConversacion = (fs, autorUid, raiz) =>
+  query(respuestas(fs), where('autorUid', '==', autorUid), where('conversacionId', '==', raiz), orderBy('creadoEn'));
 
 // ---------------------------------------------------------------------------
 // Arranque: reglas reales + datos sembrados con las reglas APAGADAS (como lo
@@ -256,6 +310,25 @@ before(async () => {
       estado: 'listo',
       creadoEn: ahora,
       respuesta: 'Dice que hay que pedir presupuesto [1].',
+      fuentes: [],
+      confianza: 'alta',
+      chunksMirados: null,
+      chunksVisibles: 3,
+      errorMsg: null,
+      actualizadoEn: ahora,
+    });
+    // Conversacion de Ana: la raiz es resp_de_ana (sin campos nuevos) y esta
+    // es su primera pregunta de seguimiento, ya respondida por el backend.
+    // preguntaBuscada = como la entendio el backend despues de reformularla.
+    await setDoc(respuesta(fs, 'seg_de_ana_1'), {
+      pregunta: 'Y a que proveedor?',
+      autorUid: UID.ana,
+      estado: 'listo',
+      creadoEn: ahora,
+      conversacionId: 'resp_de_ana',
+      anteriorRespId: 'resp_de_ana',
+      preguntaBuscada: 'A que proveedor hay que pedirle el presupuesto segun mi nota?',
+      respuesta: 'Al proveedor de Quilmes [1].',
       fuentes: [],
       confianza: 'alta',
       chunksMirados: null,
@@ -397,6 +470,24 @@ describe('items: creación desde el cliente', () => {
     await assertSucceeds(setDoc(item(comoAna(), idNuevo('link')), sinTexto));
   });
 
+  test('miembro CREA un Word (tipo "word") con nombreArchivo, igual que un pdf', async () => {
+    await assertSucceeds(setDoc(item(comoAna(), idNuevo('word')), wordNuevo()));
+  });
+
+  test('RECHAZADO: tipo "docx" (eso es el ORIGEN del texto; el tipo es "word")', async () => {
+    await assertFails(setDoc(item(comoAna(), idNuevo('word')), wordNuevo({ tipo: 'docx' })));
+  });
+
+  test('RECHAZADO: tipo inventado "excel" (la lista de tipos es cerrada)', async () => {
+    await assertFails(setDoc(item(comoAna(), idNuevo('word')), wordNuevo({ tipo: 'excel' })));
+  });
+
+  test('RECHAZADO: un Word con textoOriginal (solo las notas lo llevan)', async () => {
+    await assertFails(
+      setDoc(item(comoAna(), idNuevo('word')), wordNuevo({ textoOriginal: 'Texto pegado a mano.' })),
+    );
+  });
+
   test('RECHAZADO: campo de más "texto" (lo escribe solo el backend)', async () => {
     await assertFails(setDoc(item(comoAna(), idNuevo('nota')), notaNueva({ texto: 'fuente falsa' })));
   });
@@ -514,6 +605,142 @@ describe('respuestas', () => {
 });
 
 // ===========================================================================
+//  RESPUESTAS — PREGUNTAS DE SEGUIMIENTO (una conversacion = una cadena)
+//  La raiz es una pregunta comun (los 4 campos). Cada seguimiento suma
+//  conversacionId (la raiz) y anteriorRespId (la pregunta anterior): los dos o
+//  ninguno. Las reglas validan solo la FORMA; que la cadena cierre (existe, es
+//  tuya, esta 'listo', es de la misma conversacion) lo valida el backend.
+// ===========================================================================
+describe('respuestas: preguntas de seguimiento', () => {
+  test('miembro CREA un seguimiento: los 4 de siempre + conversacionId y anteriorRespId', async () => {
+    await assertSucceeds(setDoc(respuesta(comoAna(), idNuevo('seg')), seguimientoNuevo()));
+  });
+
+  test('ids de 64 caracteres justos se aceptan (el tope de 1 a 64 es inclusivo)', async () => {
+    await assertSucceeds(
+      setDoc(
+        respuesta(comoAna(), idNuevo('seg')),
+        seguimientoNuevo({ conversacionId: 'c'.repeat(64), anteriorRespId: 'a'.repeat(64) }),
+      ),
+    );
+  });
+
+  test('RECHAZADO: solo conversacionId, sin anteriorRespId (van siempre juntos)', async () => {
+    const { anteriorRespId, ...soloConversacion } = seguimientoNuevo();
+    await assertFails(setDoc(respuesta(comoAna(), idNuevo('seg')), soloConversacion));
+  });
+
+  test('RECHAZADO: solo anteriorRespId, sin conversacionId', async () => {
+    const { conversacionId, ...soloAnterior } = seguimientoNuevo();
+    await assertFails(setDoc(respuesta(comoAna(), idNuevo('seg')), soloAnterior));
+  });
+
+  test('RECHAZADO: anteriorRespId igual al propio respId (no puede ser su propia anterior)', async () => {
+    const id = idNuevo('seg');
+    await assertFails(setDoc(respuesta(comoAna(), id), seguimientoNuevo({ anteriorRespId: id })));
+  });
+
+  test('RECHAZADO: conversacionId numérico', async () => {
+    await assertFails(setDoc(respuesta(comoAna(), idNuevo('seg')), seguimientoNuevo({ conversacionId: 12345 })));
+  });
+
+  test('RECHAZADO: conversacionId vacío', async () => {
+    await assertFails(setDoc(respuesta(comoAna(), idNuevo('seg')), seguimientoNuevo({ conversacionId: '' })));
+  });
+
+  test('RECHAZADO: conversacionId de 65 caracteres', async () => {
+    await assertFails(
+      setDoc(respuesta(comoAna(), idNuevo('seg')), seguimientoNuevo({ conversacionId: 'c'.repeat(65) })),
+    );
+  });
+
+  test('RECHAZADO: anteriorRespId vacío (misma validación que conversacionId)', async () => {
+    await assertFails(setDoc(respuesta(comoAna(), idNuevo('seg')), seguimientoNuevo({ anteriorRespId: '' })));
+  });
+
+  test('RECHAZADO: primera pregunta con los dos campos en null (se omiten, no se mandan en null)', async () => {
+    await assertFails(
+      setDoc(respuesta(comoAna(), idNuevo('resp')), preguntaNueva({ conversacionId: null, anteriorRespId: null })),
+    );
+  });
+
+  test('RECHAZADO: el cliente manda preguntaBuscada al crear (la escribe solo el backend)', async () => {
+    await assertFails(
+      setDoc(
+        respuesta(comoAna(), idNuevo('seg')),
+        seguimientoNuevo({ preguntaBuscada: 'Para cuando necesitan el presupuesto?' }),
+      ),
+    );
+  });
+
+  test('RECHAZADO: primera pregunta con preguntaBuscada: null (ni en null: el campo es del backend)', async () => {
+    // null es justo lo que el backend guarda en una raiz, por eso es la
+    // tentacion mas probable de una app que "completa" el documento.
+    await assertFails(setDoc(respuesta(comoAna(), idNuevo('resp')), preguntaNueva({ preguntaBuscada: null })));
+  });
+
+  test('RECHAZADO: el autor le escribe preguntaBuscada a su seguimiento ya creado (update cerrado)', async () => {
+    await assertFails(
+      updateDoc(respuesta(comoAna(), 'seg_de_ana_1'), { preguntaBuscada: 'Otra cosa que nunca pregunte' }),
+    );
+  });
+
+  test('el autor LISTA su conversación (where autorUid + where conversacionId + orderBy creadoEn)', async () => {
+    const foto = await assertSucceeds(getDocs(consultaConversacion(comoAna(), UID.ana, 'resp_de_ana')));
+    const ids = foto.docs.map((d) => d.id);
+    // Trae los seguimientos (el sembrado y los que crearon los tests de
+    // arriba)...
+    assert.ok(ids.includes('seg_de_ana_1'));
+    // ...pero NO la raiz: la raiz no tiene conversacionId. Por eso la app
+    // escucha el doc raiz por su id Y ADEMAS esta query.
+    assert.ok(!ids.includes('resp_de_ana'));
+  });
+
+  test('RECHAZADO: un miembro hace esa query con el autorUid de OTRO', async () => {
+    await assertFails(getDocs(consultaConversacion(comoBeto(), UID.ana, 'resp_de_ana')));
+  });
+
+  test('RECHAZADO: la query de la conversación SIN el where autorUid (las reglas no filtran)', async () => {
+    await assertFails(
+      getDocs(query(respuestas(comoAna()), where('conversacionId', '==', 'resp_de_ana'), orderBy('creadoEn'))),
+    );
+  });
+
+  test('un seguimiento se lee como cualquier respuesta: el autor y el admin sí, otro miembro no', async () => {
+    await assertSucceeds(getDoc(respuesta(comoAna(), 'seg_de_ana_1')));
+    await assertSucceeds(getDoc(respuesta(comoAdmin(), 'seg_de_ana_1')));
+    // El admin puede listar todo, asi que la misma query le anda con el uid
+    // de cualquiera (la lectura de respuestas no cambio con esta funcion).
+    await assertSucceeds(getDocs(consultaConversacion(comoAdmin(), UID.ana, 'resp_de_ana')));
+    await assertFails(getDoc(respuesta(comoBeto(), 'seg_de_ana_1')));
+  });
+
+  test('RECHAZADO: otro miembro borra un seguimiento ajeno', async () => {
+    await assertFails(deleteDoc(respuesta(comoBeto(), 'seg_de_ana_1')));
+  });
+
+  test('un seguimiento de OTRO que apunta a mi raíz no rompe ni ensucia mi conversación', async () => {
+    // Las reglas validan solo la FORMA (no hay get() para mirar de quien es
+    // la raiz), asi que Beto PUEDE crear un doc SUYO con conversacionId = la
+    // raiz de Ana. No gana nada: el backend lo cierra en 'error' (el anterior
+    // es de otra persona) y, como el doc es de Beto, solo lo leen Beto y el
+    // admin. Por eso conversacionId no es un permiso: es solo una etiqueta.
+    const plantado = idNuevo('seg');
+    await assertSucceeds(
+      setDoc(
+        respuesta(comoBeto(), plantado),
+        seguimientoNuevo({ autorUid: UID.beto, pregunta: 'Que mas dice la nota de Ana?' }),
+      ),
+    );
+    // La query de Ana sigue andando: las reglas no revisan doc por doc, miran
+    // que el where autorUid == Ana garantice que todo lo que pueda venir es de
+    // ella. Y el doc de Beto no cumple ese where, asi que no viene.
+    const foto = await assertSucceeds(getDocs(consultaConversacion(comoAna(), UID.ana, 'resp_de_ana')));
+    assert.ok(!foto.docs.some((d) => d.id === plantado));
+  });
+});
+
+// ===========================================================================
 //  EVENTOS Y SUSCRIPCION — solo admin (las diferencias de rol de la materia)
 // ===========================================================================
 describe('eventos y suscripción: solo admin', () => {
@@ -609,5 +836,67 @@ describe('usuarios y members', () => {
 
   test('RECHAZADO: un miembro se pone rol admin en members (escalada de privilegios)', async () => {
     await assertFails(updateDoc(doc(comoAna(), 'workspaces', WS, 'members', UID.ana), { rol: 'admin' }));
+  });
+});
+
+// ===========================================================================
+//  CONTACTOS — el formulario de la landing (publico, solo crear)
+// ===========================================================================
+describe('contactos (formulario de la landing)', () => {
+  const contacto = (cambios = {}) => ({
+    nombre: 'Lucía Pérez',
+    email: 'lucia@estudio.com',
+    empresa: 'Estudio LP',
+    plan: 'equipo',
+    mensaje: 'Somos 8 en el estudio y queremos probarlo.',
+    origen: 'landing',
+    creadoEn: serverTimestamp(),
+    ...cambios,
+  });
+  const nuevoContacto = (fs) => doc(fs, 'contactos', idNuevo('contacto'));
+
+  test('alguien SIN login crea un pedido de contacto valido', async () => {
+    await assertSucceeds(setDoc(nuevoContacto(comoAnonimo()), contacto()));
+  });
+
+  test('empresa y mensaje vacios se aceptan (son opcionales en el formulario)', async () => {
+    await assertSucceeds(setDoc(nuevoContacto(comoAnonimo()), contacto({ empresa: '', mensaje: '', plan: 'no-se' })));
+  });
+
+  test('RECHAZADO: campo de mas (por ejemplo "leido")', async () => {
+    await assertFails(setDoc(nuevoContacto(comoAnonimo()), contacto({ leido: true })));
+  });
+
+  test('RECHAZADO: falta un campo (empresa)', async () => {
+    const sinEmpresa = contacto();
+    delete sinEmpresa.empresa;
+    await assertFails(setDoc(nuevoContacto(comoAnonimo()), sinEmpresa));
+  });
+
+  test('RECHAZADO: email sin @, nombre vacio o mensaje de 1001 caracteres', async () => {
+    const fs = comoAnonimo();
+    await assertFails(setDoc(nuevoContacto(fs), contacto({ email: 'lucia.estudio.com' })));
+    await assertFails(setDoc(nuevoContacto(fs), contacto({ nombre: '' })));
+    await assertFails(setDoc(nuevoContacto(fs), contacto({ mensaje: 'x'.repeat(1001) })));
+  });
+
+  test('RECHAZADO: plan inventado u origen distinto de "landing"', async () => {
+    const fs = comoAnonimo();
+    await assertFails(setDoc(nuevoContacto(fs), contacto({ plan: 'gratis-para-siempre' })));
+    await assertFails(setDoc(nuevoContacto(fs), contacto({ origen: 'panel' })));
+  });
+
+  test('RECHAZADO: creadoEn con la hora del cliente', async () => {
+    await assertFails(setDoc(nuevoContacto(comoAnonimo()), contacto({ creadoEn: Timestamp.fromDate(new Date()) })));
+  });
+
+  test('nadie LEE, edita ni borra los pedidos desde un cliente, ni un admin', async () => {
+    const id = idNuevo('contacto');
+    await assertSucceeds(setDoc(doc(comoAnonimo(), 'contactos', id), contacto()));
+    await assertFails(getDoc(doc(comoAnonimo(), 'contactos', id)));
+    await assertFails(getDoc(doc(comoAdmin(), 'contactos', id)));
+    await assertFails(getDocs(collection(comoAdmin(), 'contactos')));
+    await assertFails(updateDoc(doc(comoAdmin(), 'contactos', id), { mensaje: 'editado' }));
+    await assertFails(deleteDoc(doc(comoAdmin(), 'contactos', id)));
   });
 });

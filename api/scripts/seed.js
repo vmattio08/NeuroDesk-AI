@@ -744,7 +744,14 @@ async function main() {
   const conClave = Boolean((process.env.GEMINI_API_KEY || "").trim());
   if (conClave) {
     const { pedirEmbeddings } = await import("../src/servicios/ia.js");
-    const vectores = await pedirEmbeddings(chunksAEscribir.map((c) => c.datos.texto), "passage");
+    // Cada trozo va con el TITULO de su item, exactamente como lo hace
+    // indexar() en el backend. Si el seed embebiera distinto que /procesar,
+    // la calibracion del umbral mediria vectores que la app no produce.
+    const vectores = await pedirEmbeddings(
+      chunksAEscribir.map((c) => c.datos.texto),
+      "passage",
+      { titulos: chunksAEscribir.map((c) => c.datos.titulo) },
+    );
     // Mismo redondeo a 6 decimales que los falsos: no cambia la busqueda y el
     // documento pesa la mitad.
     chunksAEscribir.forEach((c, i) => { c.datos.embedding = vectores[i].map((x) => Number(x.toFixed(6))); });

@@ -16,9 +16,22 @@
 //  Por eso: esquemas permitidos, resolucion de DNS a mano, lista negra de
 //  rangos privados, redirects contados Y REVALIDADOS, timeout, tope de bytes
 //  y tipo de contenido. Si algo no cierra: URL_NO_PERMITIDA.
+//
+//  Y UNA VEZ QUE LA PAGINA LLEGO, QUE TEXTO NOS QUEDAMOS (cambio del 29/10):
+//  muchas paginas se arman con JavaScript, y sin navegador el cuerpo llega
+//  vacio o con el pie de pagina nada mas. Caso REAL: un link a un video de
+//  YouTube se indexo como "Acerca de Prensa Derechos de autor ... © 2026
+//  Google LLC", y la IA no tenia forma de saber de que era el video. Por eso:
+//    - de CUALQUIER pagina leemos tambien el <title>, la description y los de
+//      Open Graph (og:title, og:description, og:site_name), y van ADELANTE;
+//    - si el cuerpo es ruido y hay metadatos, nos quedamos con los metadatos;
+//    - de un video de YouTube pedimos ademas el titulo y el canal al oEmbed
+//      publico de YouTube, que pasa por la MISMA aduana que todo lo demas.
 // ============================================================
 
 import dns from 'node:dns/promises';
+
+import { caracteresUtiles } from './texto.js';
 
 // --- Numeros con su por que ----------------------------------------------
 
@@ -40,6 +53,25 @@ const TIPOS_ACEPTADOS = ['text/html', 'text/plain'];
 // Solo los puertos de la web. Un link a http://10.0.0.5:6379 (Redis) ya lo
 // corta la lista negra de IPs, pero limitar los puertos es otra cerradura gratis.
 const PUERTOS_PERMITIDOS = new Set(['', '80', '443']);
+
+// --- Cuando el cuerpo de la pagina es ruido (ver esRuido) -----------------
+
+// Menos de 50 caracteres utiles (sin contar espacios) no es contenido: es un
+// "Cargando...", un menu o un boton suelto. Es el MISMO numero con el que
+// extraer.js decide que una hoja de PDF esta vacia.
+const MINIMO_UTILES_CUERPO = 50;
+
+// Un cuerpo corto que trae el ©, "copyright" o "derechos de autor" es el pie
+// de pagina y nada mas. El de YouTube mide 182 caracteres utiles. El tope
+// queda en 300 y no mas alto para no tirar una nota corta DE VERDAD que tenga
+// su "© Diario Tal" al final.
+const TOPE_UTILES_PIE = 300;
+const PISTAS_DE_PIE = /©|copyright|derechos de autor|derechos reservados|all rights reserved/i;
+
+// Topes para lo que sale del <head>: un titulo de mas de 300 caracteres ya es
+// raro, y hay sitios que meten media nota adentro de la description.
+const TOPE_TITULO_META = 300;
+const TOPE_DESCRIPCION_META = 1000;
 
 const MSG_URL =
   'Esa dirección no se puede leer. Probá con un enlace público que empiece con https://';
@@ -207,14 +239,24 @@ export async function validarUrl(textoUrl) {
 }
 
 // ============================================================
-//  TRAER EL TEXTO
+//  EL FETCH SEGURO (el UNICO fetch de este archivo)
 // ============================================================
 
 /**
- * Descarga una pagina publica y devuelve su texto plano.
+ * Trae UNA direccion pasando por toda la aduana: valida la URL, sigue los
+ * redirects a mano REVALIDANDO cada salto, y corta a los 10 s, a los 2 MB o
+ * si el tipo de contenido no esta en la lista.
+ *
+ * TODO lo que este archivo le pide a internet sale por aca: la pagina que
+ * cargo la persona Y el oEmbed de YouTube. Aunque el oEmbed apunte siempre a
+ * youtube.com, no le hacemos un fetch "suelto": un segundo camino para salir
+ * a internet es un segundo lugar donde alguien se puede olvidar de validar.
  *
  * @param {string} textoUrl
- * @returns {Promise<{texto:string, titulo:string|null, origen:'link', urlFinal:string, caracteres:number}>}
+ * @param {{tiposAceptados?: string[], accept?: string}} [opciones]
+ *   tiposAceptados: los Content-Type que se dejan pasar. Por defecto, solo
+ *   paginas de texto; el oEmbed pide 'application/json'.
+ * @returns {Promise<{cuerpo:string, tipo:string, urlFinal:string}>}
  *
  * LIMITACION CONOCIDA (hay que saber decirla): validamos el DNS y despues
  * fetch vuelve a resolver el nombre por su cuenta. Entre una cosa y la otra,
@@ -224,7 +266,7 @@ export async function validarUrl(textoUrl) {
  * mano, que es mucho para el alcance del TP. Con el timeout corto, el tope de
  * bytes y el filtro de Content-Type, la ventana que queda es muy chica.
  */
-export async function traerTextoDeUrl(textoUrl) {
+async function pedirSeguro(textoUrl, { tiposAceptados = TIPOS_ACEPTADOS, accept = 'text/html,text/plain;q=0.9' } = {}) {
   // Un solo reloj para TODO el viaje, redirects incluidos: si no, tres saltos
   // de 9 segundos cada uno son 27 segundos con el usuario esperando.
   const reloj = AbortSignal.timeout(TIMEOUT_MS);
@@ -243,7 +285,7 @@ export async function traerTextoDeUrl(textoUrl) {
         redirect: 'manual',
         headers: {
           'User-Agent': 'NeuroDeskBot/2.0 (+https://neurodesk-api.onrender.com)',
-          Accept: 'text/html,text/plain;q=0.9',
+          Accept: accept,
           'Accept-Language': 'es-AR,es;q=0.9',
         },
         signal: reloj,
@@ -274,10 +316,10 @@ export async function traerTextoDeUrl(textoUrl) {
     throw errorDeUrl(`La página respondió con el código ${res.status}.`);
   }
 
-  // --- Content-Type: solo texto --------------------------------------------
+  // --- Content-Type: solo lo que este pedido espera ------------------------
   const contentType = (res.headers.get('content-type') || '').toLowerCase();
   const tipo = contentType.split(';')[0].trim();
-  if (!TIPOS_ACEPTADOS.includes(tipo)) {
+  if (!tiposAceptados.includes(tipo)) {
     throw errorDeUrl(`Ese enlace devuelve "${tipo || 'contenido desconocido'}" y solo leemos páginas de texto.`);
   }
 
@@ -293,19 +335,84 @@ export async function traerTextoDeUrl(textoUrl) {
   // El charset viene declarado en el header. Si no viene, utf-8 (y fatal:false
   // para que un byte roto no tire abajo toda la extraccion).
   const charset = /charset=([\w-]+)/i.exec(contentType)?.[1] || 'utf-8';
-  let html;
+  let cuerpo;
   try {
-    html = new TextDecoder(charset, { fatal: false }).decode(crudo);
+    cuerpo = new TextDecoder(charset, { fatal: false }).decode(crudo);
   } catch {
-    html = new TextDecoder('utf-8', { fatal: false }).decode(crudo);
+    cuerpo = new TextDecoder('utf-8', { fatal: false }).decode(crudo);
   }
 
-  const titulo = tipo === 'text/html' ? sacarTitulo(html) : null;
-  const texto = tipo === 'text/html' ? htmlATexto(html) : html;
+  return { cuerpo, tipo, urlFinal: url.toString() };
+}
+
+// ============================================================
+//  TRAER EL TEXTO
+// ============================================================
+
+/**
+ * Descarga una pagina publica y devuelve su texto plano, con lo que la pagina
+ * dice de si misma (titulo, descripcion) ADELANTE de todo.
+ *
+ * @param {string} textoUrl
+ * @returns {Promise<{texto:string, titulo:string|null, origen:'link', urlFinal:string, caracteres:number}>}
+ */
+export async function traerTextoDeUrl(textoUrl) {
+  const idVideo = idDeVideoDeYoutube(textoUrl);
+  let pagina = null;
+  let video = null;
+
+  if (!idVideo) {
+    pagina = await pedirSeguro(textoUrl);
+  } else {
+    // La direccion que cargo la persona pasa la aduana ANTES que nada, como
+    // cualquier otra: si no es publica, no hay oEmbed que la salve.
+    await validarUrl(textoUrl);
+
+    // La pagina y el oEmbed salen JUNTOS: el usuario espera lo que tarde el
+    // mas lento (10 s como mucho) y no la suma de los dos. allSettled y no
+    // all: que falle uno no tiene que tirar abajo al otro.
+    const [dePagina, deVideo] = await Promise.allSettled([
+      pedirSeguro(textoUrl),
+      datosDelVideo(idVideo),
+    ]);
+
+    if (deVideo.status === 'fulfilled') {
+      video = deVideo.value;
+    } else {
+      // Video privado, borrado, o YouTube que no contesta: seguimos como con
+      // cualquier otra pagina (titulo y descripcion de los metadatos).
+      console.warn('[link] El oEmbed de YouTube falló, sigo con la página:', deVideo.reason?.detalle ?? deVideo.reason?.message);
+    }
+
+    if (dePagina.status === 'fulfilled') {
+      pagina = dePagina.value;
+    } else if (video) {
+      // El titulo y el canal ya los tenemos: con eso alcanza para indexar.
+      console.warn('[link] La página del video falló, me quedo con el oEmbed:', dePagina.reason?.detalle ?? dePagina.reason?.message);
+    } else {
+      throw dePagina.reason; // sin pagina y sin oEmbed no hay nada que leer
+    }
+
+    // Sin oEmbed, la pagina tiene que ser la de UN video. Si es la generica de
+    // YouTube (titulo "- YouTube" y "Disfruta los videos y la musica..."), el
+    // video no existe, es privado o lo borraron: indexar eso es guardar
+    // basura con cara de item 'listo'. Lo probamos con un id inventado.
+    if (!video && !esPaginaDeUnVideo(pagina)) {
+      throw fallo(
+        'NO_SE_PUDO_EXTRAER_TEXTO',
+        'No pudimos leer ese video de YouTube. Fijate que sea público.',
+        422,
+        'El video no existe, es privado o lo borraron.',
+      );
+    }
+  }
+
+  const texto = armarTexto(pagina, video);
 
   if (texto.replace(/\s+/g, '').length < 20) {
-    // La pagina cargo pero no tiene texto: casi siempre es una app hecha toda
-    // en JavaScript, que sin navegador no renderiza nada.
+    // La pagina cargo pero no tiene texto, y ni siquiera metadatos: casi
+    // siempre es una app hecha toda en JavaScript, que sin navegador no
+    // renderiza nada.
     throw fallo(
       'NO_SE_PUDO_EXTRAER_TEXTO',
       'No pudimos leer el texto de esa página. Probá copiando el contenido en una nota.',
@@ -314,13 +421,68 @@ export async function traerTextoDeUrl(textoUrl) {
     );
   }
 
+  let titulo = null;
+  if (video) titulo = video.titulo.slice(0, 120);
+  else if (pagina.tipo === 'text/html') titulo = sacarTitulo(pagina.cuerpo);
+
   return {
     texto,
     titulo,
     origen: 'link',
-    urlFinal: url.toString(),
+    urlFinal: pagina ? pagina.urlFinal : video.url,
     caracteres: texto.length,
   };
+}
+
+/**
+ * Arma el texto final con lo que haya:
+ *   1. ADELANTE, lo que la pagina dice de si misma: titulos, descripcion y
+ *      sitio, sin repetir. Si es un video de YouTube y el oEmbed contesto:
+ *      "Video de YouTube: <titulo>. Canal: <autor>." y la descripcion.
+ *   2. DESPUES, el cuerpo... salvo que sea ruido y haya metadatos: ahi nos
+ *      quedamos SOLO con los metadatos.
+ *
+ * POR QUE ADELANTE: el texto se trocea de a 1500 caracteres, y lo que va al
+ * principio cae en el primer chunk. Asi ese chunk dice DE QUE habla la pagina,
+ * que es justo lo que suele buscar una pregunta.
+ */
+function armarTexto(pagina, video) {
+  // Texto plano: no hay <head> ni etiquetas. Va tal cual.
+  if (pagina && pagina.tipo !== 'text/html') return pagina.cuerpo;
+
+  const meta = pagina ? sacarMetadatos(pagina.cuerpo) : { titulos: [], descripciones: [], sitio: null };
+  let cuerpo = pagina ? htmlATexto(pagina.cuerpo) : '';
+  let { titulos, descripciones, sitio } = meta;
+
+  if (video) {
+    const lineaDelVideo = `Video de YouTube: ${conPunto(video.titulo)}` +
+      (video.autor ? ` Canal: ${conPunto(video.autor)}` : '');
+    // ¿La pagina que bajamos es la DEL VIDEO? En Europa, por ejemplo, YouTube
+    // contesta con un cartel de cookies. Si su titulo no es el del video, de
+    // esa pagina no usamos nada: ni la descripcion ni el cuerpo.
+    const esLaDelVideo = yaDicho(video.titulo, titulos);
+    titulos = [lineaDelVideo];
+    descripciones = esLaDelVideo ? descripciones.filter((d) => !yaDicho(d, titulos)) : [];
+    sitio = null; // "YouTube" ya esta dicho en la linea del video
+    if (!esLaDelVideo) cuerpo = '';
+  }
+
+  // Cuerpo ruidoso y metadatos para reemplazarlo: afuera el cuerpo. Sin
+  // metadatos no se toca: un cuerpo flojo es mejor que nada.
+  if (titulos.length + descripciones.length > 0 && esRuido(cuerpo)) cuerpo = '';
+
+  // Muchos diarios usan la bajada de la nota como description: si el cuerpo
+  // ya la dice, no la repetimos arriba. El titulo va siempre: es corto y es
+  // lo que le da contexto al primer chunk.
+  if (cuerpo) {
+    const enElCuerpo = normalizar(cuerpo);
+    descripciones = descripciones.filter((d) => !enElCuerpo.includes(normalizar(d)));
+  }
+
+  const encabezado = [...titulos, ...descripciones];
+  if (sitio) encabezado.push(`Sitio: ${sitio}`);
+
+  return [encabezado.join('\n'), cuerpo].filter(Boolean).join('\n\n');
 }
 
 /**
@@ -372,6 +534,118 @@ function sacarTitulo(html) {
   if (!m) return null;
   const t = decodificarEntidades(m[1].replace(/\s+/g, ' ')).trim();
   return t ? t.slice(0, 120) : null;
+}
+
+// ============================================================
+//  METADATOS: lo que la pagina dice de si misma en el <head>
+// ============================================================
+
+// Las <meta> que nos sirven. Da igual si vienen con name= o con property=:
+// la norma de Open Graph dice property, pero muchos sitios escriben name.
+const METAS_QUE_SIRVEN = new Set(['description', 'og:title', 'og:description', 'og:site_name']);
+
+/**
+ * Lee el <title>, la description y los de Open Graph.
+ *
+ * POR QUE HACE FALTA: htmlATexto() tira el <head> entero (ahi viven scripts
+ * y estilos), y con el se iban estos datos, que son justo los que una pagina
+ * hecha con JavaScript SI trae escritos: los necesita para que WhatsApp o
+ * Twitter muestren la vista previa del link sin ejecutar nada.
+ *
+ * @returns {{titulos:string[], descripciones:string[], sitio:string|null}}
+ *   Ya sin repetidos: og:title casi siempre es el <title> sin el " - Sitio".
+ */
+export function sacarMetadatos(html) {
+  const texto = String(html ?? '');
+  const metas = {};
+  for (const [etiqueta] of texto.matchAll(/<meta\b[^>]*>/gi)) {
+    const atributos = leerAtributos(etiqueta);
+    const clave = String(atributos.property || atributos.name || '').toLowerCase();
+    // Gana la primera: si una pagina repite og:title, la segunda suele ser
+    // de algo embebido y no de la pagina.
+    if (!METAS_QUE_SIRVEN.has(clave) || metas[clave]) continue;
+    const tope = clave === 'og:title' || clave === 'og:site_name' ? TOPE_TITULO_META : TOPE_DESCRIPCION_META;
+    metas[clave] = textoPlano(decodificarEntidades(atributos.content), tope);
+  }
+  const tituloHtml = textoPlano(decodificarEntidades(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(texto)?.[1]), TOPE_TITULO_META);
+
+  const titulos = sinRepetidos([tituloHtml, metas['og:title']]);
+  const descripciones = sinRepetidos([metas.description, metas['og:description']])
+    .filter((d) => !yaDicho(d, titulos));
+  // El nombre del sitio solo si suma: en "Bobina de Tesla - Wikipedia" ya esta.
+  const sitio = metas['og:site_name'] && !yaDicho(metas['og:site_name'], [...titulos, ...descripciones])
+    ? metas['og:site_name']
+    : null;
+
+  return { titulos, descripciones, sitio };
+}
+
+/**
+ * Los atributos de UNA etiqueta: <meta property="og:title" content="X"> ->
+ * { property: 'og:title', content: 'X' }. Acepta comillas dobles, simples o
+ * ninguna, y cualquier orden: hay sitios que ponen content antes que name.
+ */
+function leerAtributos(etiqueta) {
+  const atributos = {};
+  const patron = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g;
+  for (const m of etiqueta.matchAll(patron)) {
+    const nombre = m[1].toLowerCase();
+    if (!(nombre in atributos)) atributos[nombre] = m[2] ?? m[3] ?? m[4] ?? '';
+  }
+  return atributos;
+}
+
+/** Un string de una sola linea, sin espacios de mas y con tope. '' si no es texto. */
+function textoPlano(valor, tope) {
+  if (typeof valor !== 'string') return '';
+  return valor.replace(/\s+/g, ' ').trim().slice(0, tope);
+}
+
+/** Para comparar textos sin que importen las mayusculas ni los espacios. */
+function normalizar(texto) {
+  return String(texto ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/** ¿`texto` ya esta dicho (contenido entero) en alguno de `lista`? */
+function yaDicho(texto, lista) {
+  const buscado = normalizar(texto);
+  return lista.some((l) => normalizar(l).includes(buscado));
+}
+
+/**
+ * Saca los vacios y los repetidos. "Repetido" incluye estar CONTENIDO en
+ * otro: og:title "Bobina de Tesla" sobra si el <title> ya dice "Bobina de
+ * Tesla - Wikipedia". De dos parecidos, se queda el mas completo.
+ */
+function sinRepetidos(textos) {
+  const quedan = [];
+  for (const t of textos) {
+    if (!normalizar(t) || yaDicho(t, quedan)) continue;
+    // Si el nuevo CONTIENE a uno de antes, el de antes sobra.
+    const nuevo = normalizar(t);
+    for (let i = quedan.length - 1; i >= 0; i--) {
+      if (nuevo.includes(normalizar(quedan[i]))) quedan.splice(i, 1);
+    }
+    quedan.push(t);
+  }
+  return quedan;
+}
+
+/** "Titulo" -> "Titulo."; "¿Que es?" queda igual (y no "¿Que es?."). */
+function conPunto(texto) {
+  return /[.!?…]$/.test(texto) ? texto : `${texto}.`;
+}
+
+/**
+ * ¿El cuerpo es ruido y no contenido? Cualquiera de los dos sintomas alcanza:
+ *   - casi no tiene texto (menos de MINIMO_UTILES_CUERPO caracteres utiles);
+ *   - es corto y huele a pie de pagina (el ©, "copyright", "derechos de autor").
+ * Solo se usa cuando HAY metadatos para reemplazarlo (ver armarTexto).
+ */
+function esRuido(texto) {
+  const utiles = caracteresUtiles(texto);
+  if (utiles < MINIMO_UTILES_CUERPO) return true;
+  return utiles < TOPE_UTILES_PIE && PISTAS_DE_PIE.test(texto);
 }
 
 /**
@@ -440,6 +714,15 @@ function decodificarEntidades(texto) {
     '&laquo;': '«',
     '&raquo;': '»',
     '&euro;': '€',
+    // &copy; no estaba, y el pie de YouTube llegaba con "&copy; 2026 Google
+    // LLC" escrito asi, literal. Y sin el © decodificado, esRuido() no lo ve.
+    '&copy;': '©',
+    '&reg;': '®',
+    '&trade;': '™',
+    '&deg;': '°',
+    '&ordm;': 'º',
+    '&ordf;': 'ª',
+    '&middot;': '·',
   };
 
   return String(texto ?? '')
@@ -448,9 +731,104 @@ function decodificarEntidades(texto) {
       if (conocida !== undefined) return conocida;
       // Entidades numericas: &#241; o &#xF1;
       const decimal = /^&#(\d+);$/.exec(entidad);
-      if (decimal) return String.fromCodePoint(Number.parseInt(decimal[1], 10));
+      if (decimal) return caracterDe(Number.parseInt(decimal[1], 10));
       const hexa = /^&#x([0-9a-fA-F]+);$/.exec(entidad);
-      if (hexa) return String.fromCodePoint(Number.parseInt(hexa[1], 16));
+      if (hexa) return caracterDe(Number.parseInt(hexa[1], 16));
       return entidad;
     });
+}
+
+// String.fromCodePoint TIRA un RangeError con un numero mas alla de Unicode
+// (&#99999999;). Una pagina con eso, a proposito o por error, nos hacia
+// fallar la extraccion entera. Un numero invalido se vuelve '�' (el
+// rombito con el signo de pregunta) y la pagina sigue leyendose.
+function caracterDe(numero) {
+  return Number.isInteger(numero) && numero >= 0 && numero <= 0x10ffff
+    ? String.fromCodePoint(numero)
+    : '�';
+}
+
+// ============================================================
+//  YOUTUBE: el titulo y el canal por oEmbed
+// ============================================================
+//
+//  oEmbed es un estandar abierto para pedirle a un sitio los datos de un
+//  contenido que se quiere "embeber" en otra pagina: titulo, autor y
+//  miniatura. YouTube lo publica SIN CLAVE y contesta un JSON de 1 KB. Es la
+//  forma oficial de saber como se llama un video sin ejecutar el JavaScript
+//  de la pagina, que es donde vive todo lo demas.
+
+const URL_OEMBED_YOUTUBE = 'https://www.youtube.com/oembed';
+
+// Un id de video de YouTube son SIEMPRE 11 caracteres de [A-Za-z0-9_-]. Con
+// una regex cerrada, la URL que armamos para el oEmbed nunca lleva basura
+// escrita por el usuario.
+const FORMATO_ID_DE_VIDEO = /^[A-Za-z0-9_-]{11}$/;
+
+/**
+ * Si la URL es de un video de YouTube devuelve su id; si no, null.
+ * Entiende youtube.com/watch?v=ID, youtu.be/ID y youtube.com/shorts/ID (y
+ * tambien /live/ID y /embed/ID, que tienen la misma forma).
+ *
+ * Se compara el hostname EXACTO (o que termine en ".youtube.com"): con un
+ * includes('youtube'), "youtube.com.sitio-trucho.net" pasaria por YouTube.
+ */
+export function idDeVideoDeYoutube(textoUrl) {
+  let url;
+  try {
+    url = new URL(String(textoUrl ?? '').trim());
+  } catch {
+    return null;
+  }
+  const host = url.hostname.toLowerCase();
+  let id = null;
+  if (host === 'youtu.be') {
+    id = url.pathname.split('/')[1];
+  } else if (host === 'youtube.com' || host.endsWith('.youtube.com')) {
+    id = url.pathname === '/watch'
+      ? url.searchParams.get('v')
+      : /^\/(?:shorts|live|embed)\/([^/]+)/.exec(url.pathname)?.[1];
+  }
+  return id && FORMATO_ID_DE_VIDEO.test(id) ? id : null;
+}
+
+/**
+ * ¿La pagina que devolvio YouTube es la de un video de verdad? La de un video
+ * se titula "<nombre del video> - YouTube"; la generica (video borrado o
+ * privado) se titula "- YouTube" a secas. Si al sacarle el " - YouTube" no
+ * queda nada, no hay video.
+ */
+function esPaginaDeUnVideo(pagina) {
+  if (pagina.tipo !== 'text/html') return false;
+  return sacarMetadatos(pagina.cuerpo).titulos
+    .some((t) => t.replace(/\s*-\s*YouTube\s*$/i, '').trim() !== '');
+}
+
+/**
+ * Le pide al oEmbed de YouTube el titulo y el canal del video. Sale por
+ * pedirSeguro() como cualquier otro pedido: misma validacion anti-SSRF, mismo
+ * reloj, mismo tope de bytes, y solo acepta un JSON.
+ *
+ * @returns {Promise<{titulo:string, autor:string|null, url:string}>}
+ */
+async function datosDelVideo(id) {
+  // La URL del video la armamos NOSOTROS con el id ya validado: al oEmbed no
+  // le pasamos lo que escribio la persona.
+  const urlVideo = `https://www.youtube.com/watch?v=${id}`;
+  const { cuerpo } = await pedirSeguro(
+    `${URL_OEMBED_YOUTUBE}?url=${encodeURIComponent(urlVideo)}&format=json`,
+    { tiposAceptados: ['application/json'], accept: 'application/json' },
+  );
+
+  let datos;
+  try {
+    datos = JSON.parse(cuerpo);
+  } catch {
+    throw errorDeUrl('El oEmbed de YouTube no devolvió un JSON válido.');
+  }
+
+  // El JSON ya viene en texto plano: aca NO se decodifican entidades HTML.
+  const titulo = textoPlano(datos?.title, TOPE_TITULO_META);
+  if (!titulo) throw errorDeUrl('El oEmbed de YouTube no trajo el título del video.');
+  return { titulo, autor: textoPlano(datos?.author_name, TOPE_TITULO_META) || null, url: urlVideo };
 }

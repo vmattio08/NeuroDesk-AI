@@ -1,6 +1,6 @@
 ﻿# NeuroDesk AI — app movil (Flutter)
 
-La app con la que el equipo **captura** conocimiento (notas, fotos, PDF, links) y despues le **pregunta en castellano**, recibiendo una respuesta **que cita la fuente**.
+La app con la que el equipo **captura** conocimiento (notas, fotos, PDF, Word, links) y despues le **pregunta en castellano**, recibiendo una respuesta **que cita la fuente**.
 
 - **Stack:** Flutter 3.41.6 · `StatefulWidget` + `StreamBuilder` + `setState` (SIN gestor de estado) · Firebase Auth (email/contrasena y Google) + Cloud Firestore.
 - **Sin Firebase Storage y sin Cloud Functions:** los dos piden tarjeta de credito. El archivo **no se guarda en ningun lado**: viaja al backend, se le extrae el texto y se descarta.
@@ -18,10 +18,10 @@ La app con la que el equipo **captura** conocimiento (notas, fotos, PDF, links) 
 | `lib/servicios/api.dart` | El **unico** lugar que habla con el backend. Manda el `Authorization: Bearer <idToken>` y traduce la forma unica de error a castellano. |
 | `lib/pantallas/login.dart` | Entrar / crear cuenta / **Continuar con Google**, con los errores traducidos. |
 | `lib/pantallas/home.dart` | El muro de items en tiempo real: 2 pestanas (3 si sos admin), chips de estado y badge de sin-conexion. |
-| `lib/pantallas/captura.dart` | Cargar nota / foto / PDF / link. **Crea el item en Firestore y recien despues llama al backend.** |
+| `lib/pantallas/captura.dart` | Cargar nota / foto / documento (PDF o Word `.docx`) / link. El boton *Documento* guarda el item como `pdf` o `word` segun la extension. **Crea el item en Firestore y recien despues llama al backend.** |
 | `lib/pantallas/chat.dart` | Preguntar y ver la respuesta con su progreso en vivo y sus fuentes citadas. |
 | `lib/pantallas/sin_workspace.dart` | "Todavia no perteneces a ningun equipo, pedile a tu admin que te invite". |
-| `test/widget_test.dart` | Las pruebas de `flutter test`: que la app no muestre la pantalla roja si Firebase falla, la regla del nombre para `/v1/auth/registro` y la traduccion de errores. Corren sin celular, sin Firebase y sin internet. |
+| `test/widget_test.dart` | Las pruebas de `flutter test`: que la app no muestre la pantalla roja si Firebase falla, la regla del nombre para `/v1/auth/registro`, la traduccion de errores y que el boton *Documento* distinga PDF de Word. Corren sin celular, sin Firebase y sin internet. |
 | `analysis_options.yaml` | Activa las reglas de `flutter_lints` para `flutter analyze`. La meta es **0 issues** siempre. |
 | `android/` | El proyecto nativo de Android, **versionado a proposito** (ver 2.2): lleva el plugin de Google Services, el `google-services.json` y los permisos. |
 
@@ -214,7 +214,7 @@ Desde que Firebase acepta el token, **todo es igual al login con email**: ni `ma
 
 ## 5. Limitaciones conocidas (decirlas, no esconderlas)
 
-- **El archivo no se guarda.** Si un PDF o una foto fallan **antes** de que se les extraiga el texto, no se pueden reintentar: hay que volver a elegir el archivo. La app lo dice con esas palabras.
+- **El archivo no se guarda.** Si un PDF, un Word o una foto fallan **antes** de que se les extraiga el texto, no se pueden reintentar: hay que volver a elegir el archivo. La app lo dice con esas palabras.
 - **El texto de las fotos y de los PDF escaneados se procesa en OCR.space**, un servicio externo, **incluso en los items marcados como privados**. Esta avisado en el login y en la pantalla de captura.
 - **Sacar a alguien del equipo corta el backend al instante, pero no la lectura directa a Firestore hasta que vence su token (1 hora).** Es una limitacion conocida del modelo de custom claims.
 - **Render (plan gratis) se duerme a los 15 minutos** y el primer pedido tarda hasta 60 segundos. Por eso la app llama a `GET /salud` al arrancar, los timeouts de `/procesar` y `/preguntar` son de 90 s, y un timeout **no se muestra como error**: se muestra "sigue procesando" y el `StreamBuilder` avisa como termino.
@@ -242,4 +242,6 @@ Antes de tocar el celular: `flutter analyze` tiene que decir **No issues found!*
 - [ ] Modo avion → banda roja de sin conexion y banda amarilla de "lo ultimo guardado en el telefono".
 - [ ] Doble tap rapido en *Guardar* y en *Enviar* → **no** se crean dos items ni dos respuestas.
 - [ ] Subir un PDF de mas de 10 MB → lo frena la app, sin subir nada.
+- [ ] Subir un Word (`.docx`) con *Documento* → aparece con el icono de hoja en **Pendiente** y pasa solo a **Listo**. En el panel figura como tipo **Word**.
+- [ ] Elegir un Word viejo (`.doc`) → la app lo frena y pide guardarlo como `.docx`.
 - [ ] **La prueba del requisito de roles:** A sube una nota **privada**, B pregunta exactamente por su contenido → la respuesta viene **sin fuentes**. Si el admin hace la misma pregunta, el numero de "fragmentos que pude usar" es mas grande.

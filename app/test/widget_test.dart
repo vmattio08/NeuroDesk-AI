@@ -12,7 +12,10 @@
 //      (la capa anti pantalla roja de main.dart);
 //    - que el login dibuje el logo OFICIAL (el PNG de la marca) y no un icono;
 //    - la regla del nombre que se le manda a POST /v1/auth/registro;
-//    - la traduccion de errores de Firebase y de Google a castellano.
+//    - la traduccion de errores de Firebase y de Google a castellano;
+//    - el boton "Documento" de la captura: que decida 'pdf' o 'word' por la
+//      extension, que frene el .doc viejo, y que la pantalla se dibuje (la
+//      captura solo toca Firebase al guardar, no al dibujarse).
 //  El login con Google de verdad (hoja de cuentas, SHA-1, token) solo se
 //  puede probar en un celular: esta en el checklist de QA del README.
 //
@@ -27,6 +30,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import 'package:neurodesk/main.dart';
+import 'package:neurodesk/pantallas/captura.dart';
 import 'package:neurodesk/pantallas/login.dart';
 import 'package:neurodesk/servicios/auth_servicio.dart';
 import 'package:neurodesk/tema.dart';
@@ -183,5 +187,53 @@ void main() {
         expect(texto, isNot(contains(codigo.name)));
       }
     });
+  });
+
+  // El boton "Documento" acepta PDF y Word, pero en Firestore se guarda 'pdf'
+  // o 'word'. Si esto se equivoca, el item nace con el tipo cambiado y el
+  // backend le aplica el extractor que no corresponde.
+  group('CapturaPantalla.tipoDeDocumento (boton Documento)', () {
+    test('.pdf es pdf y .docx es word, con mayusculas o sin', () {
+      expect(CapturaPantalla.tipoDeDocumento('Cronograma.pdf'), 'pdf');
+      expect(CapturaPantalla.tipoDeDocumento('ACTA FINAL.PDF'), 'pdf');
+      expect(CapturaPantalla.tipoDeDocumento('Trabajo practico.docx'), 'word');
+      expect(CapturaPantalla.tipoDeDocumento('Informe.DocX'), 'word');
+    });
+
+    test('el .doc viejo y cualquier otra cosa no pasan (null)', () {
+      expect(CapturaPantalla.tipoDeDocumento('viejo.doc'), isNull);
+      expect(CapturaPantalla.tipoDeDocumento('planilla.xlsx'), isNull);
+      expect(CapturaPantalla.tipoDeDocumento('trampa.docx.exe'), isNull);
+      expect(CapturaPantalla.tipoDeDocumento('sin extension'), isNull);
+      expect(CapturaPantalla.tipoDeDocumento(''), isNull);
+    });
+  });
+
+  test('iconoDeTipo: word tiene icono propio (no cae en el de la nota)', () {
+    expect(iconoDeTipo('pdf'), Icons.picture_as_pdf);
+    expect(iconoDeTipo('word'), Icons.description);
+    expect(iconoDeTipo('word'), isNot(iconoDeTipo('nota')));
+    expect(iconoDeTipo('word'), isNot(iconoDeTipo('pdf')));
+  });
+
+  testWidgets('Captura: el chip dice Documento y abre el selector de PDF o Word',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: temaNeuroDesk(),
+        home: const CapturaPantalla(wsId: 'ws-prueba', miUid: 'uid-prueba'),
+      ),
+    );
+
+    // Arranca en "Nota": el bloque del documento todavia no esta.
+    expect(find.text('Documento'), findsOneWidget);
+    expect(find.text('PDF'), findsNothing); // el chip viejo ya no existe
+    expect(find.text('Elegir un PDF o un Word'), findsNothing);
+
+    await tester.tap(find.text('Documento'));
+    await tester.pump();
+
+    expect(find.text('Elegir un PDF o un Word'), findsOneWidget);
+    expect(find.textContaining('(.docx)'), findsOneWidget);
   });
 }

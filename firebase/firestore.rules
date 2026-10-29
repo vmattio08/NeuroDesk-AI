@@ -9,6 +9,11 @@
 //           va SOLO en el path. El hasOnly lista exactamente los cuatro campos
 //           que el cliente escribe y que el modelo declara:
 //           pregunta, autorUid, estado, creadoEn.
+//           (Despues de la v3 se sumaron las preguntas de SEGUIMIENTO: esas
+//           traen ademas conversacionId y anteriorRespId, opcionales y
+//           SIEMPRE juntos. La primera pregunta de una conversacion sigue
+//           siendo exactamente los cuatro de siempre. Ver el match de
+//           respuestas.)
 //           El invariante "workspaceId en el path Y como campo" vale SOLO para
 //           items y chunks (ahi si hace falta, porque chunks es una coleccion
 //           plana y el backend barre items con collectionGroup).
@@ -274,9 +279,13 @@ service cloud.firestore {
             && d.estado == 'pendiente'
             // 5) la fecha la pone el servidor, no el reloj del celular
             && fechaDelServidor(d.creadoEn)
-            // 6) tipos y valores cerrados
+            // 6) tipos y valores cerrados.
+            //    'word' (un .docx) tiene el MISMO trato que 'pdf': sin url ni
+            //    textoOriginal, y el texto lo saca el backend del archivo con
+            //    origen 'docx'. Ojo: 'docx' es el ORIGEN del texto, no un tipo,
+            //    y como tipo se rechaza.
             && tituloValido(d.titulo)
-            && d.tipo in ['nota', 'pdf', 'link', 'foto']
+            && d.tipo in ['nota', 'pdf', 'word', 'link', 'foto']
             && d.visibilidad in ['equipo', 'privado']
             // 7) 'url' SOLO en los links, y obligatoria ahi.
             //    El campo se llama 'url' en las TRES piezas del proyecto (en
@@ -430,6 +439,28 @@ service cloud.firestore {
       // Repetir el wsId adentro del documento seria un dato que se puede
       // desincronizar del path sin que nadie se entere. El invariante de
       // "workspaceId en el path Y como campo" vale SOLO para items y chunks.
+      //
+      // CONVERSACIONES (preguntas de seguimiento). Una conversacion es una
+      // CADENA de documentos de esta misma coleccion, no una coleccion nueva:
+      // asi la lectura, el borrado y el "solo backend" de los campos de la IA
+      // siguen siendo las mismas reglas de siempre, sin una sola linea nueva
+      // de permisos.
+      //   - La PRIMERA pregunta (la raiz) es igual que siempre: los cuatro
+      //     campos y nada mas.
+      //   - Cada pregunta de SEGUIMIENTO suma dos campos, SIEMPRE juntos:
+      //       conversacionId = respId de la RAIZ. Con eso la app lista la
+      //                        conversacion entera con una sola query.
+      //       anteriorRespId = respId de la pregunta INMEDIATAMENTE anterior.
+      //                        Con eso el backend arma el historial hacia
+      //                        atras (para la segunda pregunta, los dos
+      //                        valen lo mismo: la anterior ES la raiz).
+      // Aca validamos solo la FORMA de esos dos campos. Si el anterior
+      // existe, si es tuyo, si esta 'listo' y si es de la misma conversacion
+      // NO se puede chequear sin get() de documento, y no usamos get() (ver
+      // la idea 2 de arriba): eso lo valida el BACKEND, fail-closed, antes
+      // de usar el historial. Y el historial NO da acceso a nada: los
+      // permisos del RAG se recalculan en vivo en cada pregunta, igual que
+      // siempre.
       // ----------------------------------------------------------------
       match /respuestas/{respId} {
 
@@ -440,8 +471,52 @@ service cloud.firestore {
           return resource.data.get('autorUid', '') == uid();
         }
 
+        // Un id de respuesta con forma de id: string de 1 a 64 caracteres.
+        // Los ids automaticos de Firestore tienen 20; el tope de 64 deja
+        // margen y corta de entrada que alguien guarde un texto largo en un
+        // campo que va al indice compuesto de la conversacion.
+        function idDeRespuestaValido(v) {
+          return v is string && v.size() >= 1 && v.size() <= 64;
+        }
+
+        // Los dos campos de la cadena van SIEMPRE JUNTOS: o no viene ninguno
+        // (primera pregunta, igual que siempre) o vienen los dos. Uno solo es
+        // un documento a medio armar: con conversacionId y sin anteriorRespId
+        // el backend no sabria desde donde armar el historial, y con
+        // anteriorRespId y sin conversacionId la app no lo encontraria en la
+        // query de la conversacion.
+        // OJO: "no viene" quiere decir que la CLAVE no esta. Mandar
+        // conversacionId: null en una primera pregunta se RECHAZA (null no es
+        // string): la app tiene que omitir los campos, no mandarlos vacios.
+        // anteriorRespId != respId: una pregunta no puede ser su propia
+        // anterior (seria un ciclo de un solo paso en la cadena).
+        // Los campos opcionales se leen SIEMPRE detras de un `in d`, como en
+        // items: si no existen, tocarlos haria explotar la regla.
+        function cadenaDeSeguimientoValida(d) {
+          return (!('conversacionId' in d) && !('anteriorRespId' in d))
+            || ('conversacionId' in d
+                && 'anteriorRespId' in d
+                && idDeRespuestaValido(d.conversacionId)
+                && idDeRespuestaValido(d.anteriorRespId)
+                && d.anteriorRespId != respId);
+        }
+
         // Para listar, el miembro filtra por .where('autorUid','==',miUid).
         // El admin puede listar todo.
+        //
+        // La pantalla de una conversacion usa ESTA MISMA regla, sin cambios:
+        // escucha el doc raiz por su id (get) + la query (list)
+        //     .where('autorUid', '==', miUid)
+        //     .where('conversacionId', '==', raiz)
+        //     .orderBy('creadoEn')
+        // El where por autorUid es OBLIGATORIO aunque toda la conversacion
+        // sea mia: conversacionId no es secreto ni exclusivo (cualquiera
+        // puede escribir el id de mi raiz en SU documento), asi que sin ese
+        // where la query PODRIA traer un documento ajeno y las reglas la
+        // rechazan entera (no filtran). Esa query necesita el indice
+        // compuesto autorUid + conversacionId + creadoEn que esta en
+        // firestore.indexes.json. La raiz NO sale en la query porque no tiene
+        // conversacionId: por eso la app la lee aparte, por su id.
         allow get, list: if esMiembro(wsId) && (esMiRespuesta() || esAdmin(wsId));
 
         // El cliente crea EXACTAMENTE estos cuatro campos, los mismos cuatro
@@ -450,12 +525,21 @@ service cloud.firestore {
         // de 'respuesta' (mientras ese campo no exista, la pantalla muestra
         // "buscando"; en la v1 el modelo decia que el cliente mandaba
         // respuesta: '' y esta misma regla lo rechazaba).
-        // hasOnly + hasAll juntos = la lista exacta, ni de mas ni de menos.
+        // La UNICA excepcion es una pregunta de SEGUIMIENTO, que suma los dos
+        // campos de la cadena y nada mas. Por eso ahora las listas difieren:
+        //   hasOnly = el MAXIMO permitido (los cuatro + los dos opcionales)
+        //   hasAll  = el MINIMO obligatorio (los cuatro de siempre)
+        //   cadenaDeSeguimientoValida() = de los opcionales, ninguno o los dos
         // Como hasAll ya garantiza que los cuatro campos existen, aca SI se
         // pueden leer .pregunta / .autorUid / .estado / .creadoEn directo.
+        // preguntaBuscada (la pregunta reformulada con la que el backend
+        // busco de verdad) NO esta en la lista a proposito: la escribe SOLO
+        // el backend, igual que respuesta, fuentes y confianza. Si el cliente
+        // la manda, se rechaza la escritura entera.
         allow create: if esMiembro(wsId)
           && request.resource.data.keys().hasOnly(
-               ['pregunta', 'autorUid', 'estado', 'creadoEn'])
+               ['pregunta', 'autorUid', 'estado', 'creadoEn',
+                'conversacionId', 'anteriorRespId'])
           && request.resource.data.keys().hasAll(
                ['pregunta', 'autorUid', 'estado', 'creadoEn'])
           && request.resource.data.autorUid == uid()
@@ -463,13 +547,24 @@ service cloud.firestore {
           && fechaDelServidor(request.resource.data.creadoEn)
           && request.resource.data.pregunta is string
           && request.resource.data.pregunta.size() >= 3
-          && request.resource.data.pregunta.size() <= 500;
+          && request.resource.data.pregunta.size() <= 500
+          && cadenaDeSeguimientoValida(request.resource.data);
 
-        // La respuesta, las fuentes y la confianza las escribe el backend.
+        // La respuesta, las fuentes, la confianza y preguntaBuscada las
+        // escribe el backend.
         allow update: if false;
 
         // Borrar del historial: el autor o el admin. Una respuesta no tiene
-        // chunks colgando, asi que borrarla no deja basura.
+        // chunks colgando, asi que borrarla no deja basura en /chunks.
+        // OJO con las conversaciones: las reglas no borran en cascada. Si se
+        // borra la raiz, sus seguimientos siguen existiendo (y el historial,
+        // que lista solo raices, ya no los muestra); y si se borra una
+        // pregunta del medio, toda pregunta nueva cuyo historial pase por
+        // ella (el backend mira hasta 3 vueltas para atras) termina en
+        // 'error' (fail-closed): esa conversacion ya no se puede seguir.
+        // Hoy ni la app ni el panel borran respuestas: la app no usa el
+        // delete() de Firestore en ningun lado y el panel ni importa
+        // deleteDoc (ni lee respuestas).
         allow delete: if esMiembro(wsId) && (esMiRespuesta() || esAdmin(wsId));
       }
 
@@ -524,6 +619,37 @@ service cloud.firestore {
     // ==================================================================
     match /chunks/{chunkId} {
       allow read, write: if false;
+    }
+
+
+    // ==================================================================
+    // contactos/{contactoId}  —  coleccion PLANA, top-level
+    // El formulario de la landing ("Pedí acceso a la beta") deja aca un
+    // pedido de contacto. Lo puede CREAR cualquiera, incluso sin login,
+    // porque la landing es publica, pero con EXACTAMENTE estos 7 campos y
+    // con limites de largo: un campo de mas o un texto gigante rechaza todo.
+    // NADIE lo lee, edita ni borra desde un cliente (ni un admin): son
+    // emails de gente de afuera, no son de ningun workspace. Se miran en la
+    // consola de Firebase.
+    // Limite conocido: las reglas no pueden frenar a alguien que mande mil
+    // pedidos seguidos (no hay "rate limit" en reglas); para la beta alcanza.
+    // ==================================================================
+    match /contactos/{contactoId} {
+      function contactoValido(d) {
+        return d.keys().hasOnly(['nombre', 'email', 'empresa', 'plan', 'mensaje', 'origen', 'creadoEn'])
+          && d.keys().hasAll(['nombre', 'email', 'empresa', 'plan', 'mensaje', 'origen', 'creadoEn'])
+          && d.nombre is string && d.nombre.size() >= 1 && d.nombre.size() <= 80
+          && d.email is string && d.email.size() >= 5 && d.email.size() <= 120
+          && d.email.matches('^[^@\\s]+@[^@\\s]+$')
+          && d.empresa is string && d.empresa.size() <= 80
+          && d.plan in ['free', 'equipo', 'pyme', 'empresa', 'no-se']
+          && d.mensaje is string && d.mensaje.size() <= 1000
+          && d.origen == 'landing'
+          && fechaDelServidor(d.creadoEn);
+      }
+
+      allow create: if contactoValido(request.resource.data);
+      allow read, update, delete: if false;
     }
 
 

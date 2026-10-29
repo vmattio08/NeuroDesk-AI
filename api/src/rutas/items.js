@@ -34,7 +34,7 @@ import multer from 'multer';
 import { db, FieldValue, Timestamp } from '../firebase.js';
 import { ErrorApi, esErrorApi } from '../errores.js';
 import { requireAuth, exigirMiembro, exigirAdmin } from '../middleware/auth.js';
-import { extraerDeArchivo } from '../servicios/extraer.js';
+import { extraerDeArchivo, MIME_DOCX } from '../servicios/extraer.js';
 import { traerTextoDeUrl } from '../servicios/link.js';
 import {
   limpiarTexto,
@@ -63,7 +63,33 @@ export const rutasDeItems = Router({ mergeParams: true });
 const TOPE_ARCHIVO_MB = 10;
 const TOPE_ARCHIVO_BYTES = TOPE_ARCHIVO_MB * 1024 * 1024;
 
-const TIPOS_MIME_OK = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'];
+const TIPOS_MIME_OK = ['application/pdf', MIME_DOCX, 'image/jpeg', 'image/png', 'image/webp'];
+
+// Los tipos de item que llegan CON archivo y qué archivo REAL acepta cada uno.
+// 'word' se porta en todo como 'pdf': el archivo viene por multipart, no se
+// guarda en ningún lado, y /reprocesar usa el texto que ya se había sacado.
+// Está todo en UNA tabla a propósito: antes la lista 'pdf' || 'foto' estaba
+// copiada en tres funciones, y sumar un tipo obligaba a acordarse de las tres.
+const ARCHIVOS_POR_TIPO = {
+  pdf: ['application/pdf'],
+  word: [MIME_DOCX],
+  foto: ['image/jpeg', 'image/png', 'image/webp'],
+};
+const llevaArchivo = (tipo) => Object.hasOwn(ARCHIVOS_POR_TIPO, tipo);
+
+// Para que el detalle diga "el item es un Word pero llegó un PDF".
+const NOMBRE_DEL_TIPO = { pdf: 'un PDF', word: 'un Word', foto: 'una foto' };
+const NOMBRE_DEL_ARCHIVO = {
+  'application/pdf': 'un PDF',
+  [MIME_DOCX]: 'un Word',
+  'image/jpeg': 'una imagen',
+  'image/png': 'una imagen',
+  'image/webp': 'una imagen',
+};
+
+// El .doc viejo (Word 97-2003). No está en ninguna lista de arriba: se
+// reconoce SOLO para poder decirle a la persona qué hacer con él.
+const MIME_DOC_VIEJO = 'application/msword';
 
 // Un item en 'procesando' con más de 5 minutos sin cambios está COLGADO
 // (se reinició Render en el medio). Lo dejamos volver a procesar, si no
@@ -112,8 +138,9 @@ const SEGUNDOS_PARA_REINTENTAR = 30;
 const DETALLE_URL_NO_PERMITIDA = 'la dirección no es pública';
 
 // El enum CERRADO de 'origen' del modelo de datos. Un valor fuera de esta lista
-// rompe el switch del cliente, así que nunca se escribe otro.
-const ORIGENES_DEL_MODELO = new Set(['nota', 'pdf-texto', 'ocr-space', 'link']);
+// rompe el switch del cliente, así que nunca se escribe otro. 'docx' = el
+// texto salió de un Word con mammoth.
+const ORIGENES_DEL_MODELO = new Set(['nota', 'pdf-texto', 'docx', 'ocr-space', 'link']);
 
 // Cuántas veces reintenta la limpieza masiva un lote que chocó con alguien que
 // justo tocó uno de esos items (ver el DELETE masivo, abajo de todo).
@@ -278,6 +305,11 @@ async function avisandoCuandoReintentar(res, trabajo) {
 //  VALIDACIÓN DEL ARCHIVO
 // ============================================================================
 
+// Las firmas de los dos "sobres" que puede tener un Word: el ZIP ("PK\x03\x04")
+// del .docx y el contenedor OLE (D0 CF 11 E0 A1 B1 1A E1) de Office 97-2003.
+const FIRMA_ZIP = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+const FIRMA_OLE = Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+
 // El tipo REAL del archivo, mirando sus primeros bytes ("números mágicos").
 // No le creemos al Content-Type de la parte: lo escribe el cliente y puede
 // decir cualquier cosa. Además la app Flutter arma la parte con
@@ -297,6 +329,25 @@ function tipoRealDelArchivo(buffer) {
   // La norma de PDF permite basura antes del encabezado: lo buscamos en el
   // primer KB y no solo en el byte 0.
   if (buffer.subarray(0, 1024).indexOf('%PDF-') !== -1) return 'application/pdf';
+
+  // WORD (.docx): por dentro es un ZIP. Pero un .xlsx, un .pptx, un .apk o un
+  // .zip cualquiera también empiezan con "PK": lo que lo hace un Word es que
+  // adentro tenga la parte word/document.xml. Los NOMBRES de los archivos de
+  // un ZIP se guardan sin comprimir, así que alcanza con buscar ese texto.
+  if (buffer.subarray(0, 4).equals(FIRMA_ZIP)) {
+    return buffer.indexOf('word/document.xml') !== -1 ? MIME_DOCX : null;
+  }
+
+  // El sobre OLE de Office 97-2003. Adentro hay "streams" con nombre (escrito
+  // en UTF-16), y dos de esos nombres nos dicen qué es:
+  //   - "EncryptedPackage": un .docx CON CONTRASEÑA (Word lo encripta entero y
+  //     lo mete en este sobre). Pasa como Word para que falle en extraer.js
+  //     igual que un PDF con clave: item en 'error' y el motivo a la vista.
+  //   - "WordDocument": un .doc viejo, que mammoth no sabe abrir.
+  if (buffer.length >= 8 && buffer.subarray(0, 8).equals(FIRMA_OLE)) {
+    if (buffer.includes(Buffer.from('EncryptedPackage', 'utf16le'))) return MIME_DOCX;
+    if (buffer.includes(Buffer.from('WordDocument', 'utf16le'))) return MIME_DOC_VIEJO;
+  }
   return null;
 }
 
@@ -306,11 +357,9 @@ function tipoRealDelArchivo(buffer) {
 // archivo equivocado se rechaza sin haber tocado el estado del documento, y
 // nadie se entera de qué tipo es el item de otro.
 function validarArchivoDelItem(item, archivo) {
-  const llevaArchivo = item.tipo === 'pdf' || item.tipo === 'foto';
-
   // Nota y link: el backend lee todo del documento. Si igual vino un archivo,
   // se ignora (el contrato no tiene un error para eso).
-  if (!llevaArchivo) return null;
+  if (!llevaArchivo(item.tipo)) return null;
 
   if (!archivo || !archivo.buffer || archivo.buffer.length === 0) {
     throw new ErrorApi('ARCHIVO_FALTANTE');
@@ -321,25 +370,29 @@ function validarArchivoDelItem(item, archivo) {
   const generico = declarado === '' || declarado === 'application/octet-stream';
   const real = tipoRealDelArchivo(archivo.buffer);
 
+  // El .doc viejo va PRIMERO y con su propio detalle: es el error más común
+  // con Word, y "no es PDF ni Word" confundiría a alguien que sí subió un Word.
+  if (real === MIME_DOC_VIEJO) {
+    throw new ErrorApi('TIPO_NO_SOPORTADO', 'es un .doc de Word 97-2003: abrilo en Word y guardalo como .docx');
+  }
+
   // Las dos condiciones del contrato: lo declarado (si declara algo concreto)
   // y lo que el archivo ES tienen que estar en la lista. Si declara png y en
   // realidad es un jpg, los dos están permitidos y se extrae según lo REAL.
   // El detalle NO repite lo que declaró el cliente: es texto que no escribimos
   // nosotros, y el contrato no deja eco de datos ajenos en 'detalle'.
   if (!generico && !TIPOS_MIME_OK.includes(declarado)) {
-    throw new ErrorApi('TIPO_NO_SOPORTADO', 'el archivo no es PDF, JPG, PNG ni WEBP');
+    throw new ErrorApi('TIPO_NO_SOPORTADO', 'el archivo no es PDF, Word (.docx), JPG, PNG ni WEBP');
   }
   if (!real) {
-    throw new ErrorApi('TIPO_NO_SOPORTADO', 'el contenido del archivo no es PDF, JPG, PNG ni WEBP');
+    throw new ErrorApi('TIPO_NO_SOPORTADO', 'el contenido del archivo no es PDF, Word (.docx), JPG, PNG ni WEBP');
   }
 
   // Que el archivo case con el tipo declarado en el item: un item 'pdf' con
-  // un JPG adentro dejaría el doc mintiendo sobre su propio contenido.
-  if (item.tipo === 'pdf' && real !== 'application/pdf') {
-    throw new ErrorApi('TIPO_NO_SOPORTADO', 'el item es un PDF pero llegó una imagen');
-  }
-  if (item.tipo === 'foto' && real === 'application/pdf') {
-    throw new ErrorApi('TIPO_NO_SOPORTADO', 'el item es una foto pero llegó un PDF');
+  // un JPG adentro (o un 'word' con un PDF) dejaría el doc mintiendo sobre su
+  // propio contenido.
+  if (!ARCHIVOS_POR_TIPO[item.tipo].includes(real)) {
+    throw new ErrorApi('TIPO_NO_SOPORTADO', `el item es ${NOMBRE_DEL_TIPO[item.tipo]} pero llegó ${NOMBRE_DEL_ARCHIVO[real]}`);
   }
   return real;
 }
@@ -376,12 +429,11 @@ function exigirCupoDelPlan(workspace, item, listos) {
   }
 }
 
-// /reprocesar de un pdf o una foto necesita el texto ya extraído: el archivo no
-// se guarda en ningún lado (Storage está descartado porque pide tarjeta). Ese,
-// y solo ese, es el caso de ESTADO_INVALIDO.
+// /reprocesar de un pdf, un word o una foto necesita el texto ya extraído: el
+// archivo no se guarda en ningún lado (Storage está descartado porque pide
+// tarjeta). Ese, y solo ese, es el caso de ESTADO_INVALIDO.
 function exigirTextoGuardadoSiEsArchivo(item) {
-  const esArchivo = item.tipo === 'pdf' || item.tipo === 'foto';
-  if (esArchivo && caracteresUtiles(quitarMarcasDePagina(item.texto ?? '')) === 0) {
+  if (llevaArchivo(item.tipo) && caracteresUtiles(quitarMarcasDePagina(item.texto ?? '')) === 0) {
     throw new ErrorApi('ESTADO_INVALIDO', 'no hay texto guardado y el archivo no se conserva en el servidor: hay que volver a elegirlo');
   }
 }
@@ -497,6 +549,7 @@ function origenDelModelo(origen, tipo) {
   if (ORIGENES_DEL_MODELO.has(origen)) return origen;
   if (origen === 'ocr-tesseract') return 'ocr-space';
   if (tipo === 'pdf') return 'pdf-texto';
+  if (tipo === 'word') return 'docx';
   if (tipo === 'foto') return 'ocr-space';
   return tipo; // 'nota' | 'link'
 }
@@ -521,9 +574,10 @@ async function textoDeLink(item) {
   return armarTextoParaGuardar(texto, { paginas: null, origen: 'link' });
 }
 
-// --- PDF y FOTO con archivo: la cascada de extraer.js ----------------------
-// pdf -> pdf-parse y, solo para las hojas vacías, OCR.space; foto -> OCR.space
-// y, si falla, tesseract local. Ya devuelve el texto limpio y con marcas.
+// --- PDF, WORD y FOTO con archivo: extraer.js --------------------------------
+// pdf -> pdf-parse y, solo para las hojas vacías, OCR.space; word -> mammoth
+// (sin páginas ni OCR); foto -> OCR.space y, si falla, tesseract local. Ya
+// devuelve el texto limpio y, si corresponde, con marcas de página.
 async function textoDeArchivo(item, archivo, tipoMime) {
   const r = await extraerDeArchivo({
     buffer: archivo.buffer,
@@ -534,13 +588,14 @@ async function textoDeArchivo(item, archivo, tipoMime) {
     console.log(`[items] origen '${r.origen}' se guarda como '${origenDelModelo(r.origen, item.tipo)}' (enum del modelo)`);
   }
   return armarTextoParaGuardar(limpiarTexto(r.texto), {
-    // El modelo: 'paginas' es la cantidad de páginas del PDF y null para la foto.
+    // El modelo: 'paginas' es la cantidad de páginas del PDF, y null para la
+    // foto y el Word (un Word no tiene páginas fijas: ver extraer.js).
     paginas: item.tipo === 'pdf' ? (r.paginas ?? null) : null,
     origen: origenDelModelo(r.origen, item.tipo),
   });
 }
 
-// --- PDF y FOTO sin archivo (/reprocesar): el texto que ya habíamos sacado --
+// --- PDF, WORD y FOTO sin archivo (/reprocesar): el texto que ya habíamos sacado
 // 'caracteres' y 'recortado' se conservan del doc: el texto guardado ya está
 // recortado, y recalcularlos sobre él borraría el dato real ("el PDF tenía
 // 800.000 caracteres") que el panel usa para avisar.
@@ -565,6 +620,7 @@ function textoParaProcesar(item, archivo, tipoMime) {
     case 'nota': return textoDeNota(item);
     case 'link': return textoDeLink(item);
     case 'pdf':
+    case 'word':
     case 'foto': return textoDeArchivo(item, archivo, tipoMime);
     default: throw tipoDesconocido(item);
   }
@@ -575,6 +631,7 @@ function textoParaReprocesar(item) {
     case 'nota': return textoDeNota(item);
     case 'link': return textoDeLink(item);
     case 'pdf':
+    case 'word':
     case 'foto': return textoYaExtraido(item);
     default: throw tipoDesconocido(item);
   }
@@ -662,10 +719,22 @@ async function indexar({ wsId, itemId, item, texto, origen }) {
   // input_type 'passage' porque estamos INDEXANDO. Al preguntar se usa
   // 'query'. Es asimétrico y OBLIGATORIO: el modelo entrena los dos lados
   // distinto, y mezclarlos baja la similitud de las respuestas correctas.
-  // pedirEmbeddings ya hace los lotes de 32 con pausa, los reintentos, el orden
-  // por 'index' y el recorte a 1024 dimensiones con renormalización L2: acá no
-  // se repite nada de eso.
-  const vectores = await pedirEmbeddings(trozos.map((t) => t.texto), 'passage');
+  // pedirEmbeddings ya hace los lotes de 50 con pausa, los reintentos, el orden
+  // y el recorte a 1024 dimensiones con renormalización L2: acá no se repite
+  // nada de eso.
+  //
+  // EL TÍTULO DEL ITEM VA CON CADA TROZO. El título lo escribe la persona
+  // ("Tienda online") y casi nunca aparece en el texto de adentro: sin esto,
+  // preguntar por "la tienda online" no tenía de dónde agarrarse. Gemini
+  // recibe el título del documento al lado de cada trozo y lo usa para armar
+  // el vector. Si después le cambian el título al item, el vector queda con el
+  // viejo hasta el próximo reproceso: igual que la copia de 'titulo' que
+  // guarda el chunk.
+  const vectores = await pedirEmbeddings(
+    trozos.map((t) => t.texto),
+    'passage',
+    { titulos: trozos.map(() => item.titulo ?? '') },
+  );
   if (vectores.length !== trozos.length) {
     throw new ErrorApi('IA_NO_RESPONDE');
   }
@@ -683,8 +752,9 @@ async function indexar({ wsId, itemId, item, texto, origen }) {
         itemId,
         titulo: tituloDe(item),
         idx: trozo.idx,
-        // El modelo: página del PDF para citar "pág. 3"; null en notas, links
-        // y fotos (una foto es "una página" para trocear, pero no tiene pág.).
+        // El modelo: página del PDF para citar "pág. 3"; null en notas, links,
+        // Words y fotos (una foto es "una página" para trocear, pero no tiene
+        // pág.; un Word no tiene páginas fijas).
         pagina: item.tipo === 'pdf' ? (trozo.pagina ?? null) : null,
         origen,
         texto: trozo.texto,

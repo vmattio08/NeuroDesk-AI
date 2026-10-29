@@ -194,12 +194,13 @@ class _HomePantallaState extends State<HomePantalla>
     final String textoExtraido = (datos['texto'] ?? '').toString();
 
     // LIMITACION HONESTA DEL PROYECTO: el archivo no se guarda en ningun lado
-    // (Firebase Storage necesita tarjeta y esta descartado). Si un PDF o una
-    // foto fallaron ANTES de que se le sacara el texto, no hay nada que
-    // reprocesar: hay que volver a elegir el archivo. Se lo decimos en
+    // (Firebase Storage necesita tarjeta y esta descartado). Si un PDF, un
+    // Word o una foto fallaron ANTES de que se le sacara el texto, no hay nada
+    // que reprocesar: hay que volver a elegir el archivo. Se lo decimos en
     // castellano en vez de mandar un pedido que el backend va a rechazar con
     // ESTADO_INVALIDO.
-    if ((tipo == 'pdf' || tipo == 'foto') && textoExtraido.isEmpty) {
+    if ((tipo == 'pdf' || tipo == 'word' || tipo == 'foto') &&
+        textoExtraido.isEmpty) {
       mostrarAviso(
         context,
         'El archivo no se guarda en el servidor. Volvé a subirlo desde el botón Agregar.',
@@ -412,7 +413,7 @@ class _HomePantallaState extends State<HomePantalla>
                   stream: _misItems,
                   vacioTitulo: 'Todavía no subiste nada',
                   vacioDetalle:
-                      'Tocá Agregar para guardar tu primera nota, foto o PDF.',
+                      'Tocá Agregar para guardar tu primera nota, foto, PDF o Word.',
                   constructorDeFila: _fila,
                 ),
                 if (_esAdmin)

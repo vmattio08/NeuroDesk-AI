@@ -79,9 +79,12 @@ export const CATALOGO_DE_ERRORES = {
     http: 413,
     mensaje: 'El archivo no puede pesar más de 10 MB.',
   },
+  // Desde el 29/10/2026 tambien entra el Word (.docx). El mensaje lo nombra
+  // porque la persona que sube un .doc viejo tiene que leer que el .docx SI
+  // va (con "Solo aceptamos PDF, JPG..." pensaria que ningun Word sirve).
   TIPO_NO_SOPORTADO: {
     http: 415,
-    mensaje: 'Solo aceptamos PDF, JPG, PNG o WEBP.',
+    mensaje: 'Solo aceptamos PDF, Word (.docx), JPG, PNG o WEBP.',
   },
 
   // --- no encontrado ---

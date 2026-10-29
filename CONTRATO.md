@@ -65,11 +65,11 @@ Reglas de la forma de error:
 | `MIEMBRO_DUPLICADO` | 409 | El email invitado ya figura en `members` del mismo workspace. | Esa persona ya forma parte del equipo. |
 | `ACCION_NO_PERMITIDA` | 409 | La acción es imposible por regla de negocio: quitar al dueño del workspace, quitarse a uno mismo siendo el único admin, bajarle el rol al owner, o cancelar una suscripción que ya está en `free`. | No se puede hacer eso con el dueño del espacio. |
 | `PROCESO_EN_CURSO` | 409 | **Código nuevo de la v3.** Se pidió procesar o reprocesar un item que está en `'procesando'` hace menos de 5 minutos. Es el **doble tap**, que va a ser el 90% de los errores de la demo. | Ya lo estamos procesando, esperá unos segundos. |
-| `ESTADO_INVALIDO` | 409 | **Un solo caso, nada más:** se pidió `/reprocesar` sobre un item `pdf` o `foto` que no tiene texto guardado en el campo `texto`. El archivo no se guarda en ningún lado (Storage está descartado), así que no hay de dónde sacarlo: hay que volver a elegir el archivo y llamar a `/procesar`. | Ese contenido no está listo para esta acción. Volvé a subir el archivo. |
-| `ARCHIVO_FALTANTE` | 400 | El item es tipo `pdf` o `foto` pero el multipart no trae la parte `archivo`. | No llegó el archivo. Elegilo de nuevo. |
+| `ESTADO_INVALIDO` | 409 | **Un solo caso, nada más:** se pidió `/reprocesar` sobre un item `pdf`, `word` o `foto` que no tiene texto guardado en el campo `texto`. El archivo no se guarda en ningún lado (Storage está descartado), así que no hay de dónde sacarlo: hay que volver a elegir el archivo y llamar a `/procesar`. | Ese contenido no está listo para esta acción. Volvé a subir el archivo. |
+| `ARCHIVO_FALTANTE` | 400 | El item es tipo `pdf`, `word` o `foto` pero el multipart no trae la parte `archivo`. | No llegó el archivo. Elegilo de nuevo. |
 | `ARCHIVO_MUY_GRANDE` | 413 | El archivo supera 10 MB (tope de multer). El cliente además valida el tamaño **antes** de subir, para no gastar los datos del celular. | El archivo no puede pesar más de 10 MB. |
-| `TIPO_NO_SOPORTADO` | 415 | El mimetype no es `application/pdf`, `image/jpeg`, `image/png` ni `image/webp`. | Solo aceptamos PDF, JPG, PNG o WEBP. |
-| `NO_SE_PUDO_EXTRAER_TEXTO` | 422 | La cascada `pdf-parse` → OCR.space → tesseract.js (este último solo para fotos) terminó sin texto útil: PDF escaneado ilegible, foto borrosa, PDF con contraseña, imagen sin letras, o un link que devolvió una página sin texto. | No pudimos leer el texto de ese archivo. Probá con una foto más nítida o un PDF con texto. |
+| `TIPO_NO_SOPORTADO` | 415 | El mimetype no es `application/pdf`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document` (Word `.docx`; el `.doc` viejo no se acepta), `image/jpeg`, `image/png` ni `image/webp`. | Solo aceptamos PDF, Word (.docx), JPG, PNG o WEBP. |
+| `NO_SE_PUDO_EXTRAER_TEXTO` | 422 | La cascada `pdf-parse` → OCR.space → tesseract.js (este último solo para fotos) terminó sin texto útil: PDF escaneado ilegible, foto borrosa, PDF con contraseña, imagen sin letras, un Word sin texto (vacío o con solo imágenes: al `.docx` no se le hace OCR), o un link que devolvió una página sin texto. | No pudimos leer el texto de ese archivo. Probá con una foto más nítida o un PDF con texto. |
 | `SIN_CREDITOS_IA` | 402 | Gemini avisa que se terminó la cuota **diaria** del free tier (429 con límite por día) y no queda clave ni modelo de respaldo con cupo; o OCR.space devuelve 402 / quota exceeded porque se agotó su cupo mensual gratuito. | Se acabaron los créditos de la IA por este mes. Avisale al administrador. |
 | `DEMASIADOS_PEDIDOS` | 429 | Se superó el límite del backend (30 pedidos por minuto por uid, 10 por minuto en `/preguntar`), o Gemini devolvió 429 (límite por minuto del free tier) después de los reintentos y de probar los modelos de respaldo. Va con el header `Retry-After` en segundos. | Estás yendo muy rápido. Esperá unos segundos y probá de nuevo. |
 | `IA_NO_RESPONDE` | 503 | Gemini no contesta a tiempo (25 s por modelo en el chat, 60 s en los embeddings), corta la conexión o devuelve 5xx, y no alcanzaron los reintentos ni los modelos de respaldo. También cuando OCR.space no responde. Se reusa cuando Mercado Pago no contesta. | El servicio de IA no está respondiendo. Probá de nuevo en un minuto. |
@@ -428,7 +428,8 @@ Headers:
 
 Partes del multipart:
   archivo : el binario. ÚNICA parte del multipart.
-            Obligatorio si el item es tipo 'pdf' o 'foto'.
+            Obligatorio si el item es tipo 'pdf', 'word' o 'foto'.
+            Para 'word', solo .docx (el .doc viejo se rechaza).
             No se manda para 'nota' ni para 'link'.
 
 POST /v1/workspaces/ws_7Kd2mQ9xLb/items/it_9Fh3Kd/procesar
@@ -473,8 +474,8 @@ Todos los campos de `item` existen también como campos del documento en Firesto
    Estados que acepta: `'pendiente'`, `'error'`, `'listo'` (volver a subir el archivo de un item ya procesado es legítimo: se reindexa) y `'procesando'` con más de 5 minutos de quietud, que es un item colgado por un reinicio de Render.
 
    **Recién cuando la transacción termina se empieza a gastar plata en IA.**
-4. **Extraer el texto según el tipo**, leyendo el documento (no el body): `nota` → el campo `textoOriginal`; `link` → el campo `url`, con la validación anti-SSRF de abajo; `pdf` → `pdf-parse` y, si viene vacío, OCR.space; `foto` → OCR.space. Si no sale nada útil, `NO_SE_PUDO_EXTRAER_TEXTO`.
-5. **`indexar(itemId)`** — la misma función que usa `/reprocesar`: **primero** borra en lote todos los chunks `where('itemId','==',itemId)`, y **después** trocea en ~1500 caracteres con 200 de solapado, pide los embeddings a Gemini (`gemini-embedding-001`, por `batchEmbedContents`) como documento (`'passage'`, que viaja como `taskType: RETRIEVAL_DOCUMENT`) en lotes de 50 y de 1024 dimensiones (`outputDimensionality`), renormaliza L2 (Google no normaliza los vectores de menos de 3072 dimensiones) y escribe `chunks/{itemId_idx}` con Admin SDK. Cada chunk lleva además la **copia** de `visibilidad` y `creadoPor` del item (la segunda cerradura del filtro de privacidad). Borrar primero es obligatorio: si el intento anterior escribió 9 chunks y este escribe 7, sin el borrado sobrevivirían el 8 y el 9 con texto viejo.
+4. **Extraer el texto según el tipo**, leyendo el documento (no el body): `nota` → el campo `textoOriginal`; `link` → el campo `url`, con la validación anti-SSRF de abajo, y al texto de la página se le suman su título y su descripción (en YouTube, además, el título del video y el canal, que salen de su oEmbed público: YouTube arma la página con JavaScript y sin esto solo se extraía el pie de página); `pdf` → `pdf-parse` y, si viene vacío, OCR.space; `word` → el texto del `.docx`, sin OCR (`origen: 'docx'`); `foto` → OCR.space. Si no sale nada útil, `NO_SE_PUDO_EXTRAER_TEXTO`.
+5. **`indexar(itemId)`** — la misma función que usa `/reprocesar`: **primero** borra en lote todos los chunks `where('itemId','==',itemId)`, y **después** trocea en ~1500 caracteres con 200 de solapado, pide los embeddings a Gemini (`gemini-embedding-001`, por `batchEmbedContents`) como documento (`'passage'`, que viaja como `taskType: RETRIEVAL_DOCUMENT`, junto con el `titulo` del item como `title`: así una pregunta que nombra el título encuentra el item aunque el texto no lo repita) en lotes de 50 y de 1024 dimensiones (`outputDimensionality`), renormaliza L2 (Google no normaliza los vectores de menos de 3072 dimensiones) y escribe `chunks/{itemId_idx}` con Admin SDK. Cada chunk lleva además la **copia** de `visibilidad` y `creadoPor` del item (la segunda cerradura del filtro de privacidad). Borrar primero es obligatorio: si el intento anterior escribió 9 chunks y este escribe 7, sin el borrado sobrevivirían el 8 y el 9 con texto viejo.
 6. Actualizar el item a `'listo'` con `texto`, `cantChunks`, `paginas`, `origen`, `caracteres`, `recortado` y `actualizadoEn`. Evento `item.listo`.
 
 Si algo falla **en cualquier paso**, el backend deja el item en `'error'` con `errorMsg` = el mismo mensaje que devuelve por HTTP (texto escrito por nosotros, nunca un `err.message`), escribe el evento `item.error` y recién ahí responde el error.
@@ -499,7 +500,7 @@ De dónde saca el texto, según el tipo:
 
 - `nota` → `textoOriginal` (por eso funciona editar la nota y volver a indexar).
 - `link` → `url`, con la validación anti-SSRF completa otra vez, porque la página pudo cambiar.
-- `pdf` y `foto` → el campo `texto` ya extraído. **Si no hay texto guardado, no se puede reprocesar** y responde `ESTADO_INVALIDO`: el archivo no se guarda en ningún lado (Storage está descartado), así que el cliente manda al usuario a elegir el archivo de nuevo y llamar a `/procesar`.
+- `pdf`, `word` y `foto` → el campo `texto` ya extraído. **Si no hay texto guardado, no se puede reprocesar** y responde `ESTADO_INVALIDO`: el archivo no se guarda en ningún lado (Storage está descartado), así que el cliente manda al usuario a elegir el archivo de nuevo y llamar a `/procesar`.
 
 **Request:**
 
@@ -543,7 +544,7 @@ POST /v1/workspaces/ws_7Kd2mQ9xLb/items/it_9Fh3Kd/reprocesar
    2. Si `item.workspaceId !== wsId`, `NO_ES_MIEMBRO`.
    3. **Chequeo de autoría:** si `uid !== item.creadoPor` y el rol no es `'admin'`, `NO_SOS_EL_AUTOR` 403. Antes de mirar el estado y **antes** de escribir `'procesando'`.
    4. Si está en `'procesando'` hace menos de 5 minutos, `PROCESO_EN_CURSO` 409.
-   5. Si es `pdf` o `foto` y no tiene `texto` guardado, `ESTADO_INVALIDO` 409.
+   5. Si es `pdf`, `word` o `foto` y no tiene `texto` guardado, `ESTADO_INVALIDO` 409.
    6. Escribir `estado: 'procesando'`, `actualizadoEn`, `errorMsg: null`.
 
    Estados que acepta: `'pendiente'`, `'error'`, `'listo'` y `'procesando'` con más de 5 minutos de quietud. Acepta `'listo'` **a propósito**: es el caso de "edité la nota y quiero que la IA la vuelva a leer".
@@ -708,7 +709,7 @@ Body:
 }
 ```
 
-- `confianza` es **string**: `"alta" | "media" | "baja"`, igual en el contrato y en el modelo. Se calcula con la similitud del mejor chunk: `>= 0.72` alta, `>= 0.66` media, si no baja. **Calibrados el 29/10/2026 con datos reales** (`npm run calibrar`, modelo `gemini-embedding-001`): las respuestas correctas dan entre 0.67 y 0.84 y las preguntas sin respuesta entre 0.51 y 0.61, así que el umbral para descartar un chunk (`UMBRAL_SIMILITUD`) quedó en 0.64. Los números dependen del modelo de embeddings: si se cambia, hay que recalibrar.
+- `confianza` es **string**: `"alta" | "media" | "baja"`, igual en el contrato y en el modelo. Se calcula con la similitud del mejor chunk: `>= 0.72` alta, `>= 0.64` media, si no baja. **Calibrados el 29/10/2026 con datos reales** (`npm run calibrar`, modelo `gemini-embedding-001`, con el título de cada item en el embedding): las respuestas correctas dan entre 0.65 y 0.80 y las preguntas sin respuesta llegan a 0.60, así que el umbral para descartar un chunk (`UMBRAL_SIMILITUD`) quedó en 0.62. Los números dependen del modelo de embeddings: si se cambia, hay que recalibrar.
 - `chunksVisibles` viaja **siempre**: es cuántos fragmentos podía ver quien preguntó.
 - **`chunksMirados` viaja únicamente si quien pregunta es admin.** Para un miembro común, el campo **no aparece** en la respuesta y se escribe `null` en el documento. Es el total de chunks del workspace: decirle a un miembro "miré 312 y viste 190" le está contando que hay 122 fragmentos de contenido privado ajeno, o sea cuánto material hay que él no puede ver. El admin sí lo ve, y esa comparación es la que se muestra en vivo en la defensa: la misma pregunta hecha por el admin y por un miembro devuelve `chunksVisibles` distintos.
 

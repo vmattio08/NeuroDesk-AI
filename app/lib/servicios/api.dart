@@ -132,8 +132,8 @@ class Api {
   // creado por la app en estado 'pendiente'. Este endpoint solo lo actualiza.
   // El backend nunca crea el item.
   //
-  // 'archivo' va SOLO para tipo 'pdf' y 'foto'. Para 'nota' y 'link' el
-  // backend lee el texto del propio documento (textoOriginal / url).
+  // 'archivo' va SOLO para tipo 'pdf', 'word' y 'foto'. Para 'nota' y 'link'
+  // el backend lee el texto del propio documento (textoOriginal / url).
   // --------------------------------------------------------------------------
   static Future<RespuestaApi> procesarItem({
     required String wsId,
@@ -158,6 +158,10 @@ class Api {
           http.MultipartRequest('POST', Uri.parse('$urlBase$ruta'));
       pedido.headers['Authorization'] = 'Bearer $token';
       // El nombre de la parte es 'archivo', tal cual lo espera el contrato.
+      // Sin contentType A PROPOSITO: viaja como application/octet-stream y el
+      // backend decide el tipo REAL mirando los primeros bytes (no le cree a
+      // lo que declara el cliente). Por eso la misma linea sirve para PDF,
+      // Word y foto, y sumar un formato no toca este archivo.
       pedido.files.add(await http.MultipartFile.fromPath('archivo', archivo.path));
 
       final http.StreamedResponse cruda = await pedido.send().timeout(_timeoutLargo);
