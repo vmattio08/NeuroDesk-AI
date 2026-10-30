@@ -13,7 +13,9 @@
 //  convertimos a la MISMA forma de error del contrato:
 //      { ok:false, codigo:'ALGO', mensaje:'texto en castellano', detalle:null }
 //  Los codigos que inventa el cliente (no vienen del backend) son
-//  SIN_CONEXION, SIGUE_PROCESANDO y RESPUESTA_RARA.
+//  SIN_CONEXION, SIGUE_PROCESANDO y RESPUESTA_RARA, y FALTA_TOKEN cuando no
+//  hay sesion (o el token no se puede renovar por algo que NO es la red:
+//  sin red es SIN_CONEXION).
 // ============================================================================
 
 import 'dart:async';
@@ -151,7 +153,9 @@ class Api {
     // http.MultipartRequest le pone el boundary correcto solo. Si lo
     // escribimos nosotros, el backend no encuentra donde empieza cada parte.
     try {
-      final String? token = await AuthServicio.tokenActual();
+      // Sin red y con el token vencido, tokenParaElBackend tira el error de
+      // red y el catch de abajo lo vuelve SIN_CONEXION (ver _pedir).
+      final String? token = await AuthServicio.tokenParaElBackend();
       if (token == null) return _errorLocal('FALTA_TOKEN', 'Tenés que iniciar sesión para hacer esto.');
 
       final http.MultipartRequest pedido =
@@ -208,6 +212,33 @@ class Api {
   }
 
   // --------------------------------------------------------------------------
+  // PATCH /v1/workspaces/:wsId/items/:itemId/visibilidad   (candado en vivo)
+  // body { visibilidad: 'equipo' | 'privado' } -> 200 { ok, visibilidad }
+  //
+  // POR QUE POR EL BACKEND si la regla deja que el autor cambie el campo:
+  // cada fragmento (chunk) del item guarda una COPIA de la visibilidad, que el
+  // buscador usa como segunda cerradura, y los chunks solo los toca el
+  // backend. Si la app cambiara solo el item, al compartir una nota la IA se
+  // la seguiria escondiendo al equipo. El backend cambia el item y todos sus
+  // fragmentos en el orden seguro (para abrir: primero los fragmentos; para
+  // cerrar: primero el item) y deja el evento 'item.visibilidad'.
+  //
+  // Solo el autor comparte con el equipo; el autor o un admin pasan a
+  // privado. Si no: NO_SOS_EL_AUTOR. Procesandose: PROCESO_EN_CURSO.
+  // --------------------------------------------------------------------------
+  static Future<RespuestaApi> cambiarVisibilidad({
+    required String wsId,
+    required String itemId,
+    required String visibilidad,
+  }) {
+    return _pedir(
+      metodo: 'PATCH',
+      ruta: '/v1/workspaces/$wsId/items/$itemId/visibilidad',
+      cuerpo: <String, dynamic>{'visibilidad': visibilidad},
+    );
+  }
+
+  // --------------------------------------------------------------------------
   // POST /v1/workspaces/:wsId/preguntar
   // Igual que con los items: el documento de la respuesta lo crea la app en
   // estado 'buscando' y este endpoint solo lo completa.
@@ -236,8 +267,11 @@ class Api {
   }) async {
     try {
       // 1) El ID token. Lo pide fresco a firebase_auth, que lo renueva solo si
-      //    esta por vencer (dura 1 hora).
-      final String? token = await AuthServicio.tokenActual();
+      //    esta por vencer (dura 1 hora). Si hay que renovarlo y NO hay red,
+      //    tokenParaElBackend tira el error de red y el catch de abajo lo
+      //    vuelve SIN_CONEXION: un corte de senal no es una sesion vencida, y
+      //    con FALTA_TOKEN la app cerraba la sesion. null = no hay sesion.
+      final String? token = await AuthServicio.tokenParaElBackend();
       if (token == null) {
         return _errorLocal('FALTA_TOKEN', 'Tenés que iniciar sesión para hacer esto.');
       }
@@ -255,6 +289,12 @@ class Api {
       if (metodo == 'POST') {
         respuesta = await http
             .post(url, headers: cabeceras, body: cuerpoJson)
+            .timeout(timeout);
+      } else if (metodo == 'PATCH') {
+        // PATCH = "cambia UNA parte de algo que ya existe" (el candado de un
+        // item). Lleva cuerpo JSON igual que el POST.
+        respuesta = await http
+            .patch(url, headers: cabeceras, body: cuerpoJson)
             .timeout(timeout);
       } else if (metodo == 'DELETE') {
         respuesta = await http.delete(url, headers: cabeceras).timeout(timeout);

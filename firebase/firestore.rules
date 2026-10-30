@@ -32,6 +32,12 @@
 //   R5      El borrado de items desde el cliente SIGUE cerrado (allow delete:
 //           if false), porque borrar un item tiene que arrastrar sus chunks y
 //           eso solo lo puede hacer el backend con Admin SDK.
+//   R6      (29/10) La VISIBILIDAD de un item tampoco se edita desde el
+//           cliente: se elige al crear y despues la cambia solo el backend
+//           (el candado en vivo, PATCH .../visibilidad), que respeta quien
+//           puede (compartir es solo del autor), deja el evento y copia el
+//           cambio a los chunks. Antes un admin podia publicar desde la app
+//           lo privado de otra persona sin dejar rastro.
 //
 //  IDEA CENTRAL (esto es lo que hay que saber decir en la defensa oral):
 //
@@ -319,8 +325,8 @@ service cloud.firestore {
 
         // -------- validaciones de edicion --------
 
-        // Lo unico que el cliente puede tocar despues: titulo, visibilidad,
-        // el textoOriginal de una nota, y actualizadoEn.
+        // Lo unico que el cliente puede tocar despues: titulo, el
+        // textoOriginal de una nota, y actualizadoEn.
         // Nunca estado, ni texto, ni cantChunks.
         // Si edita el textoOriginal, el indice queda viejo hasta que toque
         // "Reprocesar": el panel muestra el aviso (ver limitaciones).
@@ -328,27 +334,41 @@ service cloud.firestore {
         // sea AHORA. El cliente no puede escribir una hora vieja, asi que no
         // puede enganar al barrido de items colgados del backend.
         //
+        // LA VISIBILIDAD YA NO SE EDITA DESDE EL CLIENTE (29/10, candado en
+        // vivo). Se elige al crear el item y despues solo la cambia el
+        // backend, con PATCH /v1/workspaces/:wsId/items/:itemId/visibilidad.
+        // Antes esta funcion la dejaba cambiar, y como el update lo puede
+        // hacer el autor O el admin, pasaban tres cosas sin que nadie se
+        // enterara:
+        //  - un ADMIN podia publicar lo privado de otra persona (compartir es
+        //    solo del autor): desde ese momento cualquier miembro leia el
+        //    item entero en "Del equipo", como si lo hubiera compartido su
+        //    autor;
+        //  - no quedaba el evento 'item.visibilidad' en el feed;
+        //  - los chunks se quedaban con la copia vieja de la visibilidad.
+        // El PATCH hace las tres cosas bien (quien puede, el evento y los
+        // chunks, en el orden "primero cerrar, ultimo abrir"). Ni la app ni
+        // el panel escriben este campo despues de crear: los dos usan el
+        // PATCH. Borrarlo (FieldValue.delete()) tambien queda denegado,
+        // porque cuenta como un cambio de una clave que no esta en la lista.
+        //
         // R3 — TODA esta funcion leia antes d.campo directo. Si el update
         // BORRABA el campo (FieldValue.delete()), el campo aparecia en
         // 'cambios' pero no en 'd' y la regla explotaba. Ahora cada lectura
         // pasa por .get() con un default que DENIEGA:
         //    titulo        -> ''  (no llega al minimo de 1 caracter)
-        //    visibilidad   -> ''  (no esta en ['equipo','privado'])
         //    textoOriginal -> ''  (no llega al minimo de 1 caracter)
-        // CUIDADO: para 'visibilidad' el default NO puede ser 'privado' como
-        // en la funcion de LECTURA, porque 'privado' SI esta en la lista
-        // permitida y entonces borrar el campo pasaria la validacion y el
-        // item quedaria sin visibilidad. En una VALIDACION el default tiene
-        // que ser un valor INVALIDO; en una LECTURA, el mas RESTRICTIVO.
-        // No es lo mismo, y es la diferencia mas facil de pasar por alto.
+        // CUIDADO: en una VALIDACION el default tiene que ser un valor
+        // INVALIDO; en una LECTURA, el mas RESTRICTIVO. En la v2 la
+        // visibilidad se validaba con default 'privado', que SI es un valor
+        // permitido: borrar el campo pasaba la validacion y el item quedaba
+        // sin visibilidad. No es lo mismo, y es la diferencia mas facil de
+        // pasar por alto.
         function edicionDeItemValida() {
           let d = request.resource.data;
           let cambios = d.diff(resource.data).affectedKeys();
-          return cambios.hasOnly(['titulo', 'visibilidad',
-                                  'textoOriginal', 'actualizadoEn'])
+          return cambios.hasOnly(['titulo', 'textoOriginal', 'actualizadoEn'])
             && (!('titulo' in cambios) || tituloValido(d.get('titulo', '')))
-            && (!('visibilidad' in cambios)
-                || d.get('visibilidad', '') in ['equipo', 'privado'])
             && (!('textoOriginal' in cambios)
                 // resource.data = el documento COMO ESTA HOY. El tipo no se
                 // puede cambiar, asi que se mira ahi, tambien con default
@@ -401,7 +421,8 @@ service cloud.firestore {
 
         allow create: if esMiembro(wsId) && creacionDeItemValida();
 
-        // Editar: el autor o el admin.
+        // Editar: el autor o el admin, y solo el titulo y el texto de una
+        // nota (ver edicionDeItemValida: la visibilidad va por el PATCH).
         // (El backend, cuando alguien que no es ninguno de los dos intenta
         // editar por endpoint, responde NO_SOS_EL_AUTOR / HTTP 403.)
         allow update: if esMiembro(wsId)
@@ -502,7 +523,7 @@ service cloud.firestore {
         }
 
         // Para listar, el miembro filtra por .where('autorUid','==',miUid).
-        // El admin puede listar todo.
+        // El admin puede listar todo (eso usan el Radar y En vivo del panel).
         //
         // La pantalla de una conversacion usa ESTA MISMA regla, sin cambios:
         // escucha el doc raiz por su id (get) + la query (list)
@@ -564,7 +585,11 @@ service cloud.firestore {
         // 'error' (fail-closed): esa conversacion ya no se puede seguir.
         // Hoy ni la app ni el panel borran respuestas: la app no usa el
         // delete() de Firestore en ningun lado y el panel ni importa
-        // deleteDoc (ni lee respuestas).
+        // deleteDoc. Ojo: el panel SI las LEE (solo el admin, por el
+        // allow get, list de arriba, y de todos los autores): el Radar
+        // "Lo que falta" escucha las 'listo' mas nuevas y la franja
+        // "Ahora mismo" de En vivo, las que estan en 'buscando' o
+        // 'redactando'.
         allow delete: if esMiembro(wsId) && (esMiRespuesta() || esAdmin(wsId));
       }
 

@@ -15,18 +15,29 @@ Una base realista de un curso, con todo lo que el modelo de datos declara:
 
 | Colección | Cuántos | Qué hay adentro |
 |---|---|---|
-| `usuarios/{uid}` | 3 | Valentino (admin), Martín y Camila (miembros) |
+| `usuarios/{uid}` | 4 | Valentino (admin), Martín, Camila y Lucas (miembros) |
 | `workspaces/{wsId}` | 1 | `6to 1ra - Programación II` |
-| `workspaces/{wsId}/members/{uid}` | 3 | los tres, con su rol |
-| `workspaces/{wsId}/items/{itemId}` | 15 | notas, PDF, links y fotos, en los **4 estados** y con las **2 visibilidades** |
-| `chunks/{itemId_idx}` | 40 | con embedding de **1024 números** normalizados |
+| `workspaces/{wsId}/members/{uid}` | 4 | los cuatro, con su rol |
+| `workspaces/{wsId}/items/{itemId}` | 17 | notas, PDF, links y fotos, en los **4 estados** y con las **2 visibilidades** (3 son de Lucas) |
+| `chunks/{itemId_idx}` | 45 | con embedding de **1024 números** normalizados |
 | `workspaces/{wsId}/respuestas/{respId}` | 3 | con sus fuentes citadas `[1] [2]` |
-| `workspaces/{wsId}/eventos/{eventoId}` | 20 | feed de auditoría (solo lo ve el admin) |
-| `workspaces/{wsId}/suscripcion/actual` | 1 | plan `free`, estado `sin_plan` |
-| **Total** | **86 documentos** | |
+| `workspaces/{wsId}/eventos/{eventoId}` | 23 | feed de auditoría (solo lo ve el admin) |
+| `workspaces/{wsId}/suscripcion/actual` | 1 | plan `pro`, estado `activa`, **sin cargo** (ver abajo) |
+| **Total** | **98 documentos** | |
 
-Además crea las 3 cuentas **de verdad** en Firebase Authentication, con su rol cargado en
+Además crea las 4 cuentas **de verdad** en Firebase Authentication, con su rol cargado en
 el custom claim, así se puede entrar desde la app y desde el panel el día de la demo.
+
+**Lucas** es la cuarta cuenta, la de "la memoria que no se va": en la demo Valentino lo saca
+del equipo y la IA le sigue citando a Martín el *Reglamento de convivencia 2026*, que es de
+Lucas, con su nombre. Existe para eso: sacar a alguien le cierra la sesión, y las otras tres
+cuentas están abiertas en los celulares. **Nadie entra con la cuenta de Lucas.**
+
+**Por qué el plan `pro`:** el plan gratis deja 5 personas por espacio, y el de demo tiene más
+(las 4 cuentas de prueba, las cuentas reales del equipo y la cuenta temporal que suma y saca
+`npm run probar:api`). Va `activa` y **sin cargo**: `montoMensual: 0` y sin `preapprovalId`,
+o sea que no hay ningún cobro de Mercado Pago detrás. No es un cobro falso: es el espacio de
+prueba.
 
 **Es idempotente**: correrlo dos, diez o cien veces deja exactamente la misma base.
 No duplica nada. Si te equivocaste en algo, corregilo y volvé a correrlo.
@@ -117,18 +128,23 @@ en Firestore **salteándose las reglas de seguridad**. Es la llave maestra del p
 
    Eso te deja el texto en el portapapeles.
 
-3. Abrí `fase2/api/.env` y completá **solo estas dos líneas** (lo demás no hace falta para el
+3. Abrí `fase2/api/.env` y completá **solo estas tres líneas** (lo demás no hace falta para el
    seed):
 
    ```
    FIREBASE_SERVICE_ACCOUNT_B64=<pegá acá lo que copiaste, todo en UNA línea, sin comillas>
    FIREBASE_PROJECT_ID=neurodesk-ai-4f2a1
+   SEED_PASSWORD=<una clave que inventes vos, de 10 caracteres o más>
    ```
 
    - **Sin comillas**, **sin espacios** y **sin saltos de línea**. Es una línea larguísima y
      está bien que lo sea.
    - El `FIREBASE_PROJECT_ID` es el que anotaste en el paso 1. Si no te acordás, está en
      *Configuración del proyecto → General → ID del proyecto*.
+   - `SEED_PASSWORD` es la contraseña con la que van a entrar a las cuentas de demo. **No tiene
+     valor por omisión**: si falta, el seed corta antes de crear las cuentas. Va **solo** en el
+     `.env` (que nunca se sube a GitHub): no la escribas en ningún otro archivo, porque el repo
+     es público.
 
    El script chequea que los dos coincidan: si la clave es de otro proyecto, te lo dice y no
    escribe nada.
@@ -164,33 +180,41 @@ Tiene que terminar con algo así:
 ============================================================
   RESUMEN — documentos escritos en Firestore
 ============================================================
-  usuarios..............   3 docs
+  usuarios..............   4 docs
   workspaces............   1 doc
-    members.............   3 docs
-    items...............  15 docs
+    members.............   4 docs
+    items...............  17 docs
     respuestas..........   3 docs
-    eventos.............  20 docs
+    eventos.............  23 docs
     suscripcion.........   1 doc
-  chunks................  40 docs
+  chunks................  45 docs
   --------------------------------
-  TOTAL.................  86 docs
+  TOTAL.................  98 docs
 
   Cuentas de Firebase Auth:
-    creadas ahora ... valentino.demo@neurodesk.test, martin.demo@neurodesk.test, camila.demo@neurodesk.test
-    contrasena de todas: NeuroDesk2026!
+    creadas ahora ... valentino.demo@neurodesk.test, martin.demo@neurodesk.test, camila.demo@neurodesk.test, lucas.demo@neurodesk.test
+    ya existian ..... (ninguna)
+    contrasena ...... la de SEED_PASSWORD del .env (no se imprime)
 ```
 
-**Las tres cuentas de demo** (sirven para entrar desde la app y el panel):
+La contraseña **no se imprime nunca**: la terminal termina en capturas y el repo es público. Si
+las cuentas ya existían, el seed no les toca la contraseña (para cambiarla está
+`npm run demo:clave`, más abajo).
+
+**Las cuatro cuentas de demo** (las tres primeras sirven para entrar desde la app y el panel):
 
 | Email | Rol | Para qué sirve en la demo |
 |---|---|---|
-| `valentino.demo@neurodesk.test` | **admin** | ve los 15 items, los eventos y la suscripción |
-| `martin.demo@neurodesk.test` | miembro | ve los del equipo **+ sus 2 privados** |
+| `valentino.demo@neurodesk.test` | **admin** | ve los 17 items, los eventos y la suscripción |
+| `martin.demo@neurodesk.test` | miembro | ve los del equipo **+ su privado** («Mis dudas para la defensa oral») |
 | `camila.demo@neurodesk.test` | miembro | ve solo los del equipo y **su** privado |
+| `lucas.demo@neurodesk.test` | miembro | es el que **se saca** en la demo; nadie entra con esta cuenta |
 
-Contraseña de las tres: `NeuroDesk2026!` (se puede cambiar con la variable `SEED_PASSWORD`).
-Son cuentas descartables de un trabajo escolar; antes de usar esto en serio se borran con
-`npm run seed:borrar -- --si --tambien-auth`.
+La contraseña de las cuatro es la de `SEED_PASSWORD` en `api/.env` (para ponerla o cambiarla en
+las cuentas que ya existen: `npm run demo:clave`, más abajo). **No está escrita en ningún
+archivo del repo** (el repo es público) y ningún script la imprime: el equipo se la pasa por un
+canal privado. Son cuentas descartables de un trabajo escolar; antes de usar esto en serio se
+borran con `npm run seed:borrar -- --si --tambien-auth`.
 
 ---
 
@@ -245,13 +269,13 @@ y abajo de todo **la lista de subcolecciones**: `members`, `items`, `respuestas`
 `suscripcion`. Que se vea esa lista, que es "las colecciones principales estructuradas".
 
 **4 — Los miembros y sus roles.**
-Subcolección `members` → se ven los 3 documentos. Abrí el de Valentino: `rol: "admin"`.
+Subcolección `members` → se ven los 4 documentos (Valentino, Martín, Camila y Lucas). Abrí el de Valentino: `rol: "admin"`.
 Abrí uno de los otros: `rol: "miembro"`. **Sacá las dos**, es la prueba de que hay roles.
 
 ### Los items (el corazón del modelo)
 
-**5 — La lista de los 15 items.**
-Subcolección `items`. Que se vea la columna entera con los 15 ids.
+**5 — La lista de los 17 items.**
+Subcolección `items`. Que se vea la columna entera con los 17 ids.
 
 **6 — Un item `listo`, con todo lo que escribe el backend.**
 Abrí `itm_seed_01`. Se ven juntos los campos del **cliente** (`titulo`, `tipo`,
@@ -292,22 +316,25 @@ propósito (ver el detalle 1 al final de esta guía).
 `workspaces/ws_seed_6to1ra/respuestas/resp_seed_01`. Desplegá el array `fuentes`: cada
 entrada tiene `n`, `itemId`, `titulo`, `pagina`, `fragmento` y `similitud`. En el campo
 `respuesta` se ven las marcas `[1]` y `[2]` que apuntan a esas fuentes.
-Mostrá también `chunksMirados: 40` y `chunksVisibles: 38`.
+Mostrá también `chunksVisibles: 43` y `chunksMirados: null`: a un miembro no se le guarda el
+total del espacio (le contaría cuánto contenido privado ajeno hay). El 45 está solo en
+`resp_seed_03`, la del admin.
 
 **13 — El filtro de privacidad hecho número.**
-Abrí `resp_seed_02` (la de Camila): `chunksVisibles: 35`.
-Abrí `resp_seed_03` (la de Valentino, que es admin): `chunksVisibles: 40`.
+Abrí `resp_seed_02` (la de Camila): `chunksVisibles: 40`.
+Abrí `resp_seed_03` (la de Valentino, que es admin): `chunksVisibles: 45`.
 **Sacá las dos, una al lado de la otra.** Misma base, tres personas, tres números distintos:
-Camila ve 35, Martín 38 y el admin 40. Es la mejor captura de todo el trabajo.
+Camila ve 40, Martín 43 y el admin 45. Es la mejor captura de todo el trabajo.
 
 **14 — El feed de eventos.**
-Subcolección `eventos` → los 20 documentos. Abrí uno: `tipo`, `actorUid`, `resumen`,
+Subcolección `eventos` → los 23 documentos. Abrí uno: `tipo`, `actorUid`, `resumen`,
 `itemId`, `creadoEn`. Contá que **esta subcolección solo la puede leer el admin**.
 
 **15 — La suscripción.**
-`suscripcion/actual` → `plan: "free"`, `estado: "sin_plan"`, `preapprovalId: null`,
-`montoMensual`, `vence`, `eventosProcesados`. Es la otra diferencia de rol: un miembro común
-no ve los datos de facturación.
+`suscripcion/actual` → `plan: "pro"`, `estado: "activa"`, `preapprovalId: null`,
+`montoMensual: 0`, `vence`, `eventosProcesados`. Es la otra diferencia de rol: un miembro común
+no ve los datos de facturación. (Por qué `pro` y sin cargo: ver arriba, en "Qué deja armado
+el seed".)
 
 ### Seguridad y cuentas
 
@@ -318,16 +345,82 @@ no ve los datos de facturación.
 `Firestore Database → pestaña Índices → Compuestos`. Solo si hiciste el paso 8.
 
 **18 — Los usuarios reales.**
-`Compilación → Authentication → pestaña Users`. Se ven los 3 emails con su UID.
+`Compilación → Authentication → pestaña Users`. Se ven los 4 emails con su UID.
 Es la prueba de que las cuentas existen de verdad y no son documentos inventados.
 
 **19 — La terminal.**
-La ventana de PowerShell con el **RESUMEN** del seed (los 86 documentos). Demuestra que la
+La ventana de PowerShell con el **RESUMEN** del seed (los 98 documentos). Demuestra que la
 base se creó con un script versionado y no a mano.
 
 ---
 
-## Los otros dos scripts
+## Los otros scripts
+
+### `sumar-lucas.js` — sumar a Lucas a un espacio que ya existe, sin borrar nada
+
+```powershell
+npm run seed:lucas
+```
+
+`npm run seed` **borra todos los chunks del espacio** antes de escribir los suyos. Si el espacio
+de demo ya tiene items reales cargados desde la app, esos items quedarían `listo` pero mudos
+para la IA. Este script hace solo la parte de Lucas, con los mismos datos que el seed (viven en
+`scripts/_comun.js`), y **no borra nada**:
+
+1. crea la cuenta `lucas.demo@neurodesk.test` (si no existía), con la misma contraseña que las
+   otras cuentas demo (`SEED_PASSWORD` del `.env`, que **no se imprime**). La contraseña se pide
+   solo si hay que crear la cuenta: si Lucas ya existe, el script anda sin `SEED_PASSWORD`;
+2. lo pone en `members` y en su `usuarios/{uid}` con el custom claim; si lo habían sacado,
+   borra su nombre de `exMiembros`, igual que el backend cuando alguien vuelve;
+3. si el plan gratis no deja sumarlo, pasa el espacio al plan `pro`, `activa`, sin cargo;
+4. le pasa la autoría del *Reglamento* (el item y la copia `creadoPor` de sus 7 chunks) y crea
+   sus dos notas con vectores **reales** de Gemini (hace falta `GEMINI_API_KEY`);
+5. escribe los eventos del seed que lo nombran y al final vuelve a leer todo y lo verifica.
+
+Es idempotente: sirve también **entre ensayo y ensayo**, para volver a poner a Lucas en
+Miembros después de sacarlo en la demo. Si encuentra un item de Lucas distinto de como lo deja
+el seed (reprocesado, en error), no lo toca y avisa: se borra desde el panel y se vuelve a
+correr el script, que lo crea de cero.
+
+### `cambiar-clave-demo.js` — cambiar la contraseña de las cuentas demo
+
+```powershell
+npm run demo:clave
+```
+
+Le pone la contraseña de `SEED_PASSWORD` a las **cuatro** cuentas demo (Valentino, Martín,
+Camila y Lucas, `*.demo@neurodesk.test`) y les **cierra las sesiones abiertas**. No toca
+ninguna otra cuenta, ni nada de Firestore. Imprime qué cuentas cambió, **nunca la contraseña**.
+
+**Por qué existe:** para poner o cambiar la contraseña de las cuentas demo sin tocar nada más
+(antes del primer ensayo, o cuando haga falta). Con la cuenta de Valentino (el admin) se lee
+todo lo del equipo, así que la clave vive solo en `api/.env` y se cambia en Firebase con este
+script.
+
+**El paso a paso (lo hace una sola persona del equipo, antes del ensayo):**
+
+1. **Elegí una clave nueva**, de 10 caracteres o más, que no sea la de antes (el script la
+   rechaza si lo es). Que sea fácil de tipear en un celular: la van a escribir en la demo.
+2. **Ponela en `fase2/api/.env`** como `SEED_PASSWORD=<la clave>`, en una línea, sin comillas.
+   Solo ahí: ni en el README, ni en un commit, ni en una captura.
+3. **Corré el script**, parado en `fase2\api`:
+
+   ```powershell
+   cd C:\Users\6to\Desktop\NeuroDesk-AI\fase2\api
+   npm run demo:clave
+   ```
+
+   Tiene que decir `CAMBIADA` en las cuatro cuentas y terminar con
+   `4 de 4 cuentas con la clave de SEED_PASSWORD del .env (no se imprime)`.
+4. **Usá esa clave para entrar en la demo.** Como el script cerró las sesiones, en los
+   celulares y en el panel hay que **cerrar sesión y volver a entrar** con la clave nueva.
+   Pasásela al resto del equipo por un canal privado (el grupo de WhatsApp, por ejemplo).
+5. Si otra persona del equipo corre el seed o `sumar-lucas.js` desde su compu, tiene que tener
+   la **misma** `SEED_PASSWORD` en su `.env`.
+
+Si una cuenta falla, el script sigue con las otras y al final dice cuál quedó sin cambiar (y
+termina con error). Es idempotente: correrlo de nuevo deja la misma clave, pero vuelve a cerrar
+las sesiones, así que **no lo corran durante la demo**.
 
 ### `set-admin.js` — hacer admin a alguien
 
@@ -370,6 +463,8 @@ nunca quedan chunks huérfanos con el texto de una nota privada dando vueltas en
 | `FIREBASE_SERVICE_ACCOUNT_B64 no es un JSON valido en base64` | Al pegar el base64 se cortó en varias líneas, o le quedaron comillas. Tiene que ser **una sola línea sin comillas**. |
 | `La service account es del proyecto "X" pero FIREBASE_PROJECT_ID dice "Y"` | Mezclaste dos proyectos de Firebase. Corregí el `.env`; el script no escribió nada. |
 | `auth/operation-not-allowed` | Falta el **paso 3**: habilitar Correo/contraseña en Authentication. |
+| `Falta SEED_PASSWORD en el .env` | Hay que crear una cuenta demo (o cambiarle la clave) y no está la contraseña. Agregá `SEED_PASSWORD=<la clave del equipo>` en `api/.env` (paso 5) y volvé a correrlo: el script cortó antes de tocar nada. |
+| `SEED_PASSWORD es la contrasena VIEJA` | Pusiste la clave que quedó publicada en el repo. Elegí otra. |
 | `5 NOT_FOUND` o `The database (default) does not exist` | Falta el **paso 2**: crear la base de Firestore. |
 | `7 PERMISSION_DENIED` | La service account es vieja o fue revocada. Generá una nueva (paso 4) y rehacé el base64. |
 | `permission-denied` **desde la app** (no desde el seed) | Casi siempre el token viejo. Cerrá sesión y volvé a entrar. El orden de sospecha es: 1) token viejo, 2) falta un `.where()` en la query, 3) falta el `.limit()`, 4) recién ahí, la regla. |
@@ -387,7 +482,7 @@ normalizados a norma 1 porque el backend compara por **similitud coseno**, y con
 normalizados el coseno es simplemente el producto punto.
 Consecuencia honesta: si preguntás algo contra esta base sin reprocesar los items, la IA va a
 citar cualquier cosa. Los vectores de verdad los escribe el backend cuando procesa un item, o
-el mismo seed si en `api/.env` está `GEMINI_API_KEY`: en ese caso le pide a Gemini los 40
+el mismo seed si en `api/.env` está `GEMINI_API_KEY`: en ese caso le pide a Gemini los 45
 vectores (como documento, igual que `/procesar`) y las preguntas de la demo encuentran lo que
 tienen que encontrar.
 

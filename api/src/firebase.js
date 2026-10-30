@@ -20,7 +20,7 @@
 // ============================================================================
 
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
-import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { getFirestore, FieldValue, Timestamp, FieldPath } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 
 // ----------------------------------------------------------------------------
@@ -120,7 +120,10 @@ export const auth = getAuth(app);
 // 'firebase-admin/firestore' por su cuenta. FieldValue.serverTimestamp() es
 // obligatorio en TODOS los timestamps (invariante 17 del modelo): la hora la
 // pone el servidor, nunca Date.now() ni el reloj del celular.
-export { FieldValue, Timestamp };
+// FieldPath sirve para nombrar un campo adentro de un mapa cuando la clave la
+// pone otro (exMiembros.{uid} en workspaces.js): con un texto 'a.' + clave, una
+// clave con un punto adentro armaria un mapa dentro de otro.
+export { FieldValue, Timestamp, FieldPath };
 
 // Datos utiles para el log de arranque y para /salud.
 export const proyectoId = app.options.projectId || 'desconocido';

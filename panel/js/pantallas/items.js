@@ -21,21 +21,25 @@
 // ============================================================================
 
 import {
-  db, collection, query, where, orderBy, limit, onSnapshot, getDocs
+  db, collection, query, where, orderBy, limit, onSnapshot
 } from '../firebase.js';
 
-import { esc, fechaCorta, haceCuanto, normalizar, uidCorto } from '../util.js';
+import { esc, fechaCorta, haceCuanto, normalizar } from '../util.js';
+import { leerNombres } from '../nombres.js';
+import { icono } from '../iconos.js';
 
 
 // ----------------------------------------------------------------------------
 // Estado del modulo. Son variables de archivo, no globales del navegador:
-// nadie de afuera las ve, y unmount() las limpia.
+// nadie de afuera las ve. unmount() limpia los datos y la escucha; los
+// filtros NO: se guardan a proposito entre visitas (como en el Radar y En
+// vivo), y engancharFiltros() los vuelve a poner en los controles.
 // ----------------------------------------------------------------------------
 let cortarEscucha = null;   // la funcion que devuelve onSnapshot para darse de baja
 let raiz = null;            // el <div> donde dibujamos
 let ctxPantalla = null;     // { wsId, uid, ... } que nos pasa el shell
 let itemsCrudos = [];       // lo ultimo que llego de Firestore, SIN filtrar
-let nombrePorUid = {};      // uid -> nombre, para no mostrar uids pelados
+let nombres = null;         // { nombreDe(uid) }: members + exMiembros (nombres.js)
 let desdeCache = false;     // ultimo valor de metadata.fromCache
 
 // Filtros. El de estado se aplica EN EL SERVIDOR (es un where de la query);
@@ -44,6 +48,14 @@ let filtroEstado      = 'todos';
 let filtroTipo        = 'todos';
 let filtroVisibilidad = 'todas';
 let textoBuscado      = '';
+
+// Cuenta los montajes. mount() espera los nombres antes de escuchar, y en ese
+// rato el router puede volver a montar esta misma pantalla (Contenido -> otra
+// -> Contenido, rapido): las variables de este archivo son UNA sola para los
+// dos montajes. El montaje que se quedo viejo lo nota al volver del await y
+// no abre nada (si no, leeria el ctxPantalla que unmount() ya puso en null).
+// unmount() tambien suma: un montaje que estaba esperando ya no vale.
+let montajes = 0;
 
 // Cuantas filas pedimos. 200 es el tope del plan free por workspace, asi que
 // en la practica se ven todas. Si algun dia hay mas, la tabla avisa abajo que
@@ -56,19 +68,27 @@ const TOPE_FILAS = 200;
 //  MOUNT
 // ============================================================================
 export async function mount(contenedor, ctx) {
+  const mio = ++montajes;
   raiz = contenedor;
   ctxPantalla = ctx;
 
   raiz.innerHTML = plantilla();
   engancharFiltros();
 
-  // Los nombres de los miembros se leen UNA VEZ, con getDocs, y NO con un
+  // Los nombres de los miembros se leen UNA VEZ, con get, y NO con un
   // onSnapshot. Por que: la lista de miembros de un workspace cambia una vez
   // por semana, y un segundo stream vivo son mas lecturas por cada cambio,
   // para actualizar una columna que casi nunca se mueve. Si alguien entra al
   // equipo mientras miramos la tabla, su nombre aparece la proxima vez que
   // entremos a esta pantalla. Es un intercambio consciente, no un olvido.
-  await cargarNombres();
+  // Ademas de members se lee exMiembros, del doc del espacio: asi un item de
+  // alguien que ya se fue dice "Lucas (ya no está en el equipo)" y no un uid.
+  const leidos = await leerNombres(ctx.wsId);
+
+  // Este montaje se quedo viejo mientras esperaba: no se abre nada (ver
+  // 'montajes').
+  if (mio !== montajes) return;
+  nombres = leidos;
 
   escuchar();
 }
@@ -78,12 +98,13 @@ export async function mount(contenedor, ctx) {
 //  UNMOUNT  —  cortar TODO lo que quedo escuchando.
 // ============================================================================
 export function unmount() {
+  montajes++;             // un mount() que todavia esta esperando ya no vale
   if (cortarEscucha) {
     cortarEscucha();      // esta llamada es la que deja de gastar lecturas
     cortarEscucha = null;
   }
   itemsCrudos = [];
-  nombrePorUid = {};
+  nombres = null;
   raiz = null;
   ctxPantalla = null;
 }
@@ -175,20 +196,12 @@ function escuchar() {
 
 
 // ----------------------------------------------------------------------------
-// Los nombres de los miembros, de una sola lectura.
+// El autor de un item: members -> exMiembros -> "Ex integrante" (la regla
+// comun de todas las piezas, en util.js). Si la lectura de los nombres fallo,
+// leerNombres() devuelve mapas vacios y la tabla sigue andando.
 // ----------------------------------------------------------------------------
-async function cargarNombres() {
-  try {
-    const foto = await getDocs(
-      collection(db, 'workspaces', ctxPantalla.wsId, 'members')
-    );
-    nombrePorUid = {};
-    foto.forEach((d) => { nombrePorUid[d.id] = d.data().nombre || d.data().email; });
-  } catch (e) {
-    // Si falla, la columna Autor muestra uids cortados. Feo, pero la tabla
-    // sigue funcionando: los nombres no valen romper la pantalla entera.
-    console.warn('[items] no pude leer los miembros', e);
-  }
+function autorDe(item) {
+  return nombres ? nombres.nombreDe(item.creadoPor) : 'Ex integrante';
 }
 
 
@@ -218,7 +231,7 @@ function plantilla() {
       </div>
 
       <div class="campo">
-        <label for="filtroEstado">Estado <span class="apagado">(servidor)</span></label>
+        <label for="filtroEstado">Estado</label>
         <select id="filtroEstado">
           <option value="todos">Todos</option>
           <option value="pendiente">Pendiente</option>
@@ -259,7 +272,7 @@ function plantilla() {
             <th>Estado</th>
             <th>Visibilidad</th>
             <th>Autor</th>
-            <th class="numero">Trozos</th>
+            <th class="numero" title="Los pedazos de texto que la IA puede citar">Fragmentos</th>
             <th>Creado</th>
           </tr>
         </thead>
@@ -274,6 +287,17 @@ function plantilla() {
 
 function engancharFiltros() {
   const $ = (id) => raiz.querySelector('#' + id);
+
+  // Los filtros viven en variables del archivo y sobreviven al unmount
+  // (igual que en radar.js y actividad.js): los controles recien dibujados
+  // tienen que mostrar lo que de verdad se esta aplicando. Si no, al volver a
+  // Contenido la tabla quedaba filtrada con los controles en "Todos", y la
+  // fila que sube alguien desde el celular podia no aparecer sin que nada en
+  // pantalla dijera por que. Poner .value no dispara 'change' ni 'input'.
+  $('buscador').value          = textoBuscado;
+  $('filtroEstado').value      = filtroEstado;
+  $('filtroTipo').value        = filtroTipo;
+  $('filtroVisibilidad').value = filtroVisibilidad;
 
   // El buscador y los dos filtros de memoria solo redibujan: no tocan
   // Firestore, no cuestan nada, y por eso pueden reaccionar en cada tecla.
@@ -366,7 +390,7 @@ function dibujarTabla() {
 // ADMIN. No hay ni una interpolacion en esta funcion sin esc().
 // ----------------------------------------------------------------------------
 function fila(item) {
-  const autor = nombrePorUid[item.creadoPor] || uidCorto(item.creadoPor);
+  const autor = autorDe(item);
 
   // Segunda linea del titulo: el nombre del archivo o el link de origen.
   let sub = '';
@@ -401,12 +425,27 @@ function fila(item) {
           ? `<div class="sub chico apagado" title="origen: ${esc(item.origen)}">${esc(textoDeOrigen(item.origen))}</div>`
           : ''}
       </td>
-      <td><span class="etiqueta">${item.visibilidad === 'privado' ? 'Privado' : 'Del equipo'}</span></td>
+      <td>${candado(item.visibilidad)}</td>
       <td>${esc(autor)}</td>
       <td class="numero">${esc(item.cantChunks ?? 0)}</td>
       <td title="${esc(haceCuanto(item.creadoEn))}">${esc(fechaCorta(item.creadoEn))}</td>
     </tr>
   `;
+}
+
+
+// ----------------------------------------------------------------------------
+// El candado de cada item. Cuando el autor lo comparte o lo pasa a privado
+// desde la app (PATCH .../visibilidad, "el candado en vivo"), el servidor
+// cambia el item y esta celda cambia sola por el onSnapshot: no hay nada que
+// recargar.
+// Cualquier valor que no sea 'equipo' se muestra como privado: es el mismo
+// default que usan las reglas para un doc roto (nunca "publico por omision").
+// ----------------------------------------------------------------------------
+function candado(visibilidad) {
+  return visibilidad === 'equipo'
+    ? `<span class="etiqueta etiqueta-equipo">${icono('equipo')} Del equipo</span>`
+    : `<span class="etiqueta etiqueta-privado">${icono('candado')} Privado</span>`;
 }
 
 
@@ -421,8 +460,12 @@ function chipDeEstado(estado) {
     listo:      'Listo',
     error:      'Error'
   };
-  const clase = textos[estado] ? `chip-${estado}` : 'chip-desconocido';
-  return `<span class="chip ${clase}">${esc(textos[estado] || estado || '—')}</span>`;
+  // Object.hasOwn, como en el resto del panel: un estado raro como
+  // 'constructor' no tiene que encontrar algo heredado del objeto (el chip
+  // decia "function Object() { [native code] }").
+  const conocido = Object.hasOwn(textos, estado);
+  const clase = conocido ? `chip-${estado}` : 'chip-desconocido';
+  return `<span class="chip ${clase}">${esc(conocido ? textos[estado] : (estado || '—'))}</span>`;
 }
 
 
@@ -485,7 +528,7 @@ function filtrarEnMemoria(lista) {
       item.titulo,
       item.nombreArchivo,
       item.url,
-      nombrePorUid[item.creadoPor]
+      autorDe(item)
     ].filter(Boolean).join(' '));
 
     return bolsa.includes(buscado);

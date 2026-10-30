@@ -72,6 +72,7 @@ import {
   armarMensajeParaReformular,
   armarTurnosDelHistorial,
   filtraElReglamento,
+  filtraLasReglasDeReformular,
   RESPUESTA_SIN_RESULTADOS,
   AVISO_SIN_CITAS,
 } from '../prompts.js';
@@ -465,6 +466,17 @@ async function reformularPregunta(historial, pregunta, hasta) {
 
   const limpia = limpiarReformulada(texto);
   if (!limpia) console.warn('[preguntar] la reformulación vino vacía, en varias líneas o larguísima: busco con el respaldo.');
+
+  // El mismo candado contra la inyección que tiene la respuesta (ver
+  // filtraElReglamento en prompts.js), con las reglas de ESTE prompt. La
+  // reformulación se guarda en preguntaBuscada y la app se la muestra a la
+  // persona ("La entendí como..."): si el modelo devolvió sus reglas en vez
+  // de la pregunta (una orden metida en una respuesta anterior del
+  // historial), no se usa ni se muestra.
+  if (limpia && filtraLasReglasDeReformular(limpia)) {
+    console.warn('[preguntar] la reformulación traía las reglas del prompt: busco con el respaldo.');
+    return null;
+  }
   return limpia;
 }
 
@@ -809,11 +821,15 @@ rutasDePreguntar.post('/preguntar', requireAuth, limitarPreguntas, exigirMiembro
   // Va DESPUÉS de guardar la respuesta y no puede romperla (anotarEvento se
   // traga sus errores). Poner el texto de la pregunta no le abre nada a nadie:
   // el admin ya puede leer todas las respuestas del workspace.
+  // "1 fuente" / "2 fuentes" y no "fuente(s)": es la frase que se proyecta en
+  // "En vivo" (el plan la pide asi). El panel reconoce las dos formas, asi que
+  // los eventos viejos se siguen leyendo bien.
   const quien = req.miembro?.nombre || req.usuario.email || 'Alguien';
+  const cuantasFuentes = resultado.fuentes.length;
   await anotarEvento(wsId, {
     tipo: 'pregunta.hecha',
     actorUid: uid,
-    resumen: `${quien} preguntó "${recortar(pregunta, 60)}"${cadena ? ' (seguimiento)' : ''} · ${resultado.fuentes.length} fuente(s), confianza ${resultado.confianza}`,
+    resumen: `${quien} preguntó "${recortar(pregunta, 60)}"${cadena ? ' (seguimiento)' : ''} · ${cuantasFuentes} ${cuantasFuentes === 1 ? 'fuente' : 'fuentes'}, confianza ${resultado.confianza}`,
   });
 
   const tardoMs = Date.now() - arranque;

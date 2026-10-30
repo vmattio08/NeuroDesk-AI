@@ -15,7 +15,8 @@
 //    - todos los chunks con workspaceId == WS_ID (coleccion plana, top-level)
 //    - el workspace entero con sus subcolecciones:
 //      members, items, respuestas, eventos y suscripcion
-//    - los documentos usuarios/{uid} de las tres cuentas del seed
+//    - los documentos usuarios/{uid} de las cuentas del seed (las cuatro de
+//      _comun.js, Lucas incluido)
 //    - la entrada de ese workspace en el custom claim de cada una
 //
 //  QUE **NO** BORRA (salvo que se pase --tambien-auth)

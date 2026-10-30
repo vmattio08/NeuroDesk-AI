@@ -21,12 +21,22 @@
 //  la fuente de verdad) y al final el claim (que es un reflejo). Si se corta en
 //  el medio, el claim queda viejo y volver a llamar al endpoint lo arregla; al
 //  reves seria irreparable.
+//
+//  LA MEMORIA QUE NO SE VA (exMiembros, 29/10/2026): cuando el admin saca a
+//  alguien, sus items se quedan en el equipo y la IA los sigue citando. Pero
+//  su ficha de members se borra, y sin ella nadie sabia de quien eran: el
+//  panel mostraba un codigo cortado. Ahora el DELETE guarda su nombre en el
+//  doc del espacio (exMiembros.{uid} = { nombre, salioEn }) y el POST lo borra
+//  si la persona vuelve. Para mostrar un autor, la app y el panel usan:
+//  members/{uid}.nombre -> si no esta, exMiembros[uid].nombre + " (ya no está
+//  en el equipo)" -> si tampoco, "Ex integrante". Las reglas no cambian: el
+//  doc del espacio lo leen todos los miembros y solo lo escribe el backend.
 // ============================================================================
 
 import express from 'express';
 import { randomBytes } from 'node:crypto';
 
-import { db, auth, FieldValue } from '../firebase.js';
+import { db, auth, FieldValue, FieldPath } from '../firebase.js';
 import { fallar } from '../errores.js';
 import { requireAuth, exigirMiembro, exigirAdmin } from '../middleware/auth.js';
 import { sincronizarClaims, nombrePresentable } from '../claims.js';
@@ -244,7 +254,10 @@ rutasDeWorkspaces.post('/:wsId/miembros', requireAuth, exigirMiembro, exigirAdmi
       emailVerified: false,
     });
     cuentaCreada = true;
-    console.log(`[workspaces] Cuenta creada para ${email} al invitarla a ${wsId}`);
+    // Al log va el uid y no el email, como en el resto de este archivo: el
+    // log de Render lo puede ver cualquiera que mire la consola (y en una
+    // demo, el proyector).
+    console.log(`[workspaces] Cuenta creada (uid ${usuarioInvitado.uid}) al invitarla a ${wsId}`);
   }
 
   const uidInvitado = usuarioInvitado.uid;
@@ -293,10 +306,35 @@ rutasDeWorkspaces.post('/:wsId/miembros', requireAuth, exigirMiembro, exigirAdmi
     throw err;
   }
 
+  // ---- 8. Si vuelve, deja de ser ex integrante ----
+  // Si esta persona ya habia estado en el equipo, su nombre quedo guardado en
+  // exMiembros cuando la sacaron. Ahora vuelve a tener ficha en members, asi
+  // que esa clave sobra y se borra.
+  //  - Va DESPUES de los claims a proposito: si fallan, el alta se deshace (la
+  //    persona sigue afuera) y su nombre tiene que seguir guardado.
+  //  - req.workspace ya trae el doc del espacio (lo leyo exigirMiembro): si no
+  //    figura en exMiembros, no gastamos una escritura.
+  //  - Si este paso fallara, no rompemos el alta, que ya esta hecha: la ficha
+  //    de members manda sobre exMiembros a la hora de mostrar el nombre, asi
+  //    que la clave vieja no se ve. Queda en el log.
+  const exMiembros = req.workspace?.exMiembros;
+  if (exMiembros && typeof exMiembros === 'object' && Object.hasOwn(exMiembros, uidInvitado)) {
+    try {
+      await refWorkspace.update(
+        new FieldPath('exMiembros', uidInvitado), FieldValue.delete(),
+        'actualizadoEn', FieldValue.serverTimestamp(),
+      );
+    } catch (err) {
+      console.error(`[workspaces] No pude borrar a ${uidInvitado} de exMiembros de ${wsId}:`, err);
+    }
+  }
+
+  // El resumen va con NOMBRES, como el resto del feed ("Martín compartió...").
+  // El email no hace falta: el panel lo muestra en la lista de miembros.
   await escribirEvento(wsId, {
     tipo: 'miembro.agregado',
     actorUid: admin.uid,
-    resumen: `${admin.email} agregó a ${email} como ${rol}`,
+    resumen: `${quienHizo(req)} agregó a ${nombreInvitado} como ${rol}`,
     itemId: null,
   });
 
@@ -358,11 +396,40 @@ rutasDeWorkspaces.delete('/:wsId/miembros/:uid', requireAuth, exigirMiembro, exi
   }
 
   const datosMiembro = snapMiembro.data();
+  // Lo que queda en exMiembros (puede ser null: ver nombreParaRecordar) y lo
+  // que dice el feed, que es SOLO del admin y sigue usando la ficha tal cual.
+  const nombreQueQueda = nombreParaRecordar(datosMiembro);
+  const nombreDeLaFicha = typeof datosMiembro.nombre === 'string' ? datosMiembro.nombre.trim().slice(0, 60) : '';
 
-  // ---- 1. EL CORTE REAL: borrar members/{uid} ----
-  // Este es el paso que corta el acceso al BACKEND al instante, porque todos
-  // los endpoints leen este documento en cada pedido.
-  await refMiembro.delete();
+  // ---- 1. EL CORTE REAL: borrar members/{uid}, guardando antes su nombre ----
+  // Borrar la ficha es el paso que corta el acceso al BACKEND al instante,
+  // porque todos los endpoints leen este documento en cada pedido.
+  //
+  // LA MEMORIA QUE NO SE VA: sus items se quedan y la IA los sigue citando,
+  // asi que antes de borrar la ficha guardamos su nombre en el doc del espacio
+  // (exMiembros.{uid} = { nombre, salioEn }).
+  //  - SOLO el nombre, nunca el email: el doc del espacio lo lee cualquier
+  //    miembro, y el email de alguien que ya se fue no es dato del equipo.
+  //    Tampoco un "nombre" que es lo de antes de la @ del email (las cuentas
+  //    sin nombre propio): en ese caso no se guarda nada y la app y el panel
+  //    dicen "Ex integrante" (ver nombreParaRecordar).
+  //  - Va en el MISMO lote que el borrado: Firestore escribe las dos cosas
+  //    juntas o ninguna. El contrato pide guardarlo ANTES de borrar la ficha;
+  //    el lote lo cumple y ademas no deja nunca el caso a medias (sin ficha y
+  //    sin nombre guardado). Si el lote falla, la persona sigue en el equipo
+  //    y volver a pedir el DELETE lo hace entero.
+  //  - FieldPath y no el texto 'exMiembros.' + uid: si un uid trajera un
+  //    punto adentro, el texto armaria un mapa dentro de otro.
+  const lote = db.batch();
+  if (nombreQueQueda) {
+    lote.update(
+      refWorkspace,
+      new FieldPath('exMiembros', uidASacar), { nombre: nombreQueQueda, salioEn: FieldValue.serverTimestamp() },
+      'actualizadoEn', FieldValue.serverTimestamp(),
+    );
+  }
+  lote.delete(refMiembro);
+  await lote.commit();
 
   // ---- 2. Claims ----
   // Reconstruye el mapa del ex-miembro sin este workspace y, si lo tenia
@@ -388,10 +455,18 @@ rutasDeWorkspaces.delete('/:wsId/miembros/:uid', requireAuth, exigirMiembro, exi
     .get();
   const itemsQueQuedan = conteoItems.data().count;
 
+  // Con NOMBRES, para que el feed diga "Valentino sacó a Lucas del equipo".
+  // Es el nombre de la ficha aunque no haya quedado en exMiembros, y si la
+  // ficha no tenia nombre, el email: el feed lo lee solo el admin, que ya ve
+  // los emails en la lista de miembros. Si un admin se saca a si mismo (se
+  // puede si queda otro admin), "Martin sacó a Martin del equipo" se lee mal:
+  // va "Martin salió del equipo", como el caso propio del cambio de rol.
   await escribirEvento(wsId, {
     tipo: 'miembro.eliminado',
     actorUid: admin.uid,
-    resumen: `${admin.email} sacó del equipo a ${datosMiembro.email || uidASacar}`,
+    resumen: uidASacar === admin.uid
+      ? `${quienHizo(req)} salió del equipo`
+      : `${quienHizo(req)} sacó a ${nombreDeLaFicha || datosMiembro.email || uidASacar} del equipo`,
     itemId: null,
   });
 
@@ -533,15 +608,21 @@ rutasDeWorkspaces.patch('/:wsId/miembros/:uid', requireAuth, exigirMiembro, exig
   // Solo si de verdad cambio algo: un PATCH repetido (doble click, o el
   // reintento que arregla el claim) no es un cambio de rol y ensuciaria
   // justo el feed que demuestra el rol de admin en la defensa.
-  const quien = datosMiembro.email || uidObjetivo;
+  // Con NOMBRES, igual que 'miembro.agregado' y 'miembro.eliminado' ("Valentino
+  // le dio permisos de administrador a Camila"): el feed "En vivo" se proyecta
+  // en la demo y no tiene por que mostrar el email de nadie. El email queda
+  // solo de respaldo, si la ficha de members no tiene nombre (doc roto).
+  const quienLoHizo = quienHizo(req);
+  const nombreObjetivo = typeof datosMiembro.nombre === 'string' ? datosMiembro.nombre.trim() : '';
+  const quien = nombreObjetivo || datosMiembro.email || uidObjetivo;
   if (huboCambio) {
     let resumen;
     if (fueBaja) {
       resumen = uidObjetivo === admin.uid
-        ? `${admin.email} dejó de ser administrador`
-        : `${admin.email} le quitó los permisos de administrador a ${quien}`;
+        ? `${quienLoHizo} dejó de ser administrador`
+        : `${quienLoHizo} le quitó los permisos de administrador a ${quien}`;
     } else {
-      resumen = `${admin.email} le dio permisos de administrador a ${quien}`;
+      resumen = `${quienLoHizo} le dio permisos de administrador a ${quien}`;
     }
 
     await escribirEvento(wsId, {
@@ -594,6 +675,48 @@ function generarId(prefijo, largo = 12) {
  */
 function generarPasswordTemporal() {
   return randomBytes(12).toString('base64url'); // ~16 caracteres
+}
+
+/**
+ * Quien hizo algo, para el resumen del feed: el nombre de su ficha de members
+ * (que ya leyo exigirMiembro) o, si no tiene, el email del token. Nunca del
+ * body. Es el mismo criterio que usa items.js.
+ */
+function quienHizo(req) {
+  return req.miembro?.nombre || req.usuario?.email || 'Alguien';
+}
+
+/**
+ * El nombre que se guarda en exMiembros cuando alguien se va.
+ * Sale de su ficha de members (2 a 60 caracteres, lo escribe el backend).
+ * Devuelve null, y entonces NO se guarda nada, en dos casos:
+ *  - la ficha no tiene nombre (rota, cargada a mano): no inventamos uno;
+ *  - el "nombre" es en realidad un pedazo del EMAIL. Pasa con las cuentas
+ *    sin nombre propio: la que crea la invitacion del panel (displayName =
+ *    lo de antes de la @) y la que se registra desde la app sin nombre
+ *    (armarNombreParaRegistro cae en lo mismo). El doc del espacio lo leen
+ *    TODOS los miembros, tambien los que entren despues y nunca vieron ese
+ *    email: guardar "juan.perez" ahi es publicar media direccion de correo.
+ *    El contrato B pide solo el nombre, nunca el email.
+ * En los dos casos la app y el panel muestran "Ex integrante". El feed
+ * (que lee solo el admin) sigue diciendo lo que decia la ficha.
+ */
+function nombreParaRecordar(datosMiembro) {
+  const nombre = typeof datosMiembro?.nombre === 'string' ? datosMiembro.nombre.trim() : '';
+  if (!nombre) return null;
+
+  // Sin mayusculas: "Juan.Perez" y "juan.perez@gmail.com" son lo mismo.
+  const enMinuscula = nombre.toLowerCase();
+  if (enMinuscula.includes('@')) return null;
+  const email = typeof datosMiembro?.email === 'string' ? datosMiembro.email.trim().toLowerCase() : '';
+  const local = email.includes('@') ? email.split('@')[0] : '';
+  // nombrePresentable() (claims.js) completa los locales de 1 letra como
+  // "Usuario x": tambien sale del email. Y corta en 60 caracteres: con un
+  // local mas largo, el "nombre" es su comienzo, que tambien sale del email.
+  const salenDelEmail = [local, `usuario ${local}`].flatMap((x) => [x, x.slice(0, 60)]);
+  if (local && salenDelEmail.includes(enMinuscula)) return null;
+
+  return nombre.slice(0, 60);
 }
 
 /**

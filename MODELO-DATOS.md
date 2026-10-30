@@ -28,6 +28,8 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
     │
     ├── respuestas/{respId}             preguntas a la IA + respuesta con citas.
     │                                   Sin campo workspaceId: el wsId va solo en el path.
+    │                                   Una conversación = una CADENA de docs de acá
+    │                                   (conversacionId + anteriorRespId).
     │
     ├── eventos/{eventoId}              feed de auditoría (append-only). Solo admin lee.
     │
@@ -61,10 +63,11 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 |---|---|---|---|
 | `nombre` | string (2 a 40) | **BACKEND** | Nombre visible del equipo (ej: "Coordinación 6.º 2.ª"). En el MVP no se puede renombrar: ver limitaciones. |
 | `ownerUid` | string (uid) | **BACKEND** | Quién lo creó. Es siempre admin, no se lo puede eliminar ni bajar de rol. |
-| `plan` | string (`'free'` \| `'pro'`) | **BACKEND** | Define los límites: items, miembros, preguntas por día. |
+| `plan` | string (`'free'` \| `'pro'`) | **BACKEND** | Define los límites: items, miembros, preguntas por día. El espacio de **demo** va en `'pro'` / `'activa'` **sin cargo** (`montoMensual: 0` y sin `preapprovalId`, o sea sin ningún cobro de Mercado Pago detrás), porque tiene más de las 5 personas que deja el plan gratis; lo escriben `seed.js` y `sumar-lucas.js` (ver `api/SEED.md`). |
 | `planStatus` | string — **enum único de estado de plan**: `'sin_plan'` \| `'pendiente'` \| `'activa'` \| `'pausada'` \| `'cancelada'` | **BACKEND** | Estado del cobro. **Es EXACTAMENTE el mismo enum que usa `suscripcion/actual.estado`**. El backend deja procesar items nuevos con `'sin_plan'`, `'pendiente'` y `'activa'`; con `'pausada'` o `'cancelada'` los rechaza. Crear el doc del item no lo puede frenar: eso lo escribe el cliente directo contra Firestore. |
 | `creadoEn` | timestamp | **BACKEND** | Fecha de creación (serverTimestamp). |
 | `actualizadoEn` | timestamp | **BACKEND** | Última modificación. Para ordenar y para debug. |
+| `exMiembros` | map (uid → `{ nombre: string, salioEn: timestamp }`), puede no existir | **BACKEND** | **La memoria que no se va.** Lo escribe el `DELETE` de miembros **antes** de borrar `members/{uid}` (en el mismo lote), para que sus items, que se quedan, sigan diciendo de quién son. Guarda **solo el nombre, nunca el email**, porque este documento lo lee cualquier miembro. **No se guarda nada** si la ficha no tiene nombre o si el "nombre" sale del email (tiene una `@`, o es igual a lo de antes de la `@` sin mirar mayúsculas, como en las cuentas que crea la invitación o que se registran sin nombre): sería media dirección de correo a la vista de los que entren después. Si la persona vuelve (`POST` de miembros), se borra su clave. Para mostrar un autor, la app (`app/lib/servicios/equipo.dart`) y el panel (`panel/js/nombres.js`) usan la misma regla (el servidor no muestra autores): `members/{uid}.nombre` → `exMiembros[uid].nombre` + " (ya no está en el equipo)" → "Ex integrante". Las reglas no cambian: el cliente ya no puede escribir este documento. |
 
 ---
 
@@ -88,7 +91,7 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 
 > **Esta tabla es la más importante del documento.** La columna "Quién lo escribe" es la que se contradijo con las reglas en la v1 y dejó la creación de items rota: el modelo decía que el cliente mandaba `texto` y `cantChunks`, y la regla los prohibía, así que **no se podía crear ni un item**.
 
-**Quién escribe:** el **CLIENTE** crea el documento con estado `'pendiente'` y **solo** con los campos marcados CLIENTE (uno de más y `hasOnly()` rechaza la escritura entera). El **BACKEND nunca crea el item**: solo lo actualiza (`pendiente → procesando → listo | error`) y escribe todos los campos derivados.
+**Quién escribe:** el **CLIENTE** crea el documento con estado `'pendiente'` y **solo** con los campos marcados CLIENTE (uno de más y `hasOnly()` rechaza la escritura entera). El **BACKEND nunca crea el item**: solo lo actualiza (`pendiente → procesando → listo | error`), escribe todos los campos derivados y cambia la `visibilidad` cuando alguien usa el candado en vivo.
 **Borrar:** ni el cliente ni el admin desde la app (`allow delete: if false`). Solo el endpoint DELETE, que también borra los chunks.
 **Quién lee:** `visibilidad: 'equipo'` → cualquier miembro. `visibilidad: 'privado'` → solo `creadoPor` y el admin. La app lista **siempre con query filtrada, en dos pestañas separadas** (`where visibilidad == 'equipo'` / `where creadoPor == miUid`), porque las reglas no filtran: rechazan la query entera.
 
@@ -96,7 +99,7 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 |---|---|---|---|
 | `titulo` | string (1 a 140) | **CLIENTE** | Título que ve el usuario y que aparece en la cita de la respuesta. El autor o el admin lo pueden editar después. |
 | `tipo` | string (`'nota'` \| `'pdf'` \| `'word'` \| `'link'` \| `'foto'`) | **CLIENTE** | De dónde salió el contenido. Define qué pipeline usa el backend y qué otros campos son obligatorios. No se puede cambiar después. `'word'` es un documento de Word (solo `.docx`) y tiene el mismo trato que `'pdf'`. |
-| `visibilidad` | string (`'equipo'` \| `'privado'`) | **CLIENTE** | Quién lo puede leer. Es el campo que hace la diferencia de rol del requisito 2. El autor o el admin lo pueden cambiar después. |
+| `visibilidad` | string (`'equipo'` \| `'privado'`) | **CLIENTE** al crear / **BACKEND** después | Quién lo puede leer. Es el campo que hace la diferencia de rol del requisito 2. El cliente la elige **solo al crear**: después la cambia únicamente el backend, con el candado en vivo (`PATCH /v1/workspaces/:wsId/items/:itemId/visibilidad`). Compartir con el equipo es **solo del autor**; pasar a privado, del autor o del admin. El PATCH cambia el item y la copia de **todos** sus chunks ("primero cerrar, último abrir") y deja el evento `item.visibilidad`. Las reglas **no dejan cambiarla desde la app** (ni al autor ni al admin): si se pudiera, el admin publicaría lo privado de otra persona y el cambio no quedaría en el feed ni en los chunks. |
 | `workspaceId` | string | **CLIENTE** | Mismo wsId que el del path; la regla exige que coincidan. Se guarda como campo para que el backend valide pertenencia sin parsear rutas. |
 | `creadoPor` | string (uid) | **CLIENTE** | Autor. La regla exige que sea igual a `request.auth.uid`: nadie firma un item con el uid de otro. Lo usa la regla de 'privado' y el feed de eventos. |
 | `creadoEn` | timestamp (obligatoriamente `FieldValue.serverTimestamp()`) | **CLIENTE** | Alta del item. La regla exige `request.time`, así que el reloj del celular no sirve. Orden por defecto de la lista: `creadoEn desc`. |
@@ -104,14 +107,14 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 | `url` | string (≤ 2000) — solo si `tipo == 'link'` | **CLIENTE** | La dirección original del link. **Se llama `url` en las tres piezas** (en la v1 las reglas lo llamaban `fuenteUrl` y no se podía crear ni un link). El backend la valida contra SSRF antes de hacer fetch y la vuelve a leer del doc en cada reproceso. |
 | `nombreArchivo` | string (≤ 200) \| ausente | **CLIENTE** | Nombre del archivo subido (pdf, Word o foto), para que el usuario reconozca de dónde vino. El archivo NO se guarda en ningún lado: Storage está descartado. |
 | `textoOriginal` | string (1 a 50.000) — solo si `tipo == 'nota'` | **CLIENTE** | **El contenido que escribió la persona.** Es el campo que hace que el tipo 'nota' exista. El autor lo puede editar y después tocar Reprocesar. |
-| `texto` | string (≤ 300.000) | **BACKEND** | El texto **extraído** y normalizado: lo que se trocea en chunks y lo que se le manda a la IA. Para una nota sale de `textoOriginal`; para pdf/foto del OCR; para Word, del texto del `.docx`; para link del fetch. El cliente NUNCA lo escribe: si pudiera, plantaría fuentes falsas en el índice. |
+| `texto` | string (≤ 300.000) | **BACKEND** | El texto **extraído** y normalizado: lo que se trocea en chunks y lo que se le manda a la IA. Para una nota sale de `textoOriginal`; para pdf/foto del OCR; para Word, del texto del `.docx`; para link del fetch. El cliente NUNCA lo escribe: si pudiera, plantaría fuentes falsas en el índice. En los PDF se guarda **con las marcas `<<<PAGINA:n>>>`** entre una página y otra (la foto lleva una sola, como pág. 1): con ellas el troceo sabe de qué página sale cada chunk ("pág. 3"), reprocesar da siempre lo mismo y la pantalla «Lo que leyó NeuroDesk» de la app muestra el texto separado por páginas. `caracteres` se cuenta sin las marcas. |
 | `cantChunks` | number | **BACKEND** | Cuántos chunks generó. 0 mientras no está listo. Permite verificar que el indexado no quedó a medias. |
 | `paginas` | number \| null | **BACKEND** | Cantidad de páginas del PDF. null para nota, link y foto. |
 | `origen` | string (`'nota'` \| `'pdf-texto'` \| `'docx'` \| `'ocr-space'` \| `'link'`) | **BACKEND** | Cómo se extrajo el texto. El panel muestra "extraído por OCR" y ayuda a explicar respuestas malas. Se guarda en el item Y en cada chunk. |
 | `caracteres` | number | **BACKEND** | Largo REAL del texto extraído, antes de cualquier recorte. Sirve para explicar por qué un PDF escaneado dio 40 caracteres de basura. |
 | `recortado` | boolean | **BACKEND** | true si el texto superaba los 300.000 caracteres y hubo que recortarlo para no chocar con el límite de 1 MiB por documento. El panel avisa "documento muy largo, se indexó la primera parte". |
 | `errorMsg` | string \| null | **BACKEND** | Mensaje legible del fallo cuando `estado == 'error'` (ej: "El PDF está protegido con clave"). Es el MISMO texto que devolvió el HTTP, escrito a mano por nosotros: nunca un `err.message` crudo. |
-| `actualizadoEn` | timestamp | **BACKEND** en cada cambio de estado / **CLIENTE** al editar (serverTimestamp obligatorio) | Último cambio. Es lo que usa el barrido para detectar items colgados en 'procesando' hace más de 5 minutos. Como la regla exige `request.time`, el cliente solo puede escribir AHORA, nunca una hora vieja. |
+| `actualizadoEn` | timestamp | **BACKEND** en cada cambio de estado y al cambiar el candado / **CLIENTE** al editar (serverTimestamp obligatorio) | Último cambio. Es lo que usa el barrido para detectar items colgados en 'procesando' hace más de 10 minutos (`/procesar` y `/reprocesar` los aceptan desde los 5). Como la regla exige `request.time`, el cliente solo puede escribir AHORA, nunca una hora vieja. |
 
 ---
 
@@ -124,7 +127,7 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 |---|---|---|---|
 | `workspaceId` | string | **BACKEND** | Filtro obligatorio de TODA búsqueda. Es lo que impide que un workspace vea el conocimiento de otro. |
 | `itemId` | string | **BACKEND** | Item del que salió. Sirve para borrar en lote, para armar la cita y, sobre todo, para el filtro de privacidad: solo pasan los chunks cuyo `itemId` esté en el conjunto de items visibles para el que pregunta. |
-| `visibilidad` | string (`'equipo'` \| `'privado'`) | **BACKEND** | **COPIA de la visibilidad del item al momento de indexar.** Es la SEGUNDA cerradura del RAG (defensa en profundidad), nunca la principal: **puede quedar vieja hasta el próximo reproceso**. Como se aplica con AND junto al conjunto leído en vivo, una copia vieja solo puede esconder de más, nunca mostrar de más. |
+| `visibilidad` | string (`'equipo'` \| `'privado'`) | **BACKEND** | **COPIA de la visibilidad del item al momento de indexar**, que el candado en vivo (`PATCH .../visibilidad`) vuelve a escribir en todos los chunks del item. Es la SEGUNDA cerradura del RAG (defensa en profundidad), nunca la principal: **puede quedar vieja** si alguien cambia el item a mano desde la consola de Firebase (desde la app no se puede: las reglas no dejan editar la visibilidad). Como se aplica con AND junto al conjunto leído en vivo, una copia vieja solo puede esconder de más, nunca mostrar de más. |
 | `creadoPor` | string (uid) | **BACKEND** | **COPIA del autor del item**, misma lógica que `visibilidad`: defensa en profundidad, puede quedar vieja hasta el próximo reproceso. Permite descartar un chunk sin ir a buscar el item, y deja el filtro escrito también en el dato, no solo en un `if`. |
 | `titulo` | string | **BACKEND** | Título del item, desnormalizado, para citar la fuente sin leer el item. |
 | `idx` | number (0..n-1) | **BACKEND** | Posición del trozo dentro del item. Junto al `itemId` forma el id del documento, y por eso reindexar pisa los mismos docs. |
@@ -138,9 +141,11 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 
 ## `workspaces/{wsId}/respuestas/{respId}`
 
-**Quién escribe:** el **CLIENTE** crea el documento con **exactamente cuatro campos**: `pregunta`, `autorUid`, `estado: 'buscando'` y `creadoEn`. Después hace `POST /preguntar` con ese `respId`. Todo lo demás lo escribe el **BACKEND**.
+**Quién escribe:** el **CLIENTE** crea el documento con **exactamente cuatro campos** si es la primera pregunta de una conversación —`pregunta`, `autorUid`, `estado: 'buscando'` y `creadoEn`— o con **exactamente seis** si es una pregunta de seguimiento: esos cuatro más `conversacionId` y `anteriorRespId`, siempre juntos. Nunca cinco (invariante 23). Después hace `POST /preguntar` con ese `respId`. Todo lo demás lo escribe el **BACKEND**.
 **Quién lee:** solo `autorUid` y el admin del workspace. Motivo: una respuesta puede citar fragmentos de items 'privado' del que preguntó, así que no se comparte con el equipo.
 **Ojo:** esta colección **NO tiene campo `workspaceId`**. El wsId va únicamente en el path. Ver el invariante 4.
+**Conversaciones (preguntas de seguimiento, 29/10/2026):** una conversación **no es una colección nueva**, es una **cadena** de documentos de esta misma colección, unida por `conversacionId` y `anteriorRespId`. Así la lectura (autor o admin), el `update` cerrado y los campos que escribe solo el backend siguen siendo las reglas de siempre. El historial le da **contexto** a la IA, nunca **permisos**: en cada vuelta el filtro del RAG se vuelve a calcular en vivo (invariante 10).
+**Índices:** `(autorUid, creadoEn desc)` para el historial del chat; `(autorUid, conversacionId, creadoEn)` para la pantalla de una conversación (**nuevo**, de las preguntas de seguimiento: sin él, Firestore contesta `FAILED_PRECONDITION` y la app muestra "Las preguntas de seguimiento todavía se están preparando…" con un botón Reintentar); y `(estado, creadoEn desc)`, que ya existía, para el Radar «Lo que falta» y la franja «Ahora mismo» del panel, que solo puede leer el admin.
 
 | Campo | Tipo | Quién lo escribe | Para qué |
 |---|---|---|---|
@@ -148,9 +153,12 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 | `autorUid` | string (uid) | **CLIENTE** | Quién preguntó. Define los permisos de lectura y, sobre todo, limita la búsqueda a los items que ESE usuario puede ver. |
 | `estado` | string (`'buscando'` \| `'redactando'` \| `'listo'` \| `'error'`) | **CLIENTE solo al crear** (`'buscando'`) → después **BACKEND** | Ciclo de vida de la respuesta. Es lo que hace que la pantalla muestre progreso en tiempo real. |
 | `creadoEn` | timestamp (serverTimestamp obligatorio) | **CLIENTE** | Cuándo se preguntó. Orden del historial. |
+| `conversacionId` | string (1 a 64) — **solo en las preguntas de seguimiento** | **CLIENTE** | El `respId` de la **primera** pregunta de la conversación (la raíz). Con eso la app lista la conversación entera con una sola query (`where autorUid == miUid` + `where conversacionId == raíz` + `orderBy creadoEn`). La raíz **no** lo tiene, ni siquiera en `null` (la regla rechaza `null`): el campo se omite. Va **siempre junto** con `anteriorRespId`. |
+| `anteriorRespId` | string (1 a 64), distinto del propio `respId` — **solo en las preguntas de seguimiento** | **CLIENTE** | La vuelta de la que se cuelga esta pregunta: desde acá el backend arma el historial para atrás, hasta 3 vueltas. **La app pone la última vuelta `'listo'`** de la conversación, no la última a secas: una vuelta que terminó en `'error'` no tiene respuesta, el backend la rechaza como anterior (`DATOS_INVALIDOS`) y colgarse de ella dejaría la conversación trabada para siempre. En el caso normal la última `'listo'` es la inmediatamente anterior (en la segunda pregunta vale lo mismo que `conversacionId`). |
+| `preguntaBuscada` | string \| null | **BACKEND** | La pregunta de un seguimiento reescrita para que se entienda sola ("¿Y en qué aula?" → "¿En qué aula es la reunión de padres de sexto año?"): es con la que el backend buscó de verdad. Se escribe en el update `'buscando' → 'redactando'`. Queda en `null` en una primera pregunta y cuando la reformulación falló y se buscó con el respaldo (la pregunta anterior y la nueva pegadas; ese texto no se guarda). La app la muestra como "La entendí como: …" y el Radar del panel la usa para agrupar. El cliente **no** la puede escribir: no está en el `hasOnly` de la regla. |
 | `respuesta` | string (aparece recién cuando el backend la escribe) | **BACKEND** | Texto final redactado por la IA, con marcas `[1] [2]` que apuntan a `fuentes[].n`. Mientras el campo no exista, la pantalla muestra el spinner. |
-| `fuentes` | array de map `{n, itemId, titulo, pagina, fragmento, similitud}` | **BACKEND** | Las citas. Es el corazón del producto: cada afirmación se puede abrir y verificar en el item original. Solo entran items que el que preguntó puede ver. |
-| `confianza` | string (`'alta'` \| `'media'` \| `'baja'`) | **BACKEND** | Qué tan parecido era el mejor chunk. Es STRING en las tres piezas. El número crudo vive en `fuentes[].similitud` (≥ 0.72 alta, ≥ 0.64 media; umbral de descarte 0.62; calibrados con datos reales y gemini-embedding-001 el 29/10/2026). |
+| `fuentes` | array de map `{n, itemId, titulo, pagina, fragmento, similitud}` | **BACKEND** | Las citas. Es el corazón del producto: cada afirmación se puede abrir y verificar en el item original. Solo entran items que el que preguntó puede ver. En un seguimiento, solo los fragmentos de **esa** vuelta: un `[1]` de una respuesta vieja no vale como fuente. |
+| `confianza` | string (`'alta'` \| `'media'` \| `'baja'`) | **BACKEND** | Qué tan parecido a la pregunta era el mejor chunk que encontró la búsqueda (el [1] que recibe el modelo). **No dice si la respuesta está bien:** una cita exacta puede salir 'media' (en la calibración, 4 de las 11 preguntas bien contestadas). Es STRING en las tres piezas. El número crudo vive en `fuentes[].similitud` (≥ 0.72 alta, ≥ 0.64 media; umbral de descarte 0.62; calibrados con datos reales y gemini-embedding-001 el 29/10/2026). |
 | `chunksMirados` | number \| null | **BACKEND** | Cuántos chunks tenía el workspace. **`null` cuando quien preguntó no es admin**: decirle a un miembro cuántos hay en total le revela cuánto contenido privado ajeno existe. |
 | `chunksVisibles` | number | **BACKEND** | Cuántos de esos chunks quedaron después de filtrar por lo que ESE uid puede ver. Si el admin pregunta lo mismo, este número es más grande: eso es el requisito 2 mostrado con un número. |
 | `errorMsg` | string \| null | **BACKEND** | Motivo del fallo cuando `estado == 'error'` (ej: "la IA no respondió a tiempo"). |
@@ -165,9 +173,9 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 
 | Campo | Tipo | Quién lo escribe | Para qué |
 |---|---|---|---|
-| `tipo` | string: `'workspace.creado'` \| `'item.listo'` \| `'item.error'` \| `'item.eliminado'` \| `'miembro.agregado'` \| `'miembro.eliminado'` \| `'rol.cambiado'` \| `'pregunta.hecha'` \| `'plan.cambiado'` \| `'items.purgados'` | **BACKEND** | Qué pasó. Define el ícono y el filtro del feed. TODOS con punto, y la lista es idéntica en el contrato. |
+| `tipo` | string: `'workspace.creado'` \| `'item.listo'` \| `'item.error'` \| `'item.eliminado'` \| `'item.visibilidad'` \| `'miembro.agregado'` \| `'miembro.eliminado'` \| `'rol.cambiado'` \| `'pregunta.hecha'` \| `'plan.cambiado'` \| `'items.purgados'` | **BACKEND** | Qué pasó. Define el ícono y el filtro del feed. TODOS con punto, y la lista es idéntica en el contrato. `'item.visibilidad'` es el candado en vivo ("Martín compartió «…» con el equipo" / "… pasó «…» a privado"). El panel muestra igual un tipo que no conoce, con un ícono genérico, y el resumen siempre escapado. |
 | `actorUid` | string (uid) | **BACKEND** | Quién lo hizo. Sale siempre del token verificado, nunca del body. |
-| `resumen` | string | **BACKEND** | Frase corta ya armada para mostrar (ej: "Martín subió Cronograma de mesas de examen"). |
+| `resumen` | string | **BACKEND** | Frase corta ya armada para mostrar (ej: "Martín subió Cronograma de mesas de examen"). Va con **nombres**: el de la ficha de `members` de quien lo hizo y, en los de miembros y roles, el de la persona afectada ("Valentino Mattio sacó a Lucas del equipo"). El email queda solo de respaldo, si una ficha no tiene nombre: el feed se proyecta en la demo («En vivo»), y por eso el panel además tapa todo lo que tenga forma de email. |
 | `itemId` | string \| null | **BACKEND** | Item afectado, si aplica, para que el feed linkee al item. |
 | `creadoEn` | timestamp | **BACKEND** | Cuándo pasó (serverTimestamp). El feed ordena por `creadoEn desc`. |
 
@@ -194,7 +202,7 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 
 Reglas que siempre se cumplen. Si alguna se rompe, no es un detalle: es un bug.
 
-1. **QUIÉN ESCRIBE QUÉ (la invariante madre).** El CLIENTE escribe `titulo`, `tipo`, `visibilidad`, `workspaceId`, `creadoPor`, `creadoEn`, `estado: 'pendiente'`, `url` (links), `nombreArchivo` (pdf/Word/foto) y `textoOriginal` (notas). TODO lo demás —`texto`, `cantChunks`, `paginas`, `origen`, `caracteres`, `recortado`, `errorMsg` y los estados que siguen a 'pendiente'— lo escribe el BACKEND. Si el modelo y las reglas no dicen exactamente esto, hay un bug.
+1. **QUIÉN ESCRIBE QUÉ (la invariante madre).** El CLIENTE escribe `titulo`, `tipo`, `visibilidad`, `workspaceId`, `creadoPor`, `creadoEn`, `estado: 'pendiente'`, `url` (links), `nombreArchivo` (pdf/Word/foto) y `textoOriginal` (notas). TODO lo demás —`texto`, `cantChunks`, `paginas`, `origen`, `caracteres`, `recortado`, `errorMsg` y los estados que siguen a 'pendiente'— lo escribe el BACKEND. Después de crear, el cliente solo puede editar `titulo`, el `textoOriginal` de una nota y `actualizadoEn`: la `visibilidad` la cambia solo el BACKEND (candado en vivo). Si el modelo y las reglas no dicen exactamente esto, hay un bug.
 
 2. **`textoOriginal` y `texto` son DOS CAMPOS DISTINTOS a propósito y nunca se mezclan.** `textoOriginal` lo escribe la persona y solo existe en las notas; `texto` lo escribe el backend en los cinco tipos y es lo único que se trocea en chunks. Para una nota, `texto` sale de normalizar `textoOriginal`.
 
@@ -217,7 +225,8 @@ Reglas que siempre se cumplen. Si alguna se rompe, no es un detalle: es un bug.
 10. **PRIVACIDAD DEL RAG: dos cerraduras con AND, pero UNA SOLA manda.**
     **(a) La que manda —y la única que da la garantía—:** el conjunto de `itemIds` visibles para ese uid se calcula **en cada pedido**, leyendo los items en vivo con dos queries con `.select()` (`visibilidad == 'equipo'` y `creadoPor == uid`; si es admin, todos). **No existe ninguna caché de ese conjunto entre pedidos**: si la hubiera, un cambio de visibilidad quedaría sin efecto hasta que la caché venciera y el fail-closed dejaría de ser cierto. Dentro de un mismo request sí se puede reusar el conjunto ya calculado; fuera de ese request no sobrevive nada.
     **El fail-closed vale para (a):** si el item no aparece en esa lectura en vivo o no se pudo leer, el chunk se descarta. Nunca al revés.
-    **(b) Defensa en profundidad, no garantía:** la copia de `visibilidad` y `creadoPor` que vive en cada chunk es una **foto del item al momento de indexar y PUEDE QUEDAR VIEJA** —si alguien cambia la visibilidad de un item ya indexado, los chunks siguen con el valor anterior **hasta el próximo reproceso**—. Como las dos condiciones se aplican con AND y la que manda es (a), una copia vieja **solo puede esconder de más, nunca mostrar de más**.
+    **(b) Defensa en profundidad, no garantía:** la copia de `visibilidad` y `creadoPor` que vive en cada chunk es una **foto del item al momento de indexar y PUEDE QUEDAR VIEJA**. El candado en vivo (`PATCH .../visibilidad`) la reescribe en todos los chunks del item, en el orden "primero cerrar, último abrir"; pero si alguien cambia la visibilidad a mano desde la consola de Firebase, los chunks siguen con el valor anterior **hasta el próximo reproceso**. Como las dos condiciones se aplican con AND y la que manda es (a), una copia vieja **solo puede esconder de más, nunca mostrar de más**.
+    **En una pregunta de seguimiento vale exactamente lo mismo:** el historial es texto que la persona ya tiene en sus propios documentos y no le abre ningún item.
 
 11. **Un item sin chunks no puede ser citado, y un chunk sin item no puede ser citado.** Las dos direcciones se cumplen: el DELETE borra primero los chunks y después el item, y el filtro del RAG descarta todo chunk cuyo item no aparezca en la lectura en vivo.
 
@@ -243,6 +252,8 @@ Reglas que siempre se cumplen. Si alguna se rompe, no es un detalle: es un bug.
 
 22. **`usuarios.nombre` mide de 2 a 60 caracteres**, ese rango exacto, en el modelo, en el contrato y en la regla (`size() >= 2 && size() <= 60`).
 
+23. **Una respuesta nace con 4 campos o con 6, nunca con 5.** Primera pregunta: `pregunta`, `autorUid`, `estado: 'buscando'` y `creadoEn`. Pregunta de seguimiento: esos cuatro + `conversacionId` + `anteriorRespId`, **los dos o ninguno**, strings de 1 a 64, y `anteriorRespId` distinto del propio `respId`. Los campos que no van **se omiten**: un `null` se rechaza. La regla lo dice con dos listas: `hasOnly` con los seis (el máximo), `hasAll` con los cuatro (el mínimo) y `cadenaDeSeguimientoValida()` para los dos opcionales. El backend repite la misma validación en `preguntar.js` (`leerCadena`), porque el Admin SDK no pasa por las reglas, y además chequea lo que la regla no puede ver sin `get()`: que cada vuelta anterior exista, sea de quien pregunta, sea de esta conversación y esté `'listo'` (fail-closed). `preguntaBuscada` no está en ninguna de las dos listas: la escribe solo el backend.
+
 ---
 
 # CICLO DE VIDA
@@ -265,7 +276,7 @@ Reglas que siempre se cumplen. Si alguna se rompe, no es un detalle: es un bug.
 - **(2)** El backend lee el item, chequea que el estado sea procesable y escribe `procesando` + `actualizadoEn` **en el mismo paso atómico**. Si entran dos taps a la vez, el segundo lee un 'procesando' reciente y se va con **`PROCESO_EN_CURSO` 409** ("Ya lo estamos procesando, esperá unos segundos"): no se procesa dos veces ni se gastan dos veces los créditos de IA.
 - **(3a)** En el mismo update setea `texto`, `cantChunks`, `paginas`, `origen`, `caracteres`, `recortado` y `actualizadoEn`.
 - **(3b)** Escribe `errorMsg` legible (el mismo texto que devolvió por HTTP, escrito a mano por nosotros) y deja `cantChunks` en 0.
-- **(3c)** Render se reinicia o se corta la conexión a mitad del procesamiento y el item queda en 'procesando' para siempre. Al arrancar el servidor y después **cada 10 minutos**, el backend hace `collectionGroup('items').where('estado','==','procesando').where('actualizadoEn','<', ahora - 5 min)` y los pasa a 'error'. Además `/procesar` y `/reprocesar` aceptan como procesable un item en 'procesando' con más de 5 minutos de quietud, así el botón Reintentar funciona incluso antes del barrido.
+- **(3c)** Render se reinicia o se corta la conexión a mitad del procesamiento y el item queda en 'procesando' para siempre. Al arrancar el servidor y después **cada 10 minutos**, el backend hace `collectionGroup('items').where('estado','==','procesando').where('actualizadoEn','<', ahora - 10 min)` y los pasa a 'error' (los 10 minutos son `MINUTOS_ITEM_COLGADO`, que `render.yaml` fija en 10). Además `/procesar` y `/reprocesar` aceptan como procesable un item en 'procesando' con más de 5 minutos de quietud, así el botón Reintentar funciona incluso antes del barrido.
 - **(4)** Por ejemplo, después de editar el `textoOriginal` de una nota. La app avisa: "editaste la nota: tocá Reprocesar para que la IA la vuelva a leer".
 
 **BORRADO.** El item no se borra desde la app: el cliente tiene `allow delete: if false`.
@@ -281,10 +292,10 @@ Reglas que siempre se cumplen. Si alguna se rompe, no es un detalle: es un bug.
 
 | # | Transición | Quién la hace | Qué ve el usuario |
 |---|---|---|---|
-| 1 | (no existe) → `buscando` | **CLIENTE**, creando el doc con exactamente cuatro campos (`pregunta`, `autorUid`, `estado`, `creadoEn`) y recién después haciendo `POST /preguntar` con ese `respId` | La pregunta ya aparece en el hilo con **"Buscando en el conocimiento del equipo..."** |
-| 2 | `buscando` → `redactando` | **BACKEND**, cuando ya armó el conjunto de items visibles para ese uid (dos queries con `.select()`, en vivo), descartó todos los chunks que no están en ese conjunto, calculó el embedding de la pregunta y se quedó con los 6 mejores | **"Redactando la respuesta..."** |
-| 3a | `redactando` → `listo` | **BACKEND**, escribiendo en un solo update `respuesta`, `fuentes[]`, `confianza`, `chunksMirados` y `chunksVisibles` | La respuesta con las marcas `[1] [2]` clickeables. Si `confianza` es 'baja', `fuentes` puede venir vacío y arriba aparece **"No lo encontré en la base del equipo"**. |
-| 3b | `buscando` o `redactando` → `error` | **BACKEND**, si la IA falla o se corta el tiempo. Escribe `errorMsg` | El motivo y un botón **"Volver a preguntar"**, que crea una respuesta NUEVA (no reusa la vieja). |
+| 1 | (no existe) → `buscando` | **CLIENTE**, creando el doc con exactamente cuatro campos (`pregunta`, `autorUid`, `estado`, `creadoEn`) —seis si es un seguimiento: + `conversacionId` y `anteriorRespId`— y recién después haciendo `POST /preguntar` con ese `respId` | La pregunta ya aparece en el hilo con **"Buscando en el conocimiento del equipo..."** |
+| 2 | `buscando` → `redactando` | **BACKEND**, cuando ya armó el conjunto de items visibles para ese uid (dos queries con `.select()`, en vivo), descartó todos los chunks que no están en ese conjunto, calculó el embedding de la pregunta y se quedó con los 6 mejores. En un seguimiento, antes de buscar arma el historial (hasta 3 vueltas) y reformula la pregunta, y en este mismo update escribe `preguntaBuscada` | **"Redactando la respuesta..."** (en un seguimiento, debajo de la pregunta: "La entendí como: …") |
+| 3a | `redactando` → `listo` | **BACKEND**, escribiendo en un solo update `respuesta`, `fuentes[]`, `confianza`, `chunksMirados` y `chunksVisibles` | La respuesta con las marcas `[1] [2]` clickeables. Si `confianza` es 'baja', `fuentes` puede venir vacío y la respuesta dice **"No encontré esto en la base del equipo"** (sin fuentes, la app no muestra el chip de confianza). |
+| 3b | `buscando` o `redactando` → `error` | **BACKEND**, si la IA falla o se corta el tiempo (75 s por vuelta), o si la cadena de un seguimiento no cierra: una vuelta anterior ajena, inexistente, de otra conversación o que no está `'listo'`. Escribe `errorMsg` | El motivo y un botón **"Volver a preguntar"**, que crea una respuesta NUEVA (no reusa la vieja). |
 
 **En los dos ciclos vale la misma regla: el CLIENTE crea el documento en el primer estado y el BACKEND es el único que lo mueve de ahí en adelante.** Como los clientes escuchan Firestore en tiempo real, nadie hace polling al backend para saber en qué estado va.
 
@@ -367,8 +378,9 @@ Reglas que siempre se cumplen. Si alguna se rompe, no es un detalle: es un bug.
 // (4) UN CHUNK DE ESE ITEM -> chunks/itm_9K2mQx7pLd_2
 //     'visibilidad' y 'creadoPor' son la COPIA que hace de
 //     SEGUNDA cerradura del filtro de privacidad. Es una foto
-//     del item al indexar: puede quedar vieja hasta el proximo
-//     reproceso, y por eso NUNCA es la cerradura que manda.
+//     del item al indexar, y el candado (PATCH .../visibilidad)
+//     la mantiene al dia; solo queda vieja si alguien toca el
+//     item desde la consola. Por eso NUNCA es la que manda.
 // ============================================================
 {
   "workspaceId": "ws_est5_berazategui",

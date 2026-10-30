@@ -7,7 +7,7 @@
 //    limpiarTexto(texto)              -> texto normalizado
 //    trocear(texto, {tamano, solape}) -> [{ idx, texto, pagina }]
 //    marcaDePagina(n) / unirPaginas() -> como viaja el numero de pagina
-//    quitarMarcasDePagina(texto)      -> el texto "lindo" que se guarda en el item
+//    quitarMarcasDePagina(texto)      -> sin marcas: para contar caracteres y en notas/links
 //    recortarTexto(texto, tope)       -> {texto, recortado} para el limite de Firestore
 // ============================================================
 
@@ -47,8 +47,11 @@ export function unirPaginas(paginas) {
 }
 
 /**
- * Saca las marcas. Es lo que se guarda en item.texto: la persona que abre el
- * item no tiene por que ver nuestros carteles internos.
+ * Saca las marcas. OJO: NO es lo que se guarda en los PDF ni en las fotos:
+ * ahi item.texto va CON las marcas (ver armarTextoParaGuardar en items.js;
+ * /reprocesar las necesita para volver a citar paginas). Sirve para contar
+ * los caracteres reales y para limpiar notas y links, donde un cartel
+ * escrito a mano inventaria una pagina que no existe.
  */
 export function quitarMarcasDePagina(texto) {
   return String(texto ?? '')

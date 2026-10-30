@@ -121,6 +121,11 @@ Future<void> main() async {
   runApp(AppNeuroDesk(firebaseListo: firebaseListo));
 }
 
+/// La key de la pantalla principal: el espacio Y el rol ('ws_1|admin').
+/// Es una funcion aparte para poder probarla sin Firebase (ver el porque en
+/// _PuertaDelUsuarioState.build, donde se usa).
+Key claveDelHome(String wsId, String rol) => ValueKey<String>('$wsId|$rol');
+
 /// `unawaited` propio para no depender de dart:async solo por esta linea.
 /// Deja escrito que el Future se ignora A PROPOSITO (y no por olvido).
 void unawaited(Future<void> futuro) {
@@ -341,19 +346,27 @@ class _PuertaDelUsuarioState extends State<_PuertaDelUsuario> {
         final Map<String, dynamic> ws =
             (workspaces[wsId] is Map) ? Map<String, dynamic>.from(workspaces[wsId] as Map) : <String, dynamic>{};
 
+        // El rol de aca es solo para DIBUJAR (mostrar o no la pestana del
+        // admin). El rol que MANDA lo chequea el backend leyendo
+        // members/{uid} en cada pedido, y las reglas lo chequean con el claim
+        // del token. La app nunca es la que autoriza.
+        final String rol = (ws['rol'] ?? 'miembro').toString();
+
         return HomePantalla(
-          // Otra vez la key: si la persona cambia de workspace, el State viejo
-          // (con los streams del workspace anterior) se tira y se crea uno
-          // nuevo. Los streams se arman en initState, asi que sin esta key
-          // seguirian apuntando al workspace de antes.
-          key: ValueKey<String>(wsId),
+          // Otra vez la key, y esta vez con DOS datos: el espacio y el rol.
+          // Si cambia cualquiera de los dos, el State viejo se tira y se crea
+          // uno nuevo:
+          //  - el espacio: los streams se arman en initState, asi que sin la
+          //    key seguirian apuntando al workspace de antes;
+          //  - el rol: HomePantalla arma sus pestanas UNA vez (2 para un
+          //    miembro, 3 para el admin) y solo un admin escucha "Todo". Si
+          //    al admin lo pasan a miembro con la app abierta, sin la key
+          //    quedaria un TabController de 3 con 2 pestanas (la pantalla se
+          //    rompe) y una escucha de "Todo" que las reglas ya no permiten.
+          key: claveDelHome(wsId, rol),
           wsId: wsId,
           wsNombre: (ws['nombre'] ?? 'Mi equipo').toString(),
-          // El rol de aca es solo para DIBUJAR (mostrar o no la pestana del
-          // admin). El rol que MANDA lo chequea el backend leyendo
-          // members/{uid} en cada pedido, y las reglas lo chequean con el
-          // claim del token. La app nunca es la que autoriza.
-          rol: (ws['rol'] ?? 'miembro').toString(),
+          rol: rol,
           workspaces: workspaces,
           miUid: widget.uid,
         );

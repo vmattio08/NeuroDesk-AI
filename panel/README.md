@@ -119,19 +119,25 @@ Drop), anda igual porque es estático, pero ese dominio nuevo hay que sumarlo a
 ```
 panel/
 ├── index.html              login (la puerta)
-├── app.html                el shell: barra lateral + router por hash
-├── css/estilo.css          todo el CSS, con la paleta arriba de todo
+├── app.html                el shell: barra lateral + router por hash + botón de tema
+├── css/estilo.css          todo el CSS, con la paleta arriba de todo (tema oscuro y claro)
+├── img/isotipo-oscuro.png  el logo OFICIAL, copiado byte a byte de marca/png/ (nunca se redibuja)
 ├── js/
 │   ├── firebase.js         initializeApp + Firestore con caché persistente
 │   │                       (acá está la config del proyecto)
 │   ├── auth.js             entrar, salir y el guardia de admin
 │   ├── api.js              pedir(): la única función que llama al backend
 │   │                       (URL_API: local o Render, se elige sola)
-│   ├── util.js             esc() y las fechas
+│   ├── util.js             esc(), las fechas y nombreDeAutor() (funciones puras)
+│   ├── nombres.js          de uid a nombre: members + exMiembros (lee una vez)
+│   ├── iconos.js           los íconos del panel, en SVG hecho a mano
+│   ├── radar-calculos.js   las cuentas del Radar, SIN Firebase (se prueban con node)
 │   └── pantallas/
-│       ├── items.js        tabla en vivo + buscador + filtros + badge
-│       ├── miembros.js     alta y baja de miembros (llama al backend)
-│       └── dashboard.js    4 KPIs + gráfico (Chart.js por CDN)
+│       ├── items.js        Contenido: tabla en vivo + buscador + filtros + candado
+│       ├── radar.js        Lo que falta: preguntas sin respuesta + "Cargar la respuesta"
+│       ├── actividad.js    En vivo: eventos en tiempo real + franja "Ahora mismo"
+│       ├── miembros.js     alta, baja y cambio de rol (llama al backend)
+│       └── dashboard.js    Resumen: 4 KPIs + gráfico (Chart.js por CDN)
 └── README.md               este archivo
 ```
 
@@ -155,23 +161,53 @@ antes de montar la pantalla siguiente, siempre.
 
 **Hace:**
 
-- Ver **todo** el contenido del espacio en tiempo real, incluidos los items
-  marcados como *privados* (eso es exactamente lo que el admin puede y un
-  miembro no).
-- Buscar y filtrar por estado, tipo y visibilidad.
-- Invitar por email y quitar miembros (llamando al backend).
-- Ver los 4 números del espacio y la actividad de la semana.
+- **Contenido:** ver **todo** el contenido del espacio en tiempo real,
+  incluidos los items marcados como *privados* (eso es exactamente lo que el
+  admin puede y un miembro no). Buscar y filtrar por estado, tipo y
+  visibilidad. El candado de cada item («Del equipo» / «Privado») se actualiza
+  solo cuando lo cambian desde la app: compartirlo con el equipo lo puede hacer
+  solo el autor, y pasarlo a privado, el autor o el admin. La columna Autor dice el nombre
+  también de quien ya se fue: «Lucas (ya no está en el equipo)».
+- **Lo que falta (el Radar):** junta, en vivo, las preguntas del equipo que la
+  IA no pudo contestar (respuestas `listo` con `fuentes` vacío), las agrupa por
+  texto y las cuenta («3 veces esta semana»), **sin nombres** salvo que se
+  pidan. Arriba: el % de preguntas de la semana respondidas con fuente y los 5
+  documentos que más preguntas respondieron. El botón **«Cargar la respuesta
+  para el equipo»** crea una nota del equipo (con EXACTAMENTE los campos que
+  deja la regla) y la manda a procesar; cuando alguien vuelve a preguntar lo
+  mismo y esta vez hay fuente, la fila pasa a **«Resuelta»**.
+- **En vivo:** los últimos 50 eventos del servidor, con un ícono por tipo
+  (los tipos que no conoce salen con uno genérico), un filtro, una animación
+  corta en las filas nuevas, la opción de esconder el texto de las preguntas
+  para proyectar, y la franja **«Ahora mismo»** con lo que se está procesando
+  o preguntando (solo lo de los últimos minutos: un pendiente olvidado hace
+  dos meses no es «ahora»).
+- **Miembros:** invitar por email (si la persona no tiene cuenta, el servidor
+  se la crea y el panel muestra **una sola vez** la contraseña temporal),
+  **«Hacer admin» / «Pasar a miembro»** con confirmación, y quitar. Abajo,
+  quiénes ya no están en el equipo (`exMiembros`).
+- **Resumen:** los 4 números del espacio y lo que se cargó en la semana.
+- **Tema claro (proyector):** un botón en la barra lateral pasa todo el panel
+  a fondo claro con los mismos acentos cian y el mismo logo, por si en el aula
+  el oscuro se ve lavado. Se recuerda en ese navegador.
 
 **No hace (a propósito, está fuera del alcance de esta entrega):**
 
-- **Subir archivos.** Eso es la app Flutter. El panel es de lectura y de
-  administración de personas.
-- **Borrar items ni reprocesarlos.** Los endpoints existen
+- **Subir archivos.** Eso es la app Flutter. Lo único que el panel escribe en
+  `items` es la nota del Radar.
+- **Borrar items ni reprocesarlos desde Contenido.** Los endpoints existen
   (`DELETE .../items/:itemId` y `POST .../items/:itemId/reprocesar`) y
   `pedir()` ya sabe llamarlos; falta el botón en la fila de `items.js`.
-- **Cambiar el rol de un miembro** (`PATCH .../miembros/:uid`). Mismo caso.
-- **Feed de eventos y pantalla de pagos.** Las reglas ya dejan que solo el
-  admin lea `eventos/` y `suscripcion/`; las pantallas todavía no están.
+- **Pantalla de pagos.** Las reglas ya dejan que solo el admin lea
+  `suscripcion/`; la pantalla todavía no está (Mercado Pago es «próximamente»).
+
+**Cómo se prueba la lógica del Radar sin navegador:** `js/radar-calculos.js` y
+`js/util.js` no importan nada (ni Firebase ni el DOM), así que un test de
+`node --test` los puede importar directo: agrupar, contar, «Resuelta», el % de
+la semana, los 5 más citados y que la nota tenga los mismos campos que
+`camposQuePuedeCrearElCliente` de `firestore.rules`. **No pongan tests adentro
+de `panel/`**: `scripts/armar-sitio.mjs` publica todo lo `.js`/`.mjs` de esta
+carpeta en Hosting.
 
 ---
 
@@ -184,10 +220,15 @@ antes de montar la pantalla siguiente, siempre.
 | 404 en los `import` de gstatic | Esa versión del SDK no existe. Cambiala en las **tres** líneas de import de `js/firebase.js`. |
 | `permission-denied` al listar items | En este orden: **1)** token viejo (cerrá sesión y volvé a entrar), **2)** no sos admin de ese espacio, **3)** falta un `where`, **4)** recién ahí, la regla. |
 | `failed-precondition` al filtrar | Falta el índice compuesto. El error de la consola trae el link para crearlo. |
+| «Lo que falta» o «Ahora mismo» dicen que falta un índice | Son los de `(estado ASC, creadoEn DESC)` de `respuestas` y de `items`, que están en `firestore.indexes.json` y ya se publicaron. Si igual aparece (por ejemplo, en otro proyecto de Firebase), publicarlos con `firebase deploy --only firestore:indexes` y esperar unos minutos. |
+| «En vivo» dice que solo el administrador puede | `eventos/` es SOLO del admin. Si recién te cambiaron el rol, el token todavía no se renovó: cerrá sesión y volvé a entrar. |
+| «Cargar la respuesta»: *Firestore no dejó guardar la nota* | Token viejo (cerrá sesión y volvé a entrar). Si sigue, alguien cambió los campos de `datosDeLaNota()` en `js/radar-calculos.js`: tienen que ser EXACTAMENTE los de la regla. |
+| «Cargar la respuesta»: *quedó guardada, pero no se pudo procesar* | El backend no contestó (dormido o apagado). La nota ya está en *Pendiente*: tocá **Reintentar** en la misma fila. |
+| En el proyector el panel se ve lavado | Botón **Tema claro (proyector)** en la barra lateral. |
 | `auth/unauthorized-domain` | Falta agregar el dominio en Authentication → Settings → Authorized domains. |
 | El fetch al backend "no llega" pero el backend loguea el pedido | CORS: el origen del panel no está en la lista del backend. |
 | Desde el emulador de Hosting (`localhost:5002`) se ve todo, pero invitar o quitar miembros da *"No hay conexión con el servidor"* | CORS otra vez: el backend local, sin `CORS_ORIGENES`, solo acepta los puertos 5500 y 8080. Agregá al `.env` de `api/` la línea `CORS_ORIGENES=http://localhost:5500,http://127.0.0.1:5500,http://localhost:8080,http://127.0.0.1:8080,http://localhost:5002,http://127.0.0.1:5002` (la variable **reemplaza** la lista por defecto: por eso van todos) y reiniciá el backend. |
-| Recién publicado, se sigue viendo lo viejo | Caché: el HTML se revisa siempre, pero CSS, JS e imágenes se guardan hasta 10 minutos. Ctrl+F5 para no esperar. |
+| Recién publicado, el panel queda en «Cargando…» (en la consola: *does not provide an export named …*) o se sigue viendo lo viejo | La caché del navegador mezcló versiones. Ctrl+F5 (F5 solo no alcanza). Con los encabezados de `firebase.json` (HTML, CSS y JS con `no-cache`, que se revisan en cada visita) no debería pasar; solo una imagen puede verse vieja hasta 10 minutos. |
 | Todo tarda 60 segundos la primera vez | Render free estaba dormido. Es normal, y por eso el panel llama a `/salud` al arrancar. |
 | El badge dice *Sin conexión* un instante al cargar | Normal: la primera foto siempre sale de la caché. Si **queda** en *Sin conexión*, ahí sí no hay internet. |
 
@@ -206,8 +247,11 @@ Lo que protege los datos son otras dos cosas, y ninguna vive en esta carpeta:
 
 1. **`firebase/firestore.rules`** — Firestore no le entrega un documento a
    quien no tiene el custom claim correcto, diga lo que diga el JavaScript del
-   navegador. `chunks/`, `eventos/` y `suscripcion/` están cerrados; `items` se
-   filtra por visibilidad y por rol.
+   navegador. `chunks/` está cerrado para todos; `eventos/` y `suscripcion/`
+   son solo del admin; `items` se filtra por visibilidad y por rol, y las
+   `respuestas` de todo el equipo (lo que lee el Radar) también las puede
+   listar solo el admin: un miembro que intenta las queries de «Lo que falta»
+   o de «En vivo» recibe `permission-denied`.
 2. **El backend** — verifica el ID token con `verifyIdToken()` **y además** lee
    `workspaces/{wsId}/members/{uid}` en cada pedido, que es lo único que corta
    al instante a alguien recién echado.

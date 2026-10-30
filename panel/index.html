@@ -12,7 +12,8 @@
    NO hay registro aca a proposito: al panel entran cuentas que YA existen y
    que ya son admin de algun workspace. Las cuentas se crean desde la app
    Flutter (que llama a POST /v1/auth/registro) y a admin se asciende desde
-   este mismo panel, en la pantalla de Miembros.
+   este mismo panel, en la pantalla de Miembros (boton "Hacer admin", que
+   llama a PATCH /v1/workspaces/:wsId/miembros/:uid).
 
    OJO: esto es un modulo ES. NO funciona abriendo el archivo con doble clic
    (file://): el navegador bloquea los imports por CORS. Hay que servirlo por
@@ -24,18 +25,33 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Entrar — NeuroDesk AI</title>
+
+  <!-- El tema que eligio el admin en el panel (claro para el proyector). Va
+       antes del CSS para que no parpadee; ver el mismo bloque en app.html. -->
+  <script>
+    try {
+      if (localStorage.getItem('neurodesk.panel.tema') === 'claro') {
+        document.documentElement.dataset.tema = 'claro';
+      }
+    } catch (e) { /* sin almacenamiento: tema oscuro */ }
+  </script>
+
   <link rel="stylesheet" href="css/estilo.css">
+  <!-- Favicon: el isotipo oficial, el PNG tal cual (el navegador lo achica). -->
+  <link rel="icon" type="image/png" href="img/isotipo-oscuro.png">
 </head>
 
 <body class="pantalla-login">
 
   <main class="caja-login">
 
+    <!-- El logo oficial (img/isotipo-oscuro.png, copiado byte a byte de la
+         carpeta marca/) en su placa, igual que en la app y en la landing. -->
     <div class="marca-login">
-      <div class="logo">ND</div>
+      <span class="placa placa--grande"><img src="img/isotipo-oscuro.png" alt="" width="601" height="601"></span>
       <div>
         <b>NeuroDesk AI</b>
-        <span>Panel de administración</span>
+        <span>Panel del administrador</span>
       </div>
     </div>
 
@@ -74,8 +90,8 @@
 
     <p class="chico apagado" style="margin-top:14px">
       Al panel solo entran las cuentas que son <b>administradoras</b> de algún
-      espacio de trabajo. Si tenés cuenta pero no sos admin, pedile a quien
-      creó el espacio que te ascienda desde Miembros.
+      espacio de trabajo. Si tenés cuenta pero no sos admin, pedile a un
+      administrador de tu espacio que te toque <b>Hacer admin</b> en Miembros.
     </p>
 
   </main>

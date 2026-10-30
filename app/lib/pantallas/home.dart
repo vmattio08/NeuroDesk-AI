@@ -26,6 +26,19 @@
 //  vez peligroso: la persona puede estar mirando datos de hace dos horas sin
 //  enterarse. snapshot.metadata.isFromCache dice exactamente eso, y lo
 //  mostramos con una banda amarilla arriba.
+//
+//  ======================== CADA FILA DICE DE QUIEN ES ======================
+//  "de Martín Sosa · 14/10": el nombre sale de members (y de exMiembros si
+//  esa persona ya no esta), resuelto en vivo por EquipoEnVivo (equipo.dart).
+//  Tocar la fila abre "Lo que leyó NeuroDesk" (detalle_item.dart).
+//
+//  ======================== EL CANDADO EN VIVO ==============================
+//  El menu de cada fila puede "Compartir con el equipo" o "Pasar a privado".
+//  NO se cambia el campo desde la app aunque la regla lo deje: cada fragmento
+//  del item guarda una COPIA de la visibilidad, que el buscador usa como
+//  segunda cerradura. Si la app cambiara solo el item, la IA le seguiria
+//  escondiendo la nota al equipo. Por eso va por el backend
+//  (PATCH .../visibilidad), que cambia el item y TODOS sus fragmentos.
 // ============================================================================
 
 import 'dart:async';
@@ -36,9 +49,11 @@ import 'package:flutter/material.dart';
 
 import '../servicios/api.dart';
 import '../servicios/auth_servicio.dart';
+import '../servicios/equipo.dart';
 import '../tema.dart';
 import 'captura.dart';
 import 'chat.dart';
+import 'detalle_item.dart';
 
 class HomePantalla extends StatefulWidget {
   const HomePantalla({
@@ -63,6 +78,50 @@ class HomePantalla extends StatefulWidget {
 
   final String miUid;
 
+  /// Que cambio de candado puede ofrecer el menu de una fila (contrato A),
+  /// o null si ninguno:
+  ///   'equipo'  -> "Compartir con el equipo": SOLO el autor, y solo si hoy
+  ///                es privado. Ni el admin comparte lo privado de otro: seria
+  ///                publicar algo que su autor guardo para si.
+  ///   'privado' -> "Pasar a privado": el autor o un admin, si hoy es del
+  ///                equipo.
+  /// Esconder la opcion es comodidad, NO seguridad: el backend lo vuelve a
+  /// chequear y contesta NO_SOS_EL_AUTOR.
+  static String? candadoQueSePuedeCambiar({
+    required bool esMio,
+    required bool esAdmin,
+    required String visibilidad,
+  }) {
+    if (visibilidad == 'equipo') return (esMio || esAdmin) ? 'privado' : null;
+    return esMio ? 'equipo' : null;
+  }
+
+  /// El aviso de error PROPIO del candado, o null si sirve el mensaje del
+  /// catalogo del backend tal cual (el mismo camino que reintentar y borrar).
+  ///
+  /// POR QUE HACE FALTA: los mensajes del catalogo estan escritos para todas
+  /// las acciones y en estos tres casos se entienden mal:
+  ///   - NO_SOS_EL_AUTOR dice "el autor o un administrador", que es verdad
+  ///     para pasar a privado pero NO para compartir (eso es solo del autor);
+  ///   - PROCESO_EN_CURSO dice "Ya lo estamos procesando", y aca la persona no
+  ///     pidio procesar nada: pidio cambiar quien lo ve;
+  ///   - RUTA_NO_ENCONTRADA es un servidor que todavia no tiene el candado
+  ///     (por ejemplo, uno publicado antes de esta funcion), y "probá de nuevo
+  ///     en un rato" haria reintentar algo que no va a andar.
+  /// Se decide por el CODIGO, nunca por el texto del mensaje.
+  static String? avisoDeErrorDelCandado(String codigo, {required bool compartir}) {
+    switch (codigo) {
+      case 'NO_SOS_EL_AUTOR':
+        return compartir ? 'Solo quien lo subió lo puede compartir con el equipo.' : null;
+      case 'PROCESO_EN_CURSO':
+        return 'Se está procesando: cuando termine vas a poder cambiar quién lo ve.';
+      case 'RUTA_NO_ENCONTRADA':
+        return 'Esta función todavía no está en el servidor. Probá de nuevo más tarde.';
+      default:
+        return null;
+    }
+  }
+
   @override
   State<HomePantalla> createState() => _HomePantallaState();
 }
@@ -73,9 +132,15 @@ class _HomePantallaState extends State<HomePantalla>
   // Si se armaran adentro de build(), cada setState (por ejemplo el del badge
   // de conexion) crearia streams NUEVOS: la lista parpadearia y Firestore
   // cobraria las lecturas de nuevo cada vez.
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> _itemsDelEquipo;
-  late final Stream<QuerySnapshot<Map<String, dynamic>>> _misItems;
-  late final Stream<QuerySnapshot<Map<String, dynamic>>>? _todosLosItems;
+  // No son final por UN solo motivo: el boton "Reintentar" de una lista que
+  // fallo. Un listener de Firestore que recibio permission-denied queda
+  // muerto y no revive solo (pasa justo despues de un cambio de rol, hasta
+  // que el telefono tiene el token nuevo).
+  late Stream<QuerySnapshot<Map<String, dynamic>>> _itemsDelEquipo;
+  late Stream<QuerySnapshot<Map<String, dynamic>>> _misItems;
+  Stream<QuerySnapshot<Map<String, dynamic>>>? _todosLosItems;
+
+  late final CollectionReference<Map<String, dynamic>> _items;
 
   late final TabController _pestanas;
 
@@ -93,41 +158,58 @@ class _HomePantallaState extends State<HomePantalla>
   void initState() {
     super.initState();
 
-    final CollectionReference<Map<String, dynamic>> items = FirebaseFirestore
-        .instance
+    _items = FirebaseFirestore.instance
         .collection('workspaces')
         .doc(widget.wsId)
         .collection('items');
 
-    // includeMetadataChanges: true -> ademas de los cambios de datos, avisa
-    // cuando el mismo dato pasa de venir del cache a venir del servidor. Sin
-    // esto el badge de "sin conexion" se quedaria prendido aunque ya haya
-    // vuelto internet, porque no habria un evento nuevo que lo apague.
-    _itemsDelEquipo = items
-        .where('visibilidad', isEqualTo: 'equipo')
-        .orderBy('creadoEn', descending: true)
-        .limit(50)
-        .snapshots(includeMetadataChanges: true);
-
-    _misItems = items
-        .where('creadoPor', isEqualTo: widget.miUid)
-        .orderBy('creadoEn', descending: true)
-        .limit(50)
-        .snapshots(includeMetadataChanges: true);
-
+    _itemsDelEquipo = _escucharDelEquipo();
+    _misItems = _escucharMios();
     // La tercera vista es SOLO para el admin: es la diferencia de rol que se
     // muestra en la demo. Un miembro no puede hacer esta query (le fallaria
     // entera por los items privados ajenos), asi que ni la creamos.
-    _todosLosItems = _esAdmin
-        ? items
-            .orderBy('creadoEn', descending: true)
-            .limit(50)
-            .snapshots(includeMetadataChanges: true)
-        : null;
+    _todosLosItems = _esAdmin ? _escucharTodos() : null;
 
+    // La cantidad de pestanas se decide UNA vez, aca. Por eso la key de esta
+    // pantalla en main.dart junta el espacio Y el rol: si cambia el rol con
+    // la app abierta, se arma una pantalla nueva con 2 o 3 pestanas.
     _pestanas = TabController(length: _esAdmin ? 3 : 2, vsync: this);
 
     _vigilarConexion();
+  }
+
+  // includeMetadataChanges: true -> ademas de los cambios de datos, avisa
+  // cuando el mismo dato pasa de venir del cache a venir del servidor. Sin
+  // esto el badge de "sin conexion" se quedaria prendido aunque ya haya
+  // vuelto internet, porque no habria un evento nuevo que lo apague.
+  Stream<QuerySnapshot<Map<String, dynamic>>> _escucharDelEquipo() => _items
+      .where('visibilidad', isEqualTo: 'equipo')
+      .orderBy('creadoEn', descending: true)
+      .limit(50)
+      .snapshots(includeMetadataChanges: true);
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _escucharMios() => _items
+      .where('creadoPor', isEqualTo: widget.miUid)
+      .orderBy('creadoEn', descending: true)
+      .limit(50)
+      .snapshots(includeMetadataChanges: true);
+
+  Stream<QuerySnapshot<Map<String, dynamic>>> _escucharTodos() => _items
+      .orderBy('creadoEn', descending: true)
+      .limit(50)
+      .snapshots(includeMetadataChanges: true);
+
+  /// "Reintentar" de una lista que fallo: primero un token fresco (el caso
+  /// tipico es un rol recien cambiado que el token todavia no trae) y
+  /// despues una escucha NUEVA.
+  Future<void> _volverAEscuchar(String cual) async {
+    await AuthServicio.refrescarToken();
+    if (!mounted) return;
+    setState(() {
+      if (cual == 'equipo') _itemsDelEquipo = _escucharDelEquipo();
+      if (cual == 'mios') _misItems = _escucharMios();
+      if (cual == 'todos' && _esAdmin) _todosLosItems = _escucharTodos();
+    });
   }
 
   /// El cartel de "sin internet". connectivity_plus dice si hay red, no si hay
@@ -275,6 +357,119 @@ class _HomePantallaState extends State<HomePantalla>
     }
   }
 
+  /// El candado en vivo (contrato A): "Compartir con el equipo" o "Pasar a
+  /// privado". Va por el backend y no tocando el campo desde la app: el
+  /// backend cambia el item Y la copia del candado de cada fragmento, y deja
+  /// el evento 'item.visibilidad'. No se reprocesa nada: el permiso se vuelve
+  /// a leer en cada pregunta.
+  ///
+  /// [nueva] es 'equipo' o 'privado' (lo que dio candadoQueSePuedeCambiar).
+  Future<void> _cambiarCandado(
+    String itemId,
+    String titulo,
+    String nueva, {
+    required bool esMio,
+  }) async {
+    if (_ocupados.contains(itemId)) return;
+    final bool compartir = nueva == 'equipo';
+
+    final String explicacion;
+    if (compartir) {
+      explicacion = '"$titulo" va a aparecer en "Del equipo" y, desde la próxima '
+          'pregunta, la IA se lo va a poder citar a cualquier compañero. No hace '
+          'falta volver a procesarlo.';
+    } else {
+      // Privado = su autor y los administradores (las reglas dejan al admin
+      // leer todo). Se dice quien, segun quien lo esta cambiando.
+      final String quienes = !esMio
+          ? 'su autor y el administrador'
+          : (_esAdmin ? 'vos y cualquier otro administrador' : 'vos y el administrador');
+      explicacion = '"$titulo" deja de verse en "Del equipo" y la IA deja de '
+          'citárselo al resto. Lo siguen viendo $quienes. Lo que la IA ya '
+          'respondió con esto queda en el historial de cada uno.';
+    }
+
+    final bool confirmado = await showDialog<bool>(
+          context: context,
+          builder: (BuildContext ctx) => AlertDialog(
+            backgroundColor: superficie,
+            title: Text(
+              compartir ? '¿Compartir con el equipo?' : '¿Pasar a privado?',
+              style: const TextStyle(color: grisClaro),
+            ),
+            content: Text(explicacion, style: const TextStyle(color: grisApagado)),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text(compartir ? 'Compartir' : 'Pasar a privado'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    // El await del dialogo tambien es un await: hay que chequear mounted.
+    if (!confirmado || !mounted) return;
+
+    setState(() => _ocupados.add(itemId));
+    try {
+      final RespuestaApi r = await Api.cambiarVisibilidad(
+        wsId: widget.wsId,
+        itemId: itemId,
+        visibilidad: nueva,
+      );
+      if (!mounted) return;
+      if (r.ok) {
+        // La fila cambia sola (el stream ve el candado nuevo); el aviso
+        // cuenta lo que no se ve: que cambio lo que la IA puede citar.
+        mostrarAviso(
+          context,
+          compartir
+              ? 'Listo: ahora lo ve todo el equipo y la IA se lo puede citar a cualquiera.'
+              : 'Listo: ahora es privado. Lo ven su autor y el administrador.',
+        );
+        return;
+      }
+      // Los tres casos donde el mensaje del catalogo se entenderia mal (ver
+      // avisoDeErrorDelCandado) llevan su propio aviso.
+      final String? propio =
+          HomePantalla.avisoDeErrorDelCandado(r.codigo, compartir: compartir);
+      if (propio != null) {
+        mostrarAviso(context, propio, esError: true);
+        return;
+      }
+      // El resto (ITEM_NO_ENCONTRADO, sesion vencida, sin conexion...) con el
+      // mensaje del catalogo, igual que reintentar y borrar.
+      await _avisarSegunRespuesta(r);
+    } catch (e) {
+      debugPrint('[NeuroDesk] cambiar el candado exploto: $e');
+      if (mounted) {
+        mostrarAviso(context, 'No pudimos cambiar quién lo ve. Probá de nuevo.', esError: true);
+      }
+    } finally {
+      if (mounted) setState(() => _ocupados.remove(itemId));
+    }
+  }
+
+  /// Tocar una fila abre "Lo que leyó NeuroDesk". Solo se le pasa el id: la
+  /// pantalla escucha el item en vivo (si se esta procesando, lo ve terminar).
+  void _abrirDetalle(String itemId, String titulo) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => DetalleItemPantalla(
+          wsId: widget.wsId,
+          itemId: itemId,
+          miUid: widget.miUid,
+          titulo: titulo,
+        ),
+      ),
+    );
+  }
+
   /// Cambiar de equipo: se escribe workspaceActual en la propia ficha.
   /// Es uno de los DOS unicos campos que el cliente puede editar de
   /// usuarios/{uid} (el otro es 'nombre'). No navegamos: la Puerta de
@@ -328,6 +523,7 @@ class _HomePantallaState extends State<HomePantalla>
                   wsId: widget.wsId,
                   wsNombre: widget.wsNombre,
                   miUid: widget.miUid,
+                  esAdmin: _esAdmin,
                 ),
               ),
             ),
@@ -399,32 +595,45 @@ class _HomePantallaState extends State<HomePantalla>
         children: <Widget>[
           if (_sinInternet) const _BandaSinConexion(),
           Expanded(
-            child: TabBarView(
-              controller: _pestanas,
-              children: <Widget>[
-                _ListaDeItems(
-                  stream: _itemsDelEquipo,
-                  vacioTitulo: 'Todavía no hay nada compartido',
-                  vacioDetalle:
-                      'Lo que suban tus compañeros como "Todo el equipo" aparece acá.',
-                  constructorDeFila: _fila,
-                ),
-                _ListaDeItems(
-                  stream: _misItems,
-                  vacioTitulo: 'Todavía no subiste nada',
-                  vacioDetalle:
-                      'Tocá Agregar para guardar tu primera nota, foto, PDF o Word.',
-                  constructorDeFila: _fila,
-                ),
-                if (_esAdmin)
-                  _ListaDeItems(
-                    stream: _todosLosItems!,
-                    vacioTitulo: 'El equipo todavía no cargó nada',
-                    vacioDetalle:
-                        'Como administrador ves todo, incluso lo privado de cada uno.',
-                    constructorDeFila: _fila,
-                  ),
-              ],
+            // Los nombres del equipo, en vivo, para el "de Martín · 14/10" de
+            // cada fila. Va por fuera de las pestanas: una sola escucha para
+            // las tres listas.
+            child: EquipoEnVivo(
+              wsId: widget.wsId,
+              builder: (BuildContext context, NombresDelEquipo nombres) {
+                Widget fila(QueryDocumentSnapshot<Map<String, dynamic>> doc) =>
+                    _fila(doc, nombres);
+                return TabBarView(
+                  controller: _pestanas,
+                  children: <Widget>[
+                    _ListaDeItems(
+                      stream: _itemsDelEquipo,
+                      vacioTitulo: 'Todavía no hay nada compartido',
+                      vacioDetalle:
+                          'Lo que suban tus compañeros como "Todo el equipo" aparece acá.',
+                      constructorDeFila: fila,
+                      alReintentar: () => _volverAEscuchar('equipo'),
+                    ),
+                    _ListaDeItems(
+                      stream: _misItems,
+                      vacioTitulo: 'Todavía no subiste nada',
+                      vacioDetalle:
+                          'Tocá Agregar para guardar tu primera nota, foto, PDF o Word.',
+                      constructorDeFila: fila,
+                      alReintentar: () => _volverAEscuchar('mios'),
+                    ),
+                    if (_esAdmin)
+                      _ListaDeItems(
+                        stream: _todosLosItems!,
+                        vacioTitulo: 'El equipo todavía no cargó nada',
+                        vacioDetalle:
+                            'Como administrador ves todo, incluso lo privado de cada uno.',
+                        constructorDeFila: fila,
+                        alReintentar: () => _volverAEscuchar('todos'),
+                      ),
+                  ],
+                );
+              },
             ),
           ),
         ],
@@ -447,8 +656,11 @@ class _HomePantallaState extends State<HomePantalla>
   }
 
   /// Una fila del muro. Se pasa como funcion a las tres listas para que las
-  /// tres se vean exactamente igual.
-  Widget _fila(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+  /// tres se vean exactamente igual. [nombres] sale de EquipoEnVivo.
+  Widget _fila(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    NombresDelEquipo nombres,
+  ) {
     final Map<String, dynamic> d = doc.data();
 
     // Todo se lee con default. Un item cargado a mano desde la consola de
@@ -462,139 +674,192 @@ class _HomePantallaState extends State<HomePantalla>
     final int cantChunks = (d['cantChunks'] is int) ? d['cantChunks'] as int : 0;
     final bool esMio = (d['creadoPor'] ?? '') == widget.miUid;
     final bool ocupado = _ocupados.contains(doc.id);
+    final String? candado = HomePantalla.candadoQueSePuedeCambiar(
+      esMio: esMio,
+      esAdmin: _esAdmin,
+      visibilidad: visibilidad,
+    );
+    // Mientras se procesa, el backend contesta PROCESO_EN_CURSO: cambiar el
+    // candado en ese momento dejaria fragmentos a medio escribir con la copia
+    // vieja. La opcion se ve, pero apagada.
+    final bool candadoDisponible = estado != 'procesando';
 
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
+    // Material + InkWell (y no un Container) para que toda la fila se pueda
+    // tocar con el efecto de onda; el menu y el boton de adentro siguen
+    // atendiendo sus propios toques.
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+      child: Material(
         color: superficie,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: colorDeEstado(estado).withValues(alpha: 0.35)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Icon(iconoDeTipo(tipo), color: azulRoyal, size: 22),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: colorDeEstado(estado).withValues(alpha: 0.35)),
+        ),
+        child: InkWell(
+          onTap: () => _abrirDetalle(doc.id, titulo),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Text(
-                      titulo,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: grisClaro,
-                        fontSize: 15.5,
-                        fontWeight: FontWeight.w600,
+                    Icon(iconoDeTipo(tipo), color: azulRoyal, size: 22),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            titulo,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: grisClaro,
+                              fontSize: 15.5,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 6,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: <Widget>[
+                              ChipDeEstado(estado: estado),
+                              Icon(
+                                visibilidad == 'privado' ? Icons.lock : Icons.groups,
+                                size: 14,
+                                color: grisApagado,
+                              ),
+                              // "de Martín Sosa · 14/10": el equipo se ve en el muro.
+                              Text(
+                                autorDeLaFila(item: d, miUid: widget.miUid, nombres: nombres),
+                                style: const TextStyle(color: grisApagado, fontSize: 12),
+                              ),
+                              // Con el singular bien puesto: "1 fragmentos" en
+                              // la fila de una nota corta se veia en la demo.
+                              if (estado == 'listo' && cantChunks > 0)
+                                Text(
+                                  cantChunks == 1
+                                      ? '1 fragmento indexado'
+                                      : '$cantChunks fragmentos indexados',
+                                  style: const TextStyle(color: grisApagado, fontSize: 12),
+                                ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 6),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 6,
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      children: <Widget>[
-                        ChipDeEstado(estado: estado),
-                        Text(
-                          fechaCorta(d['creadoEn']),
-                          style: const TextStyle(color: grisApagado, fontSize: 12),
-                        ),
-                        Icon(
-                          visibilidad == 'privado' ? Icons.lock : Icons.groups,
-                          size: 14,
-                          color: grisApagado,
-                        ),
-                        if (estado == 'listo' && cantChunks > 0)
-                          Text(
-                            '$cantChunks fragmentos indexados',
-                            style: const TextStyle(color: grisApagado, fontSize: 12),
+                    // El menu de acciones solo aparece si la persona puede hacer
+                    // algo: el autor o el admin. Igual el backend lo vuelve a
+                    // chequear (NO_SOS_EL_AUTOR / ACCION_NO_PERMITIDA): esconder el
+                    // boton es comodidad, NO seguridad.
+                    if (esMio || _esAdmin)
+                      PopupMenuButton<String>(
+                        color: superficie,
+                        enabled: !ocupado,
+                        icon: ocupado
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: cianElectrico,
+                                ),
+                              )
+                            : const Icon(Icons.more_horiz, color: grisApagado),
+                        onSelected: (String opcion) {
+                          if (opcion == 'reintentar') _reintentar(doc.id, d);
+                          if (opcion == 'candado' && candado != null) {
+                            _cambiarCandado(doc.id, titulo, candado, esMio: esMio);
+                          }
+                          if (opcion == 'borrar') _borrar(doc.id, titulo);
+                        },
+                        itemBuilder: (BuildContext ctx) => <PopupMenuEntry<String>>[
+                          const PopupMenuItem<String>(
+                            value: 'reintentar',
+                            child: Text('Reintentar / volver a indexar',
+                                style: TextStyle(color: grisClaro)),
                           ),
-                      ],
-                    ),
+                          if (candado != null)
+                            PopupMenuItem<String>(
+                              value: 'candado',
+                              enabled: candadoDisponible,
+                              child: Row(
+                                children: <Widget>[
+                                  Icon(
+                                    candado == 'equipo' ? Icons.groups : Icons.lock,
+                                    size: 18,
+                                    color: candadoDisponible ? cianElectrico : grisApagado,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Flexible(
+                                    child: Text(
+                                      candado == 'equipo'
+                                          ? 'Compartir con el equipo'
+                                          : 'Pasar a privado',
+                                      style: TextStyle(
+                                        color: candadoDisponible ? grisClaro : grisApagado,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          const PopupMenuItem<String>(
+                            value: 'borrar',
+                            child: Text('Borrar', style: TextStyle(color: colorError)),
+                          ),
+                        ],
+                      ),
                   ],
                 ),
-              ),
-              // El menu de acciones solo aparece si la persona puede hacer
-              // algo: el autor o el admin. Igual el backend lo vuelve a
-              // chequear (NO_SOS_EL_AUTOR / ACCION_NO_PERMITIDA): esconder el
-              // boton es comodidad, NO seguridad.
-              if (esMio || _esAdmin)
-                PopupMenuButton<String>(
-                  color: superficie,
-                  enabled: !ocupado,
-                  icon: ocupado
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: cianElectrico,
-                          ),
-                        )
-                      : const Icon(Icons.more_horiz, color: grisApagado),
-                  onSelected: (String opcion) {
-                    if (opcion == 'reintentar') _reintentar(doc.id, d);
-                    if (opcion == 'borrar') _borrar(doc.id, titulo);
-                  },
-                  itemBuilder: (BuildContext ctx) => <PopupMenuEntry<String>>[
-                    const PopupMenuItem<String>(
-                      value: 'reintentar',
-                      child: Text('Reintentar / volver a indexar',
-                          style: TextStyle(color: grisClaro)),
+
+                // El motivo del error se muestra SIEMPRE que exista, aunque sea
+                // largo. El contrato es claro: el error que se muestra es el del
+                // DOCUMENTO (errorMsg), no el del HTTP, para no decir dos veces lo
+                // mismo con palabras distintas.
+                if (estado == 'error' && errorMsg.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: colorError.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(10),
                     ),
-                    const PopupMenuItem<String>(
-                      value: 'borrar',
-                      child: Text('Borrar', style: TextStyle(color: colorError)),
+                    child: Text(
+                      errorMsg,
+                      style: const TextStyle(color: colorError, fontSize: 12.5),
                     ),
-                  ],
-                ),
-            ],
+                  ),
+                ],
+
+                // Boton grande de reintentar para los dos estados donde la persona
+                // tiene algo que hacer.
+                if (estado == 'error' || estado == 'pendiente') ...<Widget>[
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: ocupado ? null : () => _reintentar(doc.id, d),
+                      icon: const Icon(Icons.refresh, size: 18),
+                      label: Text(
+                        estado == 'pendiente'
+                            ? 'Nunca se procesó: tocá para procesarlo'
+                            : 'Reintentar',
+                      ),
+                      style: TextButton.styleFrom(foregroundColor: cianElectrico),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
-
-          // El motivo del error se muestra SIEMPRE que exista, aunque sea
-          // largo. El contrato es claro: el error que se muestra es el del
-          // DOCUMENTO (errorMsg), no el del HTTP, para no decir dos veces lo
-          // mismo con palabras distintas.
-          if (estado == 'error' && errorMsg.isNotEmpty) ...<Widget>[
-            const SizedBox(height: 10),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: colorError.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Text(
-                errorMsg,
-                style: const TextStyle(color: colorError, fontSize: 12.5),
-              ),
-            ),
-          ],
-
-          // Boton grande de reintentar para los dos estados donde la persona
-          // tiene algo que hacer.
-          if (estado == 'error' || estado == 'pendiente') ...<Widget>[
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: ocupado ? null : () => _reintentar(doc.id, d),
-                icon: const Icon(Icons.refresh, size: 18),
-                label: Text(
-                  estado == 'pendiente'
-                      ? 'Nunca se procesó: tocá para procesarlo'
-                      : 'Reintentar',
-                ),
-                style: TextButton.styleFrom(foregroundColor: cianElectrico),
-              ),
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }
@@ -609,12 +874,16 @@ class _ListaDeItems extends StatelessWidget {
     required this.vacioTitulo,
     required this.vacioDetalle,
     required this.constructorDeFila,
+    this.alReintentar,
   });
 
   final Stream<QuerySnapshot<Map<String, dynamic>>> stream;
   final String vacioTitulo;
   final String vacioDetalle;
   final Widget Function(QueryDocumentSnapshot<Map<String, dynamic>>) constructorDeFila;
+
+  /// El boton "Reintentar" del error: vuelve a crear la escucha.
+  final VoidCallback? alReintentar;
 
   @override
   Widget build(BuildContext context) {
@@ -624,14 +893,18 @@ class _ListaDeItems extends StatelessWidget {
         BuildContext context,
         AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot,
       ) {
+        // 'waiting' con un error = se toco "Reintentar" y la escucha NUEVA
+        // todavia no contesto: el StreamBuilder conserva el error viejo hasta
+        // entonces, y sin esto no se veria que esta cargando de nuevo.
+        final bool reconectando = snapshot.connectionState == ConnectionState.waiting;
         // 1) El error PRIMERO. El sintoma tipico de olvidarse esta rama es
         //    "la lista aparece vacia" cuando en realidad hubo un
         //    permission-denied (token viejo o falta un .where()).
-        if (snapshot.hasError) {
-          return ErrorMensaje(error: snapshot.error!);
+        if (snapshot.hasError && !reconectando) {
+          return ErrorMensaje(error: snapshot.error!, alReintentar: alReintentar);
         }
-        // 2) Primer frame, sin datos todavia.
-        if (!snapshot.hasData) {
+        // 2) Primer frame (o reintento), sin datos todavia.
+        if (!snapshot.hasData || snapshot.hasError) {
           return const Center(child: CircularProgressIndicator(color: cianElectrico));
         }
 

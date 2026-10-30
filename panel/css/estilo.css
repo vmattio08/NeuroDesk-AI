@@ -3,60 +3,153 @@
    Autor: Martin.
 
    Un solo archivo, sin framework, sin build. Se lee de arriba a abajo:
-     1. La paleta (variables)
+     1. La paleta (variables): tema oscuro de entrada y tema claro
      2. Base y tipografia
      3. Login
      4. Shell (barra lateral + contenido)
-     5. Piezas repetidas (botones, chips, badges, avisos, tablas, formularios)
-     6. Pantallas (items, miembros, dashboard)
+     5. Piezas repetidas (botones, chips, badges, avisos, tablas, formularios,
+        iconos, la placa del logo, el dialogo)
+     6. Pantallas (items, miembros, dashboard, radar, en vivo)
      7. Pantallas chicas
+     8. Movimiento reducido
 
    TODO color sale de una variable de la seccion 1. Si en alguna regla de mas
    abajo aparece un #hexadecimal suelto, es un error: se cambia por su
-   variable. Asi cambiar la marca es tocar diez lineas y no doscientas.
+   variable. Asi cambiar la marca (o el tema) es tocar la seccion 1 y nada mas.
    ============================================================================ */
 
 
 /* ==========================================================================
    1. LA PALETA DE LA MARCA
+   Los MISMOS colores de la app (app/lib/tema.dart) y de la landing: el panel,
+   el celular y la pagina son UN producto. Azul noche de fondo, cian para lo
+   que se toca, y el logo oficial (el PNG tal cual, en img/).
+
+   DOS TEMAS, con las mismas variables:
+     - OSCURO (el de entrada): igual que la app. En la demo, el celular y el
+       proyector se ven como una sola cosa.
+     - CLARO ("Tema claro" en la barra lateral): para el proyector de un aula
+       con luz, donde un fondo oscuro se ve lavado. Mismo cian y mismo logo,
+       fondo claro. Lo pone app.html con <html data-tema="claro"> y se acuerda
+       en este navegador.
    ========================================================================== */
 :root {
-  /* --- Marca ---
-     NeuroDesk es "el segundo cerebro del equipo": violeta/indigo para la
-     marca (idea, memoria) y verde azulado para lo que ya esta resuelto. */
-  --marca:          #5b58e8;   /* violeta principal: botones, links, foco */
-  --marca-oscuro:   #4744c9;   /* hover del boton principal */
-  --marca-suave:    #ecebfd;   /* fondos de cosas seleccionadas */
-  --acento:         #0f9d78;   /* verde azulado: "listo", "en vivo" */
+  color-scheme: dark;            /* los controles nativos (select, scroll) tambien oscuros */
 
-  /* --- Grises (de mas oscuro a mas claro) --- */
-  --tinta:          #181926;   /* texto principal y fondo de la barra lateral */
-  --tinta-2:        #232436;   /* hover dentro de la barra lateral */
-  --gris-fuerte:    #4a4d63;   /* texto secundario */
-  --gris:           #8b8fa8;   /* texto apagado, placeholders */
-  --borde:          #e2e4ee;   /* lineas de tablas y tarjetas */
-  --fondo:          #f5f6fb;   /* fondo de la pagina */
-  --tarjeta:        #ffffff;   /* fondo de tarjetas y tablas */
+  /* --- La marca: iguales en los dos temas --- */
+  --azul-noche:      #0F172A;    /* azulNoche de la app */
+  --cian:            #06B6D4;    /* cian: el color principal */
+  --cian-electrico:  #22D3EE;    /* acentos y estados activos */
+  --azul-royal:      #3B82F6;    /* el secundario */
+  --fondo-isotipo:   #030D2A;    /* el fondo que ya trae isotipo-oscuro.png */
+
+  /* --- Superficies --- */
+  --fondo:           #0F172A;    /* el fondo de la pagina (azul noche) */
+  --tarjeta:         #1E293B;    /* tarjetas y tablas ("superficie" en la app) */
+  --tarjeta-2:       #243247;    /* encabezado de tabla, hover, filas internas */
+  --campo:           #0B1222;    /* el fondo de los campos de texto */
+
+  /* --- Texto (de mas fuerte a mas apagado) --- */
+  --tinta-fuerte:    #F8FAFC;
+  --tinta:           #E2E8F0;    /* grisClaro de la app */
+  --gris-fuerte:     #CBD5E1;    /* texto secundario */
+  --apagado:         #94A3B8;    /* grisApagado: leyendas y placeholders */
+
+  /* --- Lineas --- */
+  --borde:           rgba(148, 163, 184, .18);
+  --borde-control:   #64748B;    /* bordes de campos: 3.8:1 sobre --campo (piden 3:1) */
+
+  /* --- La marca aplicada --- */
+  --marca:           #06B6D4;    /* fondo de botones, menu activo */
+  --marca-hover:     #22D3EE;
+  --sobre-marca:     #0F172A;    /* texto encima del cian (onPrimary en la app) */
+  --marca-texto:     #22D3EE;    /* cian como TEXTO: links, foco, rol admin */
+  --marca-suave:     rgba(6, 182, 212, .12);
+  --marca-borde:     rgba(6, 182, 212, .38);
+  --royal-texto:     #93C5FD;
+  --royal-bg:        rgba(59, 130, 246, .16);
+  --royal-borde:     rgba(59, 130, 246, .45);
+
+  /* --- Barra lateral (oscura en los dos temas: es la marca) --- */
+  --lateral-fondo:   #0B1222;
+  --lateral-texto:   #CBD5E1;
+  --lateral-apagado: #94A3B8;
+  --lateral-hover:   #1E293B;
+  --lateral-borde:   rgba(148, 163, 184, .14);
+  --lateral-blanco:  #F8FAFC;
 
   /* --- Estados del item (los mismos cuatro de la maquina de estados) ---
      pendiente = gris, procesando = ambar, listo = verde, error = rojo.
-     Son los MISMOS colores que usa la app Flutter: si el admin y el usuario
-     ven colores distintos para el mismo estado, no se entienden. */
-  --pendiente:      #6b7086;
-  --pendiente-bg:   #eef0f6;
-  --procesando:     #a86800;
-  --procesando-bg:  #fdf3dd;
-  --listo:          #0b7a5e;
-  --listo-bg:       #e2f6ef;
-  --error:          #c0322f;
-  --error-bg:       #fdeceb;
+     Son los colores de la app (colorPendiente, colorProcesando...), apenas
+     aclarados como TEXTO sobre fondo oscuro para que se lean (4.5:1). Si el
+     admin y el usuario ven colores distintos para el mismo estado, no se
+     entienden. */
+  --pendiente:        #CBD5E1;
+  --pendiente-bg:     rgba(100, 116, 139, .22);
+  --pendiente-borde:  rgba(100, 116, 139, .55);
+  --procesando:       #FBBF24;
+  --procesando-bg:    rgba(245, 158, 11, .14);
+  --procesando-borde: rgba(245, 158, 11, .45);
+  --listo:            #4ADE80;
+  --listo-bg:         rgba(34, 197, 94, .13);
+  --listo-borde:      rgba(34, 197, 94, .42);
+  --error:            #F87171;
+  --error-bg:         rgba(239, 68, 68, .13);
+  --error-borde:      rgba(239, 68, 68, .45);
 
   /* --- Medidas repetidas --- */
-  --radio:          10px;
-  --radio-chico:    6px;
-  --sombra:         0 1px 2px rgba(24, 25, 38, .06),
-                    0 4px 16px rgba(24, 25, 38, .05);
-  --lateral:        228px;     /* ancho de la barra lateral */
+  --radio:           12px;
+  --radio-chico:     8px;
+  --sombra:          0 1px 2px rgba(2, 6, 23, .35), 0 8px 24px rgba(2, 6, 23, .25);
+  --sombra-fuerte:   0 30px 60px -20px rgba(2, 6, 23, .8);
+  --velo:            rgba(2, 6, 23, .62);   /* lo que oscurece la pagina detras del dialogo */
+  --lateral:         236px;                 /* ancho de la barra lateral */
+}
+
+/* --- TEMA CLARO (proyector). Solo se pisan las variables: ninguna regla de
+   abajo sabe en que tema esta. --- */
+:root[data-tema="claro"] {
+  color-scheme: light;
+
+  --fondo:           #F1F5F9;
+  --tarjeta:         #FFFFFF;
+  --tarjeta-2:       #F8FAFC;
+  --campo:           #FFFFFF;
+
+  --tinta-fuerte:    #020617;
+  --tinta:           #0F172A;
+  --gris-fuerte:     #334155;
+  --apagado:         #475569;    /* 7.5:1 sobre blanco: en un proyector, mejor de mas */
+
+  --borde:           #E2E8F0;
+  --borde-control:   #64748B;    /* 4.8:1 sobre blanco */
+
+  --marca-hover:     #0891B2;
+  --marca-texto:     #0E7490;    /* el cian puro sobre blanco no llega a 3:1: como texto va este */
+  --marca-suave:     #ECFEFF;
+  --marca-borde:     #A5F3FC;
+  --royal-texto:     #1D4ED8;
+  --royal-bg:        #DBEAFE;
+  --royal-borde:     #93C5FD;
+
+  --lateral-fondo:   #0F172A;    /* la barra sigue azul noche: es la marca */
+
+  --pendiente:        #475569;
+  --pendiente-bg:     #F1F5F9;
+  --pendiente-borde:  #CBD5E1;
+  --procesando:       #B45309;
+  --procesando-bg:    #FEF3C7;
+  --procesando-borde: #FCD34D;
+  --listo:            #15803D;
+  --listo-bg:         #DCFCE7;
+  --listo-borde:      #86EFAC;
+  --error:            #B91C1C;
+  --error-bg:         #FEE2E2;
+  --error-borde:      #FCA5A5;
+
+  --sombra:          0 1px 2px rgba(15, 23, 42, .06), 0 4px 16px rgba(15, 23, 42, .06);
+  --sombra-fuerte:   0 30px 60px -20px rgba(15, 23, 42, .35);
+  --velo:            rgba(15, 23, 42, .45);
 }
 
 
@@ -84,24 +177,24 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-h1, h2, h3 { margin: 0 0 .4rem; line-height: 1.25; font-weight: 650; }
-h1 { font-size: 1.35rem; }
+h1, h2, h3 { margin: 0 0 .4rem; line-height: 1.25; font-weight: 650; color: var(--tinta-fuerte); }
+h1 { font-size: 1.4rem; }
 h2 { font-size: 1.05rem; }
 h3 { font-size: .95rem; }
 p  { margin: 0 0 .6rem; }
 
-a { color: var(--marca); }
+a { color: var(--marca-texto); }
 
 /* Foco visible SIEMPRE. Se ve un poco "de mas", pero sacarlo deja el panel
    inusable con teclado, y el profe de la materia pregunta por accesibilidad. */
 :focus-visible {
-  outline: 2px solid var(--marca);
+  outline: 2px solid var(--marca-texto);
   outline-offset: 2px;
   border-radius: var(--radio-chico);
 }
 
 .oculto { display: none !important; }
-.apagado { color: var(--gris); }
+.apagado { color: var(--apagado); }
 .chico { font-size: .8rem; }
 
 
@@ -112,8 +205,9 @@ a { color: var(--marca); }
   min-height: 100%;
   display: grid;
   place-items: center;
-  padding: 24px;
-  /* Un degrade muy suave para que el login no sea una hoja en blanco. */
+  padding: 24px 16px;
+  /* Un brillo cian muy suave arriba, como la landing: que el login no sea
+     una hoja lisa. */
   background:
     radial-gradient(900px 500px at 15% -10%, var(--marca-suave), transparent 60%),
     var(--fondo);
@@ -121,10 +215,10 @@ a { color: var(--marca); }
 
 .caja-login {
   width: 100%;
-  max-width: 380px;
+  max-width: 400px;
   background: var(--tarjeta);
   border: 1px solid var(--borde);
-  border-radius: 14px;
+  border-radius: 16px;
   box-shadow: var(--sombra);
   padding: 28px 26px 24px;
 }
@@ -132,26 +226,14 @@ a { color: var(--marca); }
 .marca-login {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   margin-bottom: 18px;
 }
 
-.logo {
-  width: 34px;
-  height: 34px;
-  flex: none;
-  display: grid;
-  place-items: center;
-  border-radius: 9px;
-  background: var(--marca);
-  color: #fff;
-  font-weight: 700;
-  font-size: 15px;
-  letter-spacing: -.5px;
-}
-
-.marca-login b { display: block; font-size: 1.05rem; }
-.marca-login span { display: block; font-size: .78rem; color: var(--gris); }
+/* "div b" y "div span" (y no "span" a secas): la placa del logo tambien es un
+   <span> adentro de .marca-login, y no tiene que heredar estos estilos. */
+.marca-login div b { display: block; font-size: 1.05rem; color: var(--tinta-fuerte); }
+.marca-login div span { display: block; font-size: .78rem; color: var(--apagado); }
 
 
 /* ==========================================================================
@@ -165,8 +247,9 @@ a { color: var(--marca); }
 
 /* --- Barra lateral --- */
 .lateral {
-  background: var(--tinta);
-  color: #d9dbe7;
+  background: var(--lateral-fondo);
+  color: var(--lateral-texto);
+  border-right: 1px solid var(--lateral-borde);
   padding: 16px 12px;
   display: flex;
   flex-direction: column;
@@ -177,13 +260,17 @@ a { color: var(--marca); }
   height: 100vh;
 }
 
-.lateral .marca-login b { color: #fff; }
+.lateral .marca-login { margin-bottom: 4px; }
+.lateral .marca-login div b { color: var(--lateral-blanco); }
+.lateral .marca-login div span { color: var(--lateral-apagado); }
+
+.etiqueta-lateral { color: var(--lateral-apagado); }
 
 .selector-ws {
   width: 100%;
-  background: var(--tinta-2);
-  color: #fff;
-  border: 1px solid #33344a;
+  background: var(--lateral-hover);
+  color: var(--lateral-blanco);
+  border: 1px solid var(--lateral-borde);
   border-radius: var(--radio-chico);
   padding: 7px 8px;
   font-size: .85rem;
@@ -194,36 +281,44 @@ a { color: var(--marca); }
 .menu a {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 8px 10px;
+  gap: 10px;
+  padding: 9px 10px;
   border-radius: var(--radio-chico);
-  color: #c4c7d8;
+  color: var(--lateral-texto);
   text-decoration: none;
   font-weight: 500;
 }
 
-.menu a:hover { background: var(--tinta-2); color: #fff; }
+.menu a .icono { width: 18px; height: 18px; flex: none; }
+
+.menu a:hover { background: var(--lateral-hover); color: var(--lateral-blanco); }
 
 /* La pantalla en la que estamos parados. La clase la pone el router del
-   app.html cuando cambia el hash. */
+   app.html cuando cambia el hash. Cian con letra azul noche, como el boton
+   principal de la app. */
 .menu a.activo {
   background: var(--marca);
-  color: #fff;
+  color: var(--sobre-marca);
+  font-weight: 650;
 }
 
 .pie-lateral {
   margin-top: auto;                 /* empuja el bloque del usuario al fondo */
-  border-top: 1px solid #2c2d40;
+  border-top: 1px solid var(--lateral-borde);
   padding-top: 12px;
   font-size: .8rem;
-  color: #9a9db4;
+  color: var(--lateral-apagado);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
 }
 
 .pie-lateral .email {
   display: block;
-  color: #e6e8f2;
+  color: var(--lateral-texto);
   word-break: break-all;
-  margin-bottom: 8px;
+  margin-bottom: 2px;
 }
 
 /* --- Contenido --- */
@@ -242,6 +337,37 @@ a { color: var(--marca); }
 /* ==========================================================================
    5. PIEZAS REPETIDAS
    ========================================================================== */
+
+/* --- Iconos (js/iconos.js): del tamaño y el color del texto --- */
+.icono {
+  width: 1.1em;
+  height: 1.1em;
+  vertical-align: -0.18em;
+  flex: none;
+}
+
+/* --- La placa del logo ---
+   Igual que LogoNeuroDesk en app/lib/tema.dart y que .placa en la landing:
+   un cuadrado redondeado del MISMO color que el fondo que trae el PNG, con
+   margen interno de 0.3 x radio. Ese margen hace que las esquinas de la
+   imagen queden adentro de las esquinas redondeadas (hace falta
+   radio x (1 - 1/raiz(2)) = 0.293 x radio): no se recorta ni un pixel. El
+   PNG se muestra tal cual, solo mas chico: nunca se redibuja. */
+.placa {
+  --lado: 38px;
+  display: inline-block;
+  flex: none;
+  width: var(--lado);
+  height: var(--lado);
+  padding: calc(var(--lado) * .24 * .3);
+  border-radius: calc(var(--lado) * .24);
+  background: var(--fondo-isotipo);
+  border: 1px solid var(--marca-borde);
+  box-shadow: 0 0 calc(var(--lado) * .2) var(--marca-suave);
+}
+.placa img { display: block; width: 100%; height: 100%; }
+.lateral .placa { --lado: 44px; }
+.placa--grande { --lado: 56px; }
 
 /* --- Tarjeta --- */
 .tarjeta {
@@ -262,19 +388,37 @@ label {
 }
 
 input[type="text"], input[type="email"], input[type="password"],
-input[type="search"], select {
+input[type="search"], select, textarea {
   width: 100%;
   padding: 8px 10px;
   font: inherit;
   color: var(--tinta);
-  background: #fff;
-  border: 1px solid var(--borde);
+  background: var(--campo);
+  border: 1px solid var(--borde-control);
   border-radius: var(--radio-chico);
 }
 
-input::placeholder { color: var(--gris); }
+textarea { resize: vertical; min-height: 84px; }
+
+input::placeholder, textarea::placeholder { color: var(--apagado); }
+
+/* Casillas: el tilde toma el cian de la marca. */
+input[type="checkbox"] { accent-color: var(--marca); width: 16px; height: 16px; margin: 0; }
+
+/* Una casilla con su texto al lado, alineada con los select de los filtros. */
+label.tilde {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 9px;
+  font-weight: 500;
+  color: var(--gris-fuerte);
+  cursor: pointer;
+}
 
 .campo { margin-bottom: 12px; }
+
+.contador { font-size: .75rem; color: var(--apagado); text-align: right; margin-top: 3px; }
 
 /* --- Botones --- */
 button {
@@ -284,38 +428,46 @@ button {
   border-radius: var(--radio-chico);
   border: 1px solid transparent;
   padding: 8px 14px;
-  transition: background .12s ease;
+  transition: background .12s ease, color .12s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 }
 
 button:disabled { opacity: .55; cursor: not-allowed; }
 
-.boton-principal { background: var(--marca); color: #fff; }
-.boton-principal:hover:not(:disabled) { background: var(--marca-oscuro); }
+button.chico { padding: 5px 10px; font-size: .82rem; }
+
+.boton-principal { background: var(--marca); color: var(--sobre-marca); }
+.boton-principal:hover:not(:disabled) { background: var(--marca-hover); }
 
 .boton-suave {
-  background: #fff;
+  background: var(--tarjeta);
   color: var(--gris-fuerte);
-  border-color: var(--borde);
+  border-color: var(--borde-control);
 }
-.boton-suave:hover:not(:disabled) { background: var(--fondo); }
+.boton-suave:hover:not(:disabled) { background: var(--tarjeta-2); color: var(--tinta); }
 
 .boton-peligro {
-  background: #fff;
+  background: var(--tarjeta);
   color: var(--error);
-  border-color: #f3c9c7;
+  border-color: var(--error-borde);
 }
 .boton-peligro:hover:not(:disabled) { background: var(--error-bg); }
 
 .boton-ancho { width: 100%; }
 
+/* El de "Cerrar sesión" y "Tema claro": texto suelto en la barra lateral. */
 .boton-fantasma {
   background: none;
   border: none;
-  color: #c4c7d8;
+  color: var(--lateral-texto);
   padding: 4px 0;
   text-align: left;
+  font-weight: 500;
 }
-.boton-fantasma:hover { color: #fff; text-decoration: underline; }
+.boton-fantasma:hover { color: var(--lateral-blanco); text-decoration: underline; }
 
 /* --- Avisos (errores y confirmaciones) --- */
 .aviso {
@@ -325,40 +477,64 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   margin-bottom: 12px;
   border: 1px solid;
 }
-.aviso-error { background: var(--error-bg); border-color: #f3c9c7; color: var(--error); }
-.aviso-ok    { background: var(--listo-bg); border-color: #bfe6da; color: var(--listo); }
-.aviso-info  { background: var(--marca-suave); border-color: #d3d1fa; color: var(--marca-oscuro); }
+.aviso-error { background: var(--error-bg);   border-color: var(--error-borde); color: var(--error); }
+.aviso-ok    { background: var(--listo-bg);   border-color: var(--listo-borde); color: var(--listo); }
+.aviso-info  { background: var(--marca-suave); border-color: var(--marca-borde); color: var(--marca-texto); }
+
+/* La contraseña temporal de un invitado: que se lea bien y se copie entera
+   con un clic (user-select: all). */
+.clave-temporal {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: .95rem;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--campo);
+  color: var(--tinta-fuerte);
+  border: 1px solid var(--borde-control);
+  user-select: all;
+}
 
 /* --- Chips de estado ---
    Un chip por cada estado de la maquina de estados del item. */
 .chip {
   display: inline-block;
-  padding: 2px 9px;
+  padding: 1px 9px;
   border-radius: 999px;
+  border: 1px solid;
   font-size: .76rem;
   font-weight: 650;
   white-space: nowrap;
 }
-.chip-pendiente  { background: var(--pendiente-bg);  color: var(--pendiente); }
-.chip-procesando { background: var(--procesando-bg); color: var(--procesando); }
-.chip-listo      { background: var(--listo-bg);      color: var(--listo); }
-.chip-error      { background: var(--error-bg);      color: var(--error); }
+.chip-pendiente  { background: var(--pendiente-bg);  border-color: var(--pendiente-borde);  color: var(--pendiente); }
+.chip-procesando { background: var(--procesando-bg); border-color: var(--procesando-borde); color: var(--procesando); }
+.chip-listo      { background: var(--listo-bg);      border-color: var(--listo-borde);      color: var(--listo); }
+.chip-error      { background: var(--error-bg);      border-color: var(--error-borde);      color: var(--error); }
 /* Cualquier estado que no conozcamos (un doc cargado a mano) cae en este. */
-.chip-desconocido { background: var(--pendiente-bg); color: var(--gris); }
+.chip-desconocido { background: var(--pendiente-bg); border-color: var(--pendiente-borde); color: var(--apagado); }
+/* Radar: "Sin respuesta" pide atencion (ambar), no es un error. */
+.chip-falta      { background: var(--procesando-bg); border-color: var(--procesando-borde); color: var(--procesando); }
+/* En vivo: una pregunta que se esta buscando o redactando. */
+.chip-buscando   { background: var(--royal-bg);      border-color: var(--royal-borde);      color: var(--royal-texto); }
 
 /* Chip mas apagado para tipo y visibilidad, que no son alarmas. */
 .etiqueta {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   padding: 1px 8px;
   border-radius: var(--radio-chico);
-  background: var(--fondo);
+  background: var(--tarjeta-2);
   border: 1px solid var(--borde);
   font-size: .76rem;
   color: var(--gris-fuerte);
   white-space: nowrap;
 }
+/* El candado: "Del equipo" en cian y "Privado" en gris, para que se note de
+   lejos cuando alguien lo cambia desde la app. */
+.etiqueta-equipo  { background: var(--marca-suave); border-color: var(--marca-borde); color: var(--marca-texto); }
+.etiqueta-privado { background: var(--pendiente-bg); border-color: var(--pendiente-borde); color: var(--pendiente); }
 
-/* --- Badge "En vivo" / "Sin conexion" (pantalla de items) --- */
+/* --- Badge "En vivo" / "Sin conexion" --- */
 .badge-vivo {
   display: inline-flex;
   align-items: center;
@@ -373,8 +549,8 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   width: 7px; height: 7px; border-radius: 50%;
   background: currentColor;
 }
-.badge-vivo.vivo   { color: var(--acento); border-color: #b9e5d8; background: var(--listo-bg); }
-.badge-vivo.cache  { color: var(--procesando); border-color: #ecd9a8; background: var(--procesando-bg); }
+.badge-vivo.vivo   { color: var(--listo);      border-color: var(--listo-borde);      background: var(--listo-bg); }
+.badge-vivo.cache  { color: var(--procesando); border-color: var(--procesando-borde); background: var(--procesando-bg); }
 
 /* El puntito late solo cuando estamos EN VIVO: es la señal de que el
    onSnapshot esta escuchando de verdad. */
@@ -382,10 +558,6 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 @keyframes latido {
   0%, 100% { opacity: 1; }
   50%      { opacity: .25; }
-}
-/* Respetamos a quien pidio menos animaciones en su sistema operativo. */
-@media (prefers-reduced-motion: reduce) {
-  .badge-vivo.vivo .punto { animation: none; }
 }
 
 /* --- Tablas --- */
@@ -404,11 +576,11 @@ th {
   font-size: .76rem;
   text-transform: uppercase;
   letter-spacing: .04em;
-  color: var(--gris);
+  color: var(--apagado);
   font-weight: 700;
   padding: 10px 14px;
   border-bottom: 1px solid var(--borde);
-  background: #fbfbfe;
+  background: var(--tarjeta-2);
   white-space: nowrap;
 }
 
@@ -419,18 +591,41 @@ td {
 }
 
 tbody tr:last-child td { border-bottom: none; }
-tbody tr:hover { background: #fbfbfe; }
+tbody tr:hover { background: var(--tarjeta-2); }
 
-.celda-titulo { font-weight: 600; max-width: 380px; }
-.celda-titulo .sub { font-weight: 400; font-size: .8rem; color: var(--gris); }
+.celda-titulo { font-weight: 600; max-width: 380px; color: var(--tinta-fuerte); }
+.celda-titulo .sub { font-weight: 400; font-size: .8rem; color: var(--apagado); }
 .celda-error { color: var(--error); font-size: .8rem; margin-top: 2px; }
 .numero { text-align: right; font-variant-numeric: tabular-nums; }
 
-/* Fila de "no hay nada". */
+/* Fila (o tarjeta) de "no hay nada". */
 .vacio {
   padding: 34px 14px;
   text-align: center;
-  color: var(--gris);
+  color: var(--apagado);
+}
+
+/* --- Dialogo (<dialog> nativo: Escape lo cierra, el foco queda adentro) --- */
+.dialogo {
+  width: min(540px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  padding: 20px 22px 18px;
+  border: 1px solid var(--borde);
+  border-radius: 16px;
+  background: var(--tarjeta);
+  color: var(--tinta);
+  box-shadow: var(--sombra-fuerte);
+}
+.dialogo::backdrop { background: var(--velo); }
+.dialogo h2 { margin-bottom: .5rem; }
+
+.dialogo__botones {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
 }
 
 
@@ -438,10 +633,10 @@ tbody tr:hover { background: #fbfbfe; }
    6. PANTALLAS
    ========================================================================== */
 
-/* --- Barra de filtros de items --- */
+/* --- Barra de filtros (items, radar, en vivo) --- */
 .filtros {
   display: flex;
-  gap: 10px;
+  gap: 10px 16px;
   align-items: flex-end;
   flex-wrap: wrap;
   margin-bottom: 14px;
@@ -452,11 +647,11 @@ tbody tr:hover { background: #fbfbfe; }
 
 .resumen-filtro {
   font-size: .82rem;
-  color: var(--gris);
+  color: var(--apagado);
   margin: 10px 2px 0;
 }
 
-/* --- KPIs del dashboard --- */
+/* --- KPIs (dashboard y radar) --- */
 .grilla-kpis {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
@@ -468,7 +663,7 @@ tbody tr:hover { background: #fbfbfe; }
 .kpi .etiqueta-kpi {
   font-size: .78rem;
   font-weight: 650;
-  color: var(--gris);
+  color: var(--apagado);
   text-transform: uppercase;
   letter-spacing: .03em;
 }
@@ -478,12 +673,15 @@ tbody tr:hover { background: #fbfbfe; }
   line-height: 1.15;
   font-variant-numeric: tabular-nums;
   margin-top: 2px;
+  color: var(--tinta-fuerte);
 }
-.kpi .pie-kpi { font-size: .78rem; color: var(--gris); }
+.kpi .pie-kpi { font-size: .78rem; color: var(--apagado); }
 
 .kpi-listo      .valor { color: var(--listo); }
 .kpi-encola     .valor { color: var(--procesando); }
 .kpi-error      .valor { color: var(--error); }
+.kpi-marca      .valor { color: var(--marca-texto); }
+.kpi-falta      .valor { color: var(--procesando); }
 
 /* --- Grafico ---
    El <canvas> necesita una altura fija del contenedor: Chart.js es
@@ -492,7 +690,7 @@ tbody tr:hover { background: #fbfbfe; }
 .caja-grafico { height: 300px; position: relative; }
 .caja-grafico canvas { max-height: 100%; }
 
-/* --- Alta de miembros --- */
+/* --- Miembros --- */
 .form-invitar {
   display: flex;
   gap: 10px;
@@ -503,8 +701,178 @@ tbody tr:hover { background: #fbfbfe; }
 .form-invitar .campo { margin: 0; }
 .form-invitar .campo-email { flex: 1 1 260px; }
 
-.rol-admin   { color: var(--marca); font-weight: 650; }
+.rol-admin   { color: var(--marca-texto); font-weight: 650; }
 .rol-miembro { color: var(--gris-fuerte); }
+
+.acciones-fila { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* --- Radar "Lo que falta" ---
+   Los dos numeros apilados a la izquierda y los documentos mas utiles a la
+   derecha: asi las dos columnas miden lo mismo y no queda una tarjeta
+   estirada con medio vacio. */
+.grilla-radar {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(300px, 2fr);
+  gap: 14px;
+  margin-bottom: 18px;
+}
+.radar-kpis { display: grid; gap: 14px; }
+
+.top-docs h2 { font-size: .78rem; text-transform: uppercase; letter-spacing: .03em; color: var(--apagado); }
+.top-docs__lista {
+  margin: 6px 0 6px;
+  padding-left: 1.3em;
+  display: grid;
+  gap: 4px;
+}
+.top-docs__lista li { padding-left: 2px; }
+.top-docs__lista li::marker { color: var(--marca-texto); font-weight: 700; }
+.top-docs__titulo { font-weight: 600; color: var(--tinta-fuerte); overflow-wrap: anywhere; }
+.top-docs__n { color: var(--apagado); font-size: .82rem; white-space: nowrap; }
+.top-docs__n::before { content: " · "; }
+
+.lista-huecos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.hueco {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: space-between;
+  background: var(--tarjeta);
+  border: 1px solid var(--borde);
+  border-left: 3px solid var(--procesando);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+  padding: 14px 16px;
+}
+/* La fila resuelta cambia el borde a verde: de lejos, en el proyector, se ve
+   el momento en que "pasa a Resuelta". */
+.hueco--resuelto { border-left-color: var(--listo); }
+
+.hueco__cuerpo { flex: 1 1 auto; min-width: 0; }
+.hueco__cabeza { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hueco__veces { font-size: .82rem; font-weight: 600; color: var(--gris-fuerte); }
+.hueco__pregunta {
+  margin: 6px 0 2px;
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--tinta-fuerte);
+  overflow-wrap: anywhere;
+}
+.hueco__meta { margin: 0; font-size: .82rem; color: var(--apagado); }
+.hueco__resuelta {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 6px 0 0;
+  font-size: .85rem;
+  color: var(--listo);
+}
+.hueco__nota {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 6px 0 0;
+  font-size: .85rem;
+  color: var(--gris-fuerte);
+}
+.hueco__accion { flex: none; }
+
+/* --- En vivo --- */
+.ahora { margin-bottom: 18px; }
+.ahora h2 { display: flex; align-items: center; gap: 8px; }
+
+/* El punto que "respira": esta pantalla esta escuchando. */
+.ahora__punto {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--marca);
+  animation: latido 1.6s ease-in-out infinite;
+}
+
+.ahora__lista {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.ahora__vacio { color: var(--apagado); font-size: .88rem; }
+/* Una escucha de "Ahora mismo" que se corto: se dice, no se esconde. */
+.ahora__error { color: var(--error); font-size: .88rem; }
+
+.en-curso {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-radius: var(--radio-chico);
+  background: var(--tarjeta-2);
+  border: 1px solid var(--borde);
+}
+.en-curso__texto { flex: 1 1 220px; min-width: 0; overflow-wrap: anywhere; }
+.en-curso__cuando { font-size: .8rem; white-space: nowrap; }
+
+.feed {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--tarjeta);
+  border: 1px solid var(--borde);
+  border-radius: var(--radio);
+  box-shadow: var(--sombra);
+  overflow: hidden;
+}
+
+.evento {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--borde);
+}
+.evento:last-child { border-bottom: none; }
+
+.evento__icono {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  border: 1px solid;
+}
+.evento__icono .icono { width: 18px; height: 18px; vertical-align: 0; }
+
+/* Un color por grupo de evento (ver TIPOS en actividad.js). */
+.tono-marca      .evento__icono { background: var(--marca-suave);   border-color: var(--marca-borde);      color: var(--marca-texto); }
+.tono-listo      .evento__icono { background: var(--listo-bg);      border-color: var(--listo-borde);      color: var(--listo); }
+.tono-error      .evento__icono { background: var(--error-bg);      border-color: var(--error-borde);      color: var(--error); }
+.tono-procesando .evento__icono { background: var(--procesando-bg); border-color: var(--procesando-borde); color: var(--procesando); }
+.tono-royal      .evento__icono { background: var(--royal-bg);      border-color: var(--royal-borde);      color: var(--royal-texto); }
+.tono-neutro     .evento__icono { background: var(--pendiente-bg);  border-color: var(--pendiente-borde);  color: var(--pendiente); }
+
+.evento__cuerpo { min-width: 0; flex: 1 1 auto; }
+.evento__texto { margin: 0; color: var(--tinta); overflow-wrap: anywhere; }
+.evento__meta { margin: 2px 0 0; font-size: .78rem; color: var(--apagado); }
+
+/* La fila que acaba de llegar: entra desde arriba y queda iluminada en cian
+   un momento. Es lo que hace que en el proyector "se vea" llegar algo. */
+.fila-nueva { animation: llegada 2.4s ease-out 1; }
+@keyframes llegada {
+  0%   { opacity: 0; transform: translateY(-8px); background-color: var(--marca-suave); box-shadow: inset 3px 0 0 var(--marca); }
+  12%  { opacity: 1; transform: none;             background-color: var(--marca-suave); box-shadow: inset 3px 0 0 var(--marca); }
+  100% { background-color: transparent; box-shadow: inset 3px 0 0 transparent; }
+}
 
 
 /* ==========================================================================
@@ -512,6 +880,11 @@ tbody tr:hover { background: #fbfbfe; }
    La barra lateral pasa a ser una franja arriba. No es una app movil: es que
    el panel no se rompa si alguien lo abre en una tablet o con el proyector.
    ========================================================================== */
+@media (max-width: 980px) {
+  .grilla-radar { grid-template-columns: 1fr; }
+  .radar-kpis { grid-template-columns: 1fr 1fr; }
+}
+
 @media (max-width: 780px) {
   .shell { grid-template-columns: 1fr; }
   .lateral {
@@ -520,14 +893,38 @@ tbody tr:hover { background: #fbfbfe; }
     flex-direction: row;
     align-items: center;
     flex-wrap: wrap;
+    border-right: none;
+    border-bottom: 1px solid var(--lateral-borde);
   }
-  .menu { flex-direction: row; }
+  .menu { flex-direction: row; flex-wrap: wrap; }
   .pie-lateral {
     margin-top: 0;
     border-top: none;
     padding-top: 0;
     margin-left: auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 14px;
   }
   .pie-lateral .email { display: none; }
-  .contenido { padding: 16px 14px 32px; }
+  .contenido { padding: 16px 16px 32px; }
+  .hueco { flex-direction: column; }
+}
+
+@media (max-width: 560px) {
+  .radar-kpis { grid-template-columns: 1fr; }
+  .menu a { padding: 7px 8px; }
+}
+
+
+/* ==========================================================================
+   8. MOVIMIENTO REDUCIDO
+   Respetamos a quien pidio menos animaciones en su sistema operativo: nada
+   late ni entra deslizando, todo aparece directo.
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  .badge-vivo.vivo .punto,
+  .ahora__punto,
+  .fila-nueva { animation: none; }
+  button { transition: none; }
 }

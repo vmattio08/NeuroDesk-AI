@@ -13,6 +13,7 @@
 //    - que el login dibuje el logo OFICIAL (el PNG de la marca) y no un icono;
 //    - la regla del nombre que se le manda a POST /v1/auth/registro;
 //    - la traduccion de errores de Firebase y de Google a castellano;
+//    - que un corte de red al renovar el token no se tome como sesion vencida;
 //    - el boton "Documento" de la captura: que decida 'pdf' o 'word' por la
 //      extension, que frene el .doc viejo, y que la pantalla se dibuje (la
 //      captura solo toca Firebase al guardar, no al dibujarse).
@@ -73,14 +74,14 @@ void main() {
       expect(
         AuthServicio.armarNombreParaRegistro(
           displayName: null,
-          email: 'vale.mattio@gmail.com',
+          email: 'nombre.apellido@ejemplo.com',
         ),
-        'vale.mattio',
+        'nombre.apellido',
       );
       expect(
         AuthServicio.armarNombreParaRegistro(
           displayName: 'V',
-          email: 'vale@gmail.com',
+          email: 'vale@ejemplo.com',
         ),
         'vale',
       );
@@ -150,6 +151,21 @@ void main() {
         FirebaseAuthException(code: 'algo-que-no-existe'),
       );
       expect(texto, isNot(contains('algo-que-no-existe')));
+    });
+  });
+
+  // Con el token vencido y sin red, renovarlo falla con network-request-failed.
+  // Eso NO es una sesion vencida: tokenParaElBackend deja subir ESE error y
+  // api.dart contesta SIN_CONEXION en vez de FALTA_TOKEN (que cerraba la sesion).
+  group('esErrorDeRed: sin senal no es sesion vencida', () {
+    test('network-request-failed es error de red', () {
+      expect(AuthServicio.esErrorDeRed(FirebaseAuthException(code: 'network-request-failed')), isTrue);
+    });
+
+    test('token vencido, cuenta deshabilitada u otro error no lo son', () {
+      expect(AuthServicio.esErrorDeRed(FirebaseAuthException(code: 'user-token-expired')), isFalse);
+      expect(AuthServicio.esErrorDeRed(FirebaseAuthException(code: 'user-disabled')), isFalse);
+      expect(AuthServicio.esErrorDeRed(Exception('x')), isFalse);
     });
   });
 

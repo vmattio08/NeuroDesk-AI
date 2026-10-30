@@ -30,7 +30,25 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Panel — NeuroDesk AI</title>
+
+  <!--
+    El tema (oscuro, el de la app, o claro para el proyector) se pone ACA,
+    antes de cargar el CSS y en un <script> clasico: si se pusiera desde el
+    modulo de abajo, que corre despues de dibujar, la pagina parpadearia
+    oscura un instante cada vez que se recarga en tema claro.
+    try/catch: sin localStorage (ventana privada) queda el oscuro y listo.
+  -->
+  <script>
+    try {
+      if (localStorage.getItem('neurodesk.panel.tema') === 'claro') {
+        document.documentElement.dataset.tema = 'claro';
+      }
+    } catch (e) { /* sin almacenamiento: tema oscuro */ }
+  </script>
+
   <link rel="stylesheet" href="css/estilo.css">
+  <!-- Favicon: el isotipo oficial, el PNG tal cual (el navegador lo achica). -->
+  <link rel="icon" type="image/png" href="img/isotipo-oscuro.png">
 
   <!--
     Chart.js por CDN, con <script> CLASICO (no module) y version fija.
@@ -56,30 +74,39 @@
     <!-- ================= BARRA LATERAL ================= -->
     <aside class="lateral">
 
+      <!-- El logo oficial: isotipo-oscuro.png, copiado byte a byte de la
+           carpeta marca/. Va en su "placa" (ver .placa en estilo.css), igual
+           que en la app y en la landing. Nunca se redibuja. -->
       <div class="marca-login">
-        <div class="logo">ND</div>
+        <span class="placa"><img src="img/isotipo-oscuro.png" alt="" width="601" height="601"></span>
         <div>
           <b>NeuroDesk AI</b>
-          <span>Panel de admin</span>
+          <span>Panel del administrador</span>
         </div>
       </div>
 
       <!-- Selector de espacio de trabajo. Solo aparece si la persona es
            admin de mas de uno; con uno solo seria un select de una opcion. -->
       <div id="cajaSelector" class="oculto">
-        <label for="selectorWs" style="color:#9a9db4">Espacio de trabajo</label>
+        <label for="selectorWs" class="etiqueta-lateral">Espacio de trabajo</label>
         <select id="selectorWs" class="selector-ws"></select>
       </div>
 
+      <!-- data-icono: el nombre del dibujo de js/iconos.js. Los iconos se
+           ponen desde el modulo de abajo; si el JS no cargara, el menu anda
+           igual, solo que sin dibujitos. -->
       <nav class="menu" id="menu">
-        <a href="#/items"     data-ruta="#/items">Contenido</a>
-        <a href="#/miembros"  data-ruta="#/miembros">Miembros</a>
-        <a href="#/dashboard" data-ruta="#/dashboard">Resumen</a>
+        <a href="#/items"     data-ruta="#/items"     data-icono="contenido">Contenido</a>
+        <a href="#/radar"     data-ruta="#/radar"     data-icono="radar">Lo que falta</a>
+        <a href="#/actividad" data-ruta="#/actividad" data-icono="vivo">En vivo</a>
+        <a href="#/miembros"  data-ruta="#/miembros"  data-icono="miembros">Miembros</a>
+        <a href="#/dashboard" data-ruta="#/dashboard" data-icono="resumen">Resumen</a>
       </nav>
 
       <div class="pie-lateral">
         <span class="email" id="emailAdmin">…</span>
-        <button id="botonSalir" class="boton-fantasma">Cerrar sesión</button>
+        <button id="botonTema" class="boton-fantasma" type="button"></button>
+        <button id="botonSalir" class="boton-fantasma" type="button">Cerrar sesión</button>
       </div>
 
     </aside>
@@ -104,17 +131,22 @@
              guardarWorkspaceActual, vigilarClaims } from './js/auth.js';
     import { despertarBackend } from './js/api.js';
     import { esc } from './js/util.js';
+    import { icono } from './js/iconos.js';
 
-    // Las tres pantallas se importan de entrada, no con import() dinamico:
-    // son tres archivos chicos y tenerlos cargados hace que cambiar de
-    // pantalla sea instantaneo. La carga perezosa tendria sentido con veinte
-    // pantallas, no con tres.
+    // Las cinco pantallas se importan de entrada, no con import() dinamico:
+    // son archivos chicos y tenerlos cargados hace que cambiar de pantalla
+    // sea instantaneo. La carga perezosa tendria sentido con veinte
+    // pantallas, no con cinco.
     import * as pantallaItems     from './js/pantallas/items.js';
+    import * as pantallaRadar     from './js/pantallas/radar.js';
+    import * as pantallaActividad from './js/pantallas/actividad.js';
     import * as pantallaMiembros  from './js/pantallas/miembros.js';
     import * as pantallaDashboard from './js/pantallas/dashboard.js';
 
     const RUTAS = {
       '#/items':     pantallaItems,
+      '#/radar':     pantallaRadar,       // "Lo que falta"
+      '#/actividad': pantallaActividad,   // "En vivo"
       '#/miembros':  pantallaMiembros,
       '#/dashboard': pantallaDashboard
     };
@@ -125,12 +157,18 @@
     let ctx = null;             // { uid, email, nombre, workspacesAdmin, wsId }
     let pantallaActual = null;  // el modulo montado ahora mismo
     let turno = 0;              // ver el comentario de mostrar()
+    // Modulo -> el turno de su montaje MAS NUEVO. Ver el porque en mostrar().
+    const ultimoMontajeDe = new Map();
 
 
     // ==================================================================
     //  ARRANQUE
     // ==================================================================
     async function arrancar() {
+      // 0. Lo que no depende de la sesion: iconos del menu y boton de tema.
+      ponerIconosDelMenu();
+      engancharTema();
+
       // 1. El guardia. Si no hay sesion o no es admin de ningun espacio,
       //    redirige y devuelve null: aca no seguimos.
       ctx = await guardiaDeAdmin();
@@ -198,6 +236,25 @@
       // numero y, si al volver del await ya hay una llamada mas nueva, se
       // borra a si misma en vez de dibujar encima.
       const miTurno = ++turno;
+      ultimoMontajeDe.set(modulo, miTurno);
+
+      // Deshacer un montaje que no quedo como pantalla actual... SALVO que
+      // despues se haya empezado a montar OTRA VEZ esta misma pantalla. Pasa
+      // con clics rapidos: En vivo -> Lo que falta -> En vivo. El estado de
+      // cada pantalla vive en las variables de SU archivo, que son una sola
+      // para los dos montajes: el unmount() del viejo le borraria el estado
+      // al nuevo (ctxPantalla = null) y la pantalla quedaba en "No pudimos
+      // abrir esta pantalla: Cannot read properties of null". En ese caso no
+      // se desmonta: el montaje viejo ya sabe no abrir nada (cada pantalla
+      // cuenta sus montajes) y el nuevo es el dueno del estado.
+      const deshacer = () => {
+        if (ultimoMontajeDe.get(modulo) !== miTurno) return;
+        try {
+          modulo.unmount();
+        } catch (e) {
+          console.error('[panel] no pude desmontar la pantalla', e);
+        }
+      };
 
       caja.innerHTML = '<p class="apagado">Cargando…</p>';
 
@@ -205,12 +262,15 @@
         await modulo.mount(caja, ctx);
         if (miTurno !== turno) {
           // Llego otra navegacion mientras montabamos: deshacemos esta.
-          modulo.unmount();
+          deshacer();
           return;
         }
         pantallaActual = modulo;
       } catch (e) {
         console.error('[panel] no pude montar la pantalla', e);
+        // Lo que el montaje alcanzo a abrir antes de fallar, se corta (con
+        // la misma excepcion de arriba).
+        deshacer();
         if (miTurno !== turno) return;
         caja.innerHTML =
           `<div class="aviso aviso-error">
@@ -221,8 +281,59 @@
 
     function marcarMenuActivo(hash) {
       document.querySelectorAll('#menu a').forEach((a) => {
-        a.classList.toggle('activo', a.dataset.ruta === hash);
+        const activo = a.dataset.ruta === hash;
+        a.classList.toggle('activo', activo);
+        // Para un lector de pantalla, "esta es la pagina en la que estas".
+        if (activo) a.setAttribute('aria-current', 'page');
+        else a.removeAttribute('aria-current');
       });
+    }
+
+    // Los dibujitos del menu salen de js/iconos.js (textos fijos nuestros,
+    // por eso pueden ir en insertAdjacentHTML sin esc()).
+    function ponerIconosDelMenu() {
+      document.querySelectorAll('#menu a[data-icono]').forEach((a) => {
+        a.insertAdjacentHTML('afterbegin', icono(a.dataset.icono));
+      });
+    }
+
+
+    // ==================================================================
+    //  TEMA: oscuro (el de la app) o claro (para el proyector)
+    //
+    //  En un aula con luz, un fondo oscuro proyectado se ve lavado. En vez
+    //  de tener que cambiar colores el dia de la demo, un boton: pone
+    //  data-tema="claro" en <html> y estilo.css cambia todas las variables.
+    //  Se recuerda en ESTE navegador (es una preferencia de quien mira, no
+    //  un dato del equipo). El <script> del <head> lo aplica antes de
+    //  dibujar, para que no parpadee al recargar.
+    // ==================================================================
+    const CLAVE_TEMA = 'neurodesk.panel.tema';
+
+    function engancharTema() {
+      const boton = document.getElementById('botonTema');
+      const dibujarBoton = () => {
+        const claro = document.documentElement.dataset.tema === 'claro';
+        // El boton dice a que tema te LLEVA, no en cual estas.
+        boton.innerHTML = claro
+          ? `${icono('luna')} Tema oscuro`
+          : `${icono('sol')} Tema claro (proyector)`;
+      };
+
+      boton.addEventListener('click', () => {
+        const claro = document.documentElement.dataset.tema !== 'claro';
+        if (claro) document.documentElement.dataset.tema = 'claro';
+        else delete document.documentElement.dataset.tema;
+        try {
+          localStorage.setItem(CLAVE_TEMA, claro ? 'claro' : 'oscuro');
+        } catch { /* sin almacenamiento: dura hasta recargar */ }
+        dibujarBoton();
+        // El grafico del Resumen dibuja en un canvas y no ve el CSS: le
+        // avisamos para que cambie el color de sus lineas.
+        window.dispatchEvent(new Event('neurodesk:tema'));
+      });
+
+      dibujarBoton();
     }
 
 

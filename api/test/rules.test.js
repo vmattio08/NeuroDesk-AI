@@ -8,9 +8,12 @@
 //  en MODELO-DATOS.md (tabla "quien escribe" + INVARIANTES):
 //    - items:      privado / equipo / admin ve todo, creacion SOLO con campos
 //                  CLIENTE, estado 'pendiente' y un tipo de la lista cerrada
-//                  (nota, pdf, word, link, foto), edicion acotada, borrado cerrado
+//                  (nota, pdf, word, link, foto), edicion acotada (titulo y
+//                  texto de la nota; la visibilidad NO: el candado va solo
+//                  por el servidor, PATCH .../visibilidad), borrado cerrado
 //    - aislamiento entre workspaces (incluida la query collectionGroup)
 //    - respuestas: create con EXACTAMENTE 4 campos, la leen el autor o el admin
+//                  (y el admin las lista todas: el Radar y En vivo del panel)
 //    - seguimientos (conversaciones): los 4 de siempre + conversacionId y
 //                  anteriorRespId, los dos o ninguno; preguntaBuscada es solo
 //                  del backend; la query con la que la app lista una
@@ -75,11 +78,13 @@ import {
   query,
   where,
   orderBy,
+  limit,
   getDoc,
   getDocs,
   setDoc,
   updateDoc,
   deleteDoc,
+  deleteField,
   serverTimestamp,
   Timestamp,
   setLogLevel,
@@ -523,14 +528,43 @@ describe('items: creación desde el cliente', () => {
 //  ITEMS — EDICION Y BORRADO
 // ===========================================================================
 describe('items: edición y borrado', () => {
-  test('el autor EDITA titulo y visibilidad con actualizadoEn del servidor', async () => {
+  test('el autor EDITA el titulo con actualizadoEn del servidor', async () => {
     await assertSucceeds(
       updateDoc(item(comoAna(), 'para_editar_de_ana'), {
         titulo: 'Titulo corregido',
-        visibilidad: 'privado',
         actualizadoEn: serverTimestamp(),
       }),
     );
+  });
+
+  // EL CANDADO VA SOLO POR EL SERVIDOR (PATCH .../visibilidad). Si el cliente
+  // pudiera cambiar 'visibilidad' directo en Firestore, se saltearia el evento
+  // 'item.visibilidad' y la copia a los chunks, y un ADMIN podria publicar lo
+  // privado de otra persona, que es solo del autor (contrato A). Por eso ni el
+  // autor ni el admin la pueden tocar desde la app: solo se elige al crear.
+  test('RECHAZADO: el autor cambia la visibilidad desde el cliente (el candado va por el servidor)', async () => {
+    await assertFails(
+      updateDoc(item(comoAna(), 'para_editar_de_ana'), { visibilidad: 'privado', actualizadoEn: serverTimestamp() }),
+    );
+    await assertFails(updateDoc(item(comoAna(), 'privado_de_ana'), { visibilidad: 'equipo' }));
+  });
+
+  test('RECHAZADO: el admin abre desde el cliente el item privado de otro', async () => {
+    await assertFails(
+      updateDoc(item(comoAdmin(), 'privado_de_beto'), { visibilidad: 'equipo', actualizadoEn: serverTimestamp() }),
+    );
+    // Y la nota de Beto sigue sin verse para Ana: ni por id ni en "Del equipo".
+    await assertFails(getDoc(item(comoAna(), 'privado_de_beto')));
+    const delEquipo = await getDocs(query(items(comoAna()), where('visibilidad', '==', 'equipo')));
+    assert.ok(!delEquipo.docs.some((d) => d.id === 'privado_de_beto'), 'la nota privada de Beto aparecio en "Del equipo"');
+  });
+
+  test('RECHAZADO: el admin cierra desde el cliente un item del equipo (también va por el servidor)', async () => {
+    await assertFails(updateDoc(item(comoAdmin(), 'equipo_de_beto'), { visibilidad: 'privado' }));
+  });
+
+  test('RECHAZADO: borrar el campo visibilidad (deleteField)', async () => {
+    await assertFails(updateDoc(item(comoAna(), 'para_editar_de_ana'), { visibilidad: deleteField() }));
   });
 
   test('RECHAZADO: el autor cambia el estado (solo lo mueve el backend)', async () => {
@@ -597,6 +631,28 @@ describe('respuestas', () => {
 
   test('miembro NO lista todas las respuestas sin filtro', async () => {
     await assertFails(getDocs(respuestas(comoAna())));
+  });
+
+  // Las dos queries del panel que dice el comentario de la regla: el Radar
+  // "Lo que falta" (las 'listo') y la franja "Ahora mismo" de En vivo (las que
+  // estan en curso). Las hace el admin SIN where autorUid: trae las preguntas
+  // de todos, y eso es lo que se defiende ("el admin ve las preguntas").
+  test('admin LISTA las respuestas de todos con las queries del panel (Radar y "Ahora mismo")', async () => {
+    const fs = comoAdmin();
+    const radar = await assertSucceeds(getDocs(query(
+      respuestas(fs), where('estado', '==', 'listo'), orderBy('creadoEn', 'desc'), limit(200),
+    )));
+    assert.ok(radar.docs.some((d) => d.get('autorUid') === UID.ana), 'el Radar tiene que traer las preguntas de Ana');
+    const enCurso = await assertSucceeds(getDocs(query(
+      respuestas(fs), where('estado', 'in', ['buscando', 'redactando']), orderBy('creadoEn', 'desc'), limit(10),
+    )));
+    assert.ok(enCurso.docs.some((d) => d.id === 'resp_de_beto'), '"Ahora mismo" tiene que traer la pregunta en curso de Beto');
+  });
+
+  test('RECHAZADO: un miembro hace la query del Radar (sin where autorUid traeria preguntas ajenas)', async () => {
+    await assertFails(getDocs(query(
+      respuestas(comoAna()), where('estado', '==', 'listo'), orderBy('creadoEn', 'desc'), limit(200),
+    )));
   });
 
   test('RECHAZADO: el cliente escribe la respuesta (update es del backend)', async () => {

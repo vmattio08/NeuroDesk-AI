@@ -1,6 +1,6 @@
 # NeuroDesk AI — Fase 2 (desarrollo)
 
-> El segundo cerebro con IA de tu equipo. · Entrega: **16/10/2026**
+> El segundo cerebro con IA de tu equipo. · Entrega final (defensa oral y demo): **jueves 5/11/2026**
 
 ## Reglas de trabajo (leer antes de tocar nada)
 
@@ -20,8 +20,9 @@ medio hacer (commit `wip`). Si no, el próximo conflicto se come una clase enter
 **3. Trabajamos directo en `main`.** Con dos personas y carpetas separadas, las
 ramas agregan ceremonia sin beneficio.
 
-**4. Versiones congeladas.** Flutter **3.41.6** — no correr `flutter upgrade` hasta
-después del 16/10. `package-lock.json` y `pubspec.lock` van al repo.
+**4. Versiones congeladas.** Flutter **3.41.6** — `flutter upgrade` no se corre
+nunca, ni antes ni después de la entrega. `package-lock.json` y `pubspec.lock` van
+al repo.
 
 ## Regla de oro
 Los secretos van en `.env` (copiado de `.env.example`) y **nunca** al repo.
@@ -69,9 +70,12 @@ cuenta dueña del proyecto.)
   mal, en la consola de Firebase → Hosting se vuelve a la versión anterior.
 - Publicado, el panel le habla solo al backend de Render (`URL_API` se elige
   sola): leer anda siempre, invitar o quitar miembros necesita Render arriba.
-- Caché: el HTML se revisa en cada visita; CSS, JS e imágenes se guardan 10
-  minutos (sin build, los archivos no cambian de nombre y una caché larga
-  mezclaría HTML nuevo con JS viejo). Recién publicado, Ctrl+F5.
+- Caché: HTML, CSS y JS se revisan en cada visita (`no-cache`: si no
+  cambiaron, Hosting contesta 304 y no se vuelven a bajar); solo las imágenes
+  y las fuentes se guardan 10 minutos. Por qué: sin build los archivos no
+  cambian de nombre, y con el JS en caché un HTML nuevo se mezclaba con
+  módulos viejos; si importaba algo nuevo, el panel quedaba en «Cargando…» sin
+  ningún cartel, y F5 no lo arreglaba. Si igual algo se ve viejo, Ctrl+F5.
 - Las reglas de `firebase.json` usan `regex` y no globs (`**/*.css`) a
   propósito: el emulador en Windows ignora los globs sin avisar, y así lo que se
   prueba en la compu es lo mismo que pasa publicado.

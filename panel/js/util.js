@@ -1,6 +1,9 @@
 // ============================================================================
-//  util.js  —  las cuatro o cinco funciones que usan TODAS las pantallas.
+//  util.js  —  las funciones chicas que usan TODAS las pantallas.
 //  Panel web de NeuroDesk AI. Autor: Martin.
+//
+//  Este archivo NO importa nada (ni Firebase ni el DOM): son funciones puras.
+//  Por eso se pueden probar con node, sin navegador y sin red.
 //
 //  La mas importante de este archivo es esc(). Leer el comentario largo de
 //  abajo antes de tocar cualquier pantalla: es la unica defensa que tiene el
@@ -107,7 +110,7 @@ export function fechaCorta(valor) {
 // ----------------------------------------------------------------------------
 export function haceCuanto(valor) {
   const d = aFecha(valor);
-  if (!d) return 'recien (esperando la hora del servidor)';
+  if (!d) return 'recién (esperando la hora del servidor)';
 
   const seg = Math.floor((Date.now() - d.getTime()) / 1000);
   if (seg < 60)     return 'hace unos segundos';
@@ -146,10 +149,61 @@ export function normalizar(texto) {
 
 // ----------------------------------------------------------------------------
 // uidCorto()  —  un uid de Firebase mide 28 caracteres y no le dice nada a
-// nadie. Cuando no tenemos el nombre de la persona (por ejemplo, un item de
-// alguien que ya no esta en el equipo), mostramos los primeros 6 y listo.
+// nadie. Queda SOLO para la lista de Miembros, cuando a un miembro que SI esta
+// en el equipo le falta el nombre (un doc roto). Para mostrar al AUTOR de algo
+// se usa nombreDeAutor(), que sabe de la gente que ya se fue.
 // ----------------------------------------------------------------------------
 export function uidCorto(uid) {
   if (!uid) return 'desconocido';
   return String(uid).slice(0, 6) + '…';
+}
+
+
+// ----------------------------------------------------------------------------
+// nombreDeAutor()  —  "quien hizo esto", con la regla que comparten TODAS las
+// piezas del proyecto (la app, el panel y el servidor dicen lo mismo):
+//
+//   1) members/{uid}.nombre                 -> "Camila Duarte"
+//   2) si no esta: workspaces/{wsId}.exMiembros[uid].nombre
+//                                           -> "Lucas (ya no está en el equipo)"
+//   3) si tampoco:                          -> "Ex integrante"
+//
+// POR QUE EXISTE exMiembros: cuando el admin saca a alguien, el servidor borra
+// su ficha de members, pero sus items SE QUEDAN en el espacio (el conocimiento
+// es del equipo). Antes, la tabla mostraba un uid cortado ("uid_se…") y parecia
+// un error. Ahora el servidor guarda el nombre ANTES de borrar la ficha: es la
+// "memoria que no se va". Los que se fueron antes de ese cambio no tienen el
+// nombre guardado y salen como "Ex integrante": no inventamos nada.
+//
+// Recibe los dos mapas ya leidos (no lee Firestore): asi se puede probar con
+// node sin red, y las pantallas lo llaman 200 veces por tabla sin costo.
+//
+// Object.hasOwn y no mapa[uid] a secas: un uid raro como 'constructor'
+// devolveria una funcion heredada del objeto y se dibujaria el codigo.
+// ----------------------------------------------------------------------------
+export function nombreDeAutor(uid, nombrePorUid, exMiembros) {
+  const clave = String(uid ?? '');
+
+  if (clave && nombrePorUid && Object.hasOwn(nombrePorUid, clave)) {
+    const nombre = nombrePorUid[clave];
+    if (typeof nombre === 'string' && nombre.trim()) return nombre.trim();
+  }
+
+  if (clave && exMiembros && Object.hasOwn(exMiembros, clave)) {
+    const ex = exMiembros[clave];
+    if (ex && typeof ex.nombre === 'string' && ex.nombre.trim()) {
+      return `${ex.nombre.trim()} (ya no está en el equipo)`;
+    }
+  }
+
+  return 'Ex integrante';
+}
+
+
+// ----------------------------------------------------------------------------
+// plural()  —  "1 persona" / "3 personas". Mejor que "3 persona(s)", que es
+// como escribe una maquina y no una persona.
+// ----------------------------------------------------------------------------
+export function plural(n, uno, varios) {
+  return `${n} ${n === 1 ? uno : varios}`;
 }

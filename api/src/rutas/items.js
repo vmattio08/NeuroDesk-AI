@@ -514,7 +514,9 @@ async function tomarElItem({ wsId, itemId, uid, esAdmin, validar }) {
 //    2. /reprocesar vuelve a trocear item.texto. Si lo guardáramos limpio, un
 //       PDF reprocesado perdería todas sus citas de página y cambiaría su
 //       cantidad de chunks. Con las marcas, reprocesar diez veces da lo mismo.
-//  Ninguna pantalla muestra item.texto, así que las marcas no las ve nadie.
+//  La foto también llega con una marca (la toma como pág. 1). La pantalla
+//  "Lo que leyó NeuroDesk" de la app SÍ muestra item.texto, pero corta en
+//  estas marcas y pone "Página n": el cartel crudo no lo ve nadie.
 //  'caracteres', en cambio, se cuenta SIN marcas: es el largo real del texto.
 // ============================================================================
 
@@ -760,9 +762,12 @@ async function indexar({ wsId, itemId, item, texto, origen }) {
         texto: trozo.texto,
         embedding: vectores[trozo.idx],
         // COPIA de los permisos del item. Es la SEGUNDA cerradura del
-        // filtro de privacidad (defensa en profundidad). Puede quedar
-        // vieja hasta el próximo reproceso, por eso NUNCA es la que manda:
-        // en /preguntar se aplica con AND junto a la lectura en vivo de los
+        // filtro de privacidad (defensa en profundidad). Si después cambia
+        // la visibilidad, el candado en vivo (PATCH .../visibilidad,
+        // items-extra.js) la reescribe en todos estos chunks sin reprocesar;
+        // solo queda vieja si ese pedido se corta a la mitad o si alguien
+        // toca el item desde la consola. Por eso NUNCA es la que manda: en
+        // /preguntar se aplica con AND junto a la lectura en vivo de los
         // items, así una copia vieja solo puede esconder de más.
         visibilidad: item.visibilidad,
         creadoPor: item.creadoPor,
@@ -821,11 +826,13 @@ async function procesarYDejarListo({ wsId, itemId, uid, quien, item, sacarTexto,
       throw err;
     }
 
+    // "1 fragmento" y no "1 fragmentos": el feed "En vivo" se proyecta en la
+    // demo y tiene que hablar como una persona, no como una maquina.
     await anotarEvento(wsId, {
       tipo: 'item.listo',
       actorUid: uid,
       itemId,
-      resumen: `${quien} ${verbo} "${tituloDe(item)}" (${cantChunks} fragmentos)`,
+      resumen: `${quien} ${verbo} "${tituloDe(item)}" (${cantChunks} ${cantChunks === 1 ? 'fragmento' : 'fragmentos'})`,
     });
 
     console.log(`[items] ${itemId} listo en ${Date.now() - arranque} ms · ${cantChunks} chunks · borrados ${chunksBorrados}`);
@@ -1033,7 +1040,7 @@ rutasDeItems.delete('/:itemId', requireAuth, exigirMiembroSegunContrato, async (
     tipo: 'item.eliminado',
     actorUid: uid,
     itemId,
-    resumen: `${quienHizo(req)} borró "${tituloDe(item)}" (${chunksBorrados} fragmentos)`,
+    resumen: `${quienHizo(req)} borró "${tituloDe(item)}" (${chunksBorrados} ${chunksBorrados === 1 ? 'fragmento' : 'fragmentos'})`,
   });
 
   return res.status(200).json({

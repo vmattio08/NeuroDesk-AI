@@ -19,9 +19,17 @@ La app con la que el equipo **captura** conocimiento (notas, fotos, PDF, Word, l
 | `lib/pantallas/login.dart` | Entrar / crear cuenta / **Continuar con Google**, con los errores traducidos. |
 | `lib/pantallas/home.dart` | El muro de items en tiempo real: 2 pestanas (3 si sos admin), chips de estado y badge de sin-conexion. |
 | `lib/pantallas/captura.dart` | Cargar nota / foto / documento (PDF o Word `.docx`) / link. El boton *Documento* guarda el item como `pdf` o `word` segun la extension. **Crea el item en Firestore y recien despues llama al backend.** |
-| `lib/pantallas/chat.dart` | Preguntar y ver la respuesta con su progreso en vivo y sus fuentes citadas. |
+| `lib/pantallas/chat.dart` | Preguntar y ver la respuesta con su progreso en vivo y sus fuentes citadas, con preguntas de seguimiento en la misma conversacion. |
+| `lib/pantallas/detalle_item.dart` | "Lo que leyó NeuroDesk": se abre al tocar una fuente o una fila del muro. Muestra como se leyo el item, de quien es y el texto que extrajo el backend (cortado por pagina donde hay marcas `<<<PAGINA:n>>>`), con la parte citada en cian. |
+| `lib/servicios/equipo.dart` | De quien es cada cosa: el nombre de cada autor (members, despues exMiembros con "(ya no está en el equipo)", y si no "Ex integrante") y la linea "de quien, de cuando y con que candado" de cada fuente y de cada fila del muro. |
 | `lib/pantallas/sin_workspace.dart` | "Todavia no perteneces a ningun equipo, pedile a tu admin que te invite". |
-| `test/widget_test.dart` | Las pruebas de `flutter test`: que la app no muestre la pantalla roja si Firebase falla, la regla del nombre para `/v1/auth/registro`, la traduccion de errores y que el boton *Documento* distinga PDF de Word. Corren sin celular, sin Firebase y sin internet. |
+| `test/widget_test.dart` | Las pruebas de `flutter test`: que la app no muestre la pantalla roja si Firebase falla, la regla del nombre para `/v1/auth/registro`, la traduccion de errores, que sin red y con el token vencido no se cierre la sesion, y que el boton *Documento* distinga PDF de Word. |
+| `test/conversacion_test.dart` | Las preguntas de seguimiento: los campos exactos del documento (4 en una primera pregunta, 6 en un seguimiento), de que vuelta se cuelga cada pregunta y cuando se habilita la caja de abajo. |
+| `test/candado_y_rol_test.dart` | El candado en vivo (que opcion ofrece el menu de cada fila) y la key de la pantalla principal, que junta el espacio y el rol. |
+| `test/detalle_item_test.dart` | "Lo que leyó NeuroDesk": el corte por pagina y en bloques, encontrar la cita, y que la parte en cian quede a la vista en un celular chico. |
+| `test/dueno_test.dart` | "Cada dato con dueño": el nombre de cada autor, la linea de cada fuente, las fechas cortas y los textos de una respuesta (miembro, admin y sin fuentes). |
+
+Los 5 archivos de `test/` suman 142 pruebas (al 30/10) y corren sin celular, sin Firebase y sin internet.
 | `analysis_options.yaml` | Activa las reglas de `flutter_lints` para `flutter analyze`. La meta es **0 issues** siempre. |
 | `android/` | El proyecto nativo de Android, **versionado a proposito** (ver 2.2): lleva el plugin de Google Services, el `google-services.json` y los permisos. |
 
@@ -244,4 +252,4 @@ Antes de tocar el celular: `flutter analyze` tiene que decir **No issues found!*
 - [ ] Subir un PDF de mas de 10 MB → lo frena la app, sin subir nada.
 - [ ] Subir un Word (`.docx`) con *Documento* → aparece con el icono de hoja en **Pendiente** y pasa solo a **Listo**. En el panel figura como tipo **Word**.
 - [ ] Elegir un Word viejo (`.doc`) → la app lo frena y pide guardarlo como `.docx`.
-- [ ] **La prueba del requisito de roles:** A sube una nota **privada**, B pregunta exactamente por su contenido → la respuesta viene **sin fuentes**. Si el admin hace la misma pregunta, el numero de "fragmentos que pude usar" es mas grande.
+- [ ] **La prueba del requisito de roles:** A sube una nota **privada**, B pregunta exactamente por su contenido → la respuesta viene **sin fuentes**, con "Respondido solo con lo que vos podés ver" y sin ningun numero de fragmentos. Si el admin hace la misma pregunta, la respuesta la cita y la app le dice "Como sos admin, busqué en todo el espacio, incluido lo privado de cada uno." y "Miré los N fragmentos del espacio."

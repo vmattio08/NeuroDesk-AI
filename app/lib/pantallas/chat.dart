@@ -69,6 +69,22 @@
 //  espera de DEMASIADOS_PEDIDOS (contrato N6: el boton se apaga los segundos
 //  que diga Retry-After) y la hora del CELULAR en que salio cada pregunta,
 //  que es con la que se decide si una vuelta quedo colgada.
+//
+//  ================= CADA FUENTE CON DUENO ==================================
+//  Cada fuente dice de quien es, de cuando y con que candado ("Valentino
+//  Mattio · 24/08 · Del equipo", "Tu nota privada · 27/08", "Privada de
+//  Martín Sosa · 27/08 · la ves porque sos admin"), y al tocarla se abre
+//  "Lo que leyó NeuroDesk" con la parte citada en cian (detalle_item.dart).
+//  Para eso se lee cada item citado UNA vez por conversacion (LecturasDeItems
+//  en equipo.dart: hasta 6 por respuesta, guardadas en memoria porque la
+//  pantalla se redibuja sola) y los nombres salen de members y exMiembros.
+//
+//  ================= LA PRIVACIDAD, DICHA DE FRENTE =========================
+//  Un "no encontré" de un miembro no es una falla: la IA busco SOLO en lo que
+//  esa persona puede ver. Por eso cada respuesta dice con que se respondio
+//  ("Respondido solo con lo que vos podés ver" / "Como sos admin, busqué en
+//  todo el espacio..."), y una pregunta sin fuentes avisa que quedo anotada
+//  para el admin, que la ve en "Lo que falta" del panel (el Radar).
 // ============================================================================
 
 import 'dart:async';
@@ -78,7 +94,9 @@ import 'package:flutter/material.dart';
 
 import '../servicios/api.dart';
 import '../servicios/auth_servicio.dart';
+import '../servicios/equipo.dart';
 import '../tema.dart';
+import 'detalle_item.dart';
 
 class ChatPantalla extends StatefulWidget {
   const ChatPantalla({
@@ -86,11 +104,23 @@ class ChatPantalla extends StatefulWidget {
     required this.wsId,
     required this.wsNombre,
     required this.miUid,
+    this.esAdmin = false,
   });
 
   final String wsId;
   final String wsNombre;
   final String miUid;
+
+  /// Solo para el aviso de abajo del historial (quien puede ver las
+  /// preguntas). No autoriza nada: eso lo hacen el backend y las reglas.
+  final bool esAdmin;
+
+  /// El aviso del historial: las preguntas NO son secretas para el admin
+  /// (la regla de respuestas le deja leerlas todas, y el panel le muestra las
+  /// que quedaron sin respuesta). Es mejor decirlo que esconderlo.
+  static String avisoDelHistorial({required bool esAdmin}) => esAdmin
+      ? 'Como sos admin, desde el panel ves las preguntas de todo el equipo.'
+      : 'El administrador del equipo puede ver las preguntas que hacés acá.';
 
   /// El largo de una pregunta: el MISMO rango que la regla de Firestore
   /// (pregunta.size() >= 3 y <= 500) y que el backend.
@@ -398,6 +428,7 @@ class _ChatPantallaState extends State<ChatPantalla> {
               raizId: raizId,
               pregunta: pregunta,
               preguntarAlAbrir: preguntarAlAbrir,
+              esAdmin: widget.esAdmin,
             ),
           ),
         )
@@ -461,6 +492,9 @@ class _ChatPantallaState extends State<ChatPantalla> {
                 },
               ),
             ),
+            // Justo arriba de donde se escribe: es el momento en que importa
+            // saber quien mas puede leer la pregunta.
+            AvisoDelHistorial(texto: ChatPantalla.avisoDelHistorial(esAdmin: widget.esAdmin)),
             _cajaDeTexto(),
           ],
         ),
@@ -609,10 +643,17 @@ class ConversacionPantalla extends StatefulWidget {
     required this.raizId,
     required this.pregunta,
     required this.preguntarAlAbrir,
+    this.esAdmin = false,
   });
 
   final String wsId;
   final String miUid;
+
+  /// Si quien mira es admin HOY. Solo sirve para no mostrarle a un miembro lo
+  /// que es del admin (ver datosParaMostrar); no autoriza nada. El default es
+  /// false a proposito: si alguien se olvida de pasarlo, la pantalla falla
+  /// escondiendo, nunca mostrando de mas.
+  final bool esAdmin;
 
   /// respId de la PRIMERA pregunta: es el id de toda la conversacion.
   final String raizId;
@@ -622,6 +663,21 @@ class ConversacionPantalla extends StatefulWidget {
 
   /// true cuando la raiz se acaba de crear: hay que disparar su POST.
   final bool preguntarAlAbrir;
+
+  /// Los datos de una vuelta tal como se dibujan. A quien HOY no es admin se
+  /// le saca chunksMirados (el total del espacio): el backend nunca se lo
+  /// escribe a un miembro, pero el seed lo cargo en las preguntas viejas de
+  /// Martin y de Camila, y con eso la tarjeta decia "Como sos admin..." y
+  /// contaba cuantos fragmentos privados ajenos hay. Asi, aunque un documento
+  /// venga mal cargado, a un miembro no le llega ni el texto de admin ni el
+  /// numero. Al admin se le muestra tal cual.
+  static Map<String, dynamic> datosParaMostrar(
+    Map<String, dynamic> datos, {
+    required bool esAdmin,
+  }) {
+    if (esAdmin || datos['chunksMirados'] == null) return datos;
+    return <String, dynamic>{...datos, 'chunksMirados': null};
+  }
 
   /// La vuelta de la que se cuelga la proxima pregunta: la ULTIMA 'listo'.
   ///
@@ -744,6 +800,11 @@ class _ConversacionPantallaState extends State<ConversacionPantalla> {
   /// se vuelven a crear (viven en el State), solo se rearma el arbol.
   late final Timer _reloj;
 
+  /// Los items que citan las respuestas, leidos UNA vez por item mientras
+  /// dure esta pantalla. Sin esta memoria, cada redibujo (el reloj de arriba,
+  /// cada cambio de los streams) volveria a leer hasta 6 items por respuesta.
+  late final LecturasDeItems _lecturas;
+
   @override
   void initState() {
     super.initState();
@@ -753,6 +814,7 @@ class _ConversacionPantallaState extends State<ConversacionPantalla> {
         .collection('respuestas');
     _raiz = _respuestas.doc(widget.raizId).snapshots();
     _seguimientos = _escucharSeguimientos();
+    _lecturas = LecturasDeItems.deFirestore(widget.wsId);
 
     _reloj = Timer.periodic(const Duration(seconds: 20), (_) => _redibujar());
 
@@ -941,6 +1003,26 @@ class _ConversacionPantallaState extends State<ConversacionPantalla> {
     _foco.requestFocus();
   }
 
+  /// Tocar una fuente abre "Lo que leyó NeuroDesk" con la parte citada en
+  /// cian. Es lo que hace verdad "citas que te llevan al ítem original".
+  void _abrirFuente(Map<dynamic, dynamic> fuente) {
+    final String itemId = (fuente['itemId'] ?? '').toString();
+    if (itemId.isEmpty) return;
+    final Object? pagina = fuente['pagina'];
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => DetalleItemPantalla(
+          wsId: widget.wsId,
+          itemId: itemId,
+          miUid: widget.miUid,
+          titulo: (fuente['titulo'] ?? '').toString(),
+          fragmento: (fuente['fragmento'] ?? '').toString(),
+          pagina: pagina is num ? pagina.toInt() : null,
+        ),
+      ),
+    );
+  }
+
   /// Lleva la lista al final despues de mandar una pregunta, para que se vea
   /// la vuelta nueva con su "Buscando...". Va despues del frame porque recien
   /// ahi la lista sabe cuanto mide con la vuelta nueva adentro.
@@ -964,37 +1046,51 @@ class _ConversacionPantallaState extends State<ConversacionPantalla> {
         title: const Text('Conversación'),
       ),
       body: SafeArea(
-        child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          stream: _raiz,
-          builder: (
-            BuildContext context,
-            AsyncSnapshot<DocumentSnapshot<Map<String, dynamic>>> snapshot,
-          ) {
-            if (snapshot.hasError) {
-              return ErrorMensaje(
-                error: snapshot.error!,
-                titulo: 'No pudimos cargar esta conversación',
-              );
-            }
-            if (!snapshot.hasData) {
-              return const Center(child: CircularProgressIndicator(color: cianElectrico));
-            }
-            final Map<String, dynamic>? datos = snapshot.data!.data();
-            if (datos == null) {
-              return const VacioMensaje(
-                icono: Icons.search_off,
-                titulo: 'Esta conversación ya no existe',
-                detalle: 'Puede que la hayan borrado. Volvé al chat y preguntá de nuevo.',
-              );
-            }
-            return _conversacion(
-              _armarVuelta(
-                widget.raizId,
-                datos,
-                pendiente: snapshot.data!.metadata.hasPendingWrites,
-                ahora: DateTime.now(),
-                preguntaPorDefecto: widget.pregunta,
-              ),
+        // Los nombres del equipo EN VIVO, para el "de quien es" de cada
+        // fuente: si el admin saca a alguien mientras esta pantalla esta
+        // abierta, la fuente siguiente ya dice "(ya no está en el equipo)".
+        child: EquipoEnVivo(
+          wsId: widget.wsId,
+          builder: (BuildContext context, NombresDelEquipo nombres) {
+            return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+              stream: _raiz,
+              builder: (
+                BuildContext context,
+                AsyncSnapshot<DocumentSnapshot<Map<String, dynamic>>> snapshot,
+              ) {
+                if (snapshot.hasError) {
+                  return ErrorMensaje(
+                    error: snapshot.error!,
+                    titulo: 'No pudimos cargar esta conversación',
+                  );
+                }
+                if (!snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator(color: cianElectrico));
+                }
+                final Map<String, dynamic>? datos = snapshot.data!.data();
+                if (datos == null) {
+                  return const VacioMensaje(
+                    icono: Icons.search_off,
+                    titulo: 'Esta conversación ya no existe',
+                    detalle: 'Puede que la hayan borrado. Volvé al chat y preguntá de nuevo.',
+                  );
+                }
+                return _conversacion(
+                  _armarVuelta(
+                    widget.raizId,
+                    datos,
+                    pendiente: snapshot.data!.metadata.hasPendingWrites,
+                    ahora: DateTime.now(),
+                    preguntaPorDefecto: widget.pregunta,
+                  ),
+                  DuenosDeLasFuentes(
+                    miUid: widget.miUid,
+                    nombres: nombres,
+                    lecturas: _lecturas,
+                    alAbrir: _abrirFuente,
+                  ),
+                );
+              },
             );
           },
         ),
@@ -1016,7 +1112,7 @@ class _ConversacionPantallaState extends State<ConversacionPantalla> {
   }) {
     return Vuelta.desdeDatos(
       id,
-      datos,
+      ConversacionPantalla.datosParaMostrar(datos, esAdmin: widget.esAdmin),
       preguntaPorDefecto: preguntaPorDefecto,
       pendienteDeSubir: pendiente,
       mandadaEn: RegistroDePedidos.mandadaEn[id],
@@ -1025,8 +1121,9 @@ class _ConversacionPantallaState extends State<ConversacionPantalla> {
   }
 
   /// La conversacion ya con la raiz cargada: la raiz + los seguimientos (en el
-  /// orden de creadoEn) + la caja de abajo.
-  Widget _conversacion(Vuelta raiz) {
+  /// orden de creadoEn) + la caja de abajo. [duenos] es lo que necesitan las
+  /// fuentes para decir de quien son y abrirse.
+  Widget _conversacion(Vuelta raiz, DuenosDeLasFuentes duenos) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
       stream: _seguimientos,
       builder: (
@@ -1100,6 +1197,7 @@ class _ConversacionPantallaState extends State<ConversacionPantalla> {
               errorDelPedido: RegistroDePedidos.errores[vuelta.id],
               tardando: RegistroDePedidos.tardando.contains(vuelta.id),
               colgada: vuelta.quedoColgada(ahora),
+              duenos: duenos,
               // "Volver a preguntar" solo en la ULTIMA y solo si fallo: en una
               // del medio no tiene sentido, la charla ya siguio despues.
               alVolverAPreguntar: esLaUltima && ultimaFallo && !_enviando
@@ -1347,7 +1445,50 @@ class TarjetaDeVuelta extends StatelessWidget {
     this.tardando = false,
     this.colgada = false,
     this.alVolverAPreguntar,
+    this.duenos,
   });
+
+  /// true si esta vuelta la respondio el backend para un ADMIN: chunksMirados
+  /// lo escribe el backend SOLO cuando pregunto un admin (a un miembro no se
+  /// le dice cuanto hay en total, porque eso revela cuanto contenido privado
+  /// ajeno existe). Ademas, la conversacion se lo saca a la vuelta si quien
+  /// mira HOY no es admin (ConversacionPantalla.datosParaMostrar): un dato mal
+  /// cargado no alcanza para que un miembro vea el texto de admin.
+  static bool preguntoUnAdmin(Vuelta v) => v.chunksMirados != null;
+
+  /// Con que se respondio. Es lo que hace que un "no encontré" de un miembro
+  /// se lea como lo que es (privacidad) y no como una falla de la IA.
+  static String alcance(Vuelta v) => preguntoUnAdmin(v)
+      ? 'Como sos admin, busqué en todo el espacio, incluido lo privado de cada uno.'
+      : 'Respondido solo con lo que vos podés ver.';
+
+  /// Una pregunta sin fuentes no se pierde: el admin la ve en "Lo que falta"
+  /// del panel (el Radar), agrupada con las demas que nadie pudo contestar.
+  static String avisoSinFuentes(Vuelta v) => preguntoUnAdmin(v)
+      ? 'Quedó anotada en "Lo que falta", en el panel: desde ahí podés cargar '
+          'la respuesta para el equipo.'
+      : 'Quedó anotada para el administrador del equipo, así sabe qué falta cargar.';
+
+  /// Los dos numeros del filtro, que solo ve el admin, SIN contradecirse.
+  ///
+  /// Antes decia "Miré 40 fragmentos y pude usar 40: el resto es privado de
+  /// otras personas", y no habia ningun resto: el admin puede usar todo. Ahora
+  /// se dice el numero solo, y "el resto" aparece solo si de verdad quedo
+  /// algo afuera (fragmentos de un item que ya no esta). null = no mostrar.
+  static String? numerosDelFiltro(Vuelta v) {
+    final Object? mirados = v.chunksMirados;
+    if (mirados is! num) return null;
+    final int total = mirados.toInt();
+    if (total <= 0) return 'Todavía no hay nada cargado en el espacio.';
+    final Object? visibles = v.chunksVisibles;
+    if (visibles is! num || visibles.toInt() >= total) {
+      return total == 1
+          ? 'Miré el único fragmento del espacio.'
+          : 'Miré los $total fragmentos del espacio.';
+    }
+    return 'Miré $total fragmentos del espacio y pude usar ${visibles.toInt()}: '
+        'los demás son de contenido que ya no está disponible.';
+  }
 
   final Vuelta vuelta;
 
@@ -1362,6 +1503,10 @@ class TarjetaDeVuelta extends StatelessWidget {
 
   /// null = sin boton "Volver a preguntar".
   final VoidCallback? alVolverAPreguntar;
+
+  /// Lo que necesitan las fuentes para decir de quien son y abrirse. null en
+  /// los tests sin Firebase: ahi las fuentes se dibujan sin dueno.
+  final DuenosDeLasFuentes? duenos;
 
   /// Que error mostrar, o null si no hay ninguno. El ORDEN importa:
   ///   1) 'listo' gana siempre: si el backend termino bien, un POST que se
@@ -1392,6 +1537,7 @@ class TarjetaDeVuelta extends StatelessWidget {
   Widget build(BuildContext context) {
     final String? error = _error;
     final String? comoLaEntendio = vuelta.comoLaEntendio;
+    final String? numeros = numerosDelFiltro(vuelta);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1478,7 +1624,11 @@ class TarjetaDeVuelta extends StatelessWidget {
 
         // --- la respuesta ---------------------------------------------------
         if (vuelta.estaLista) ...<Widget>[
-          if (vuelta.confianza.isNotEmpty) _ChipDeConfianza(confianza: vuelta.confianza),
+          // Sin fuentes no hay de que estar "seguro": el chip rojo de
+          // "Confianza baja" al lado de un "no encontré" hacia parecer que
+          // la IA andaba mal, cuando en realidad hizo lo correcto.
+          if (vuelta.confianza.isNotEmpty && vuelta.fuentes.isNotEmpty)
+            _ChipDeConfianza(confianza: vuelta.confianza),
           const SizedBox(height: 10),
           SelectableText(
             vuelta.respuesta.isEmpty
@@ -1486,15 +1636,22 @@ class TarjetaDeVuelta extends StatelessWidget {
                 : vuelta.respuesta,
             style: const TextStyle(color: grisClaro, fontSize: 16, height: 1.5),
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 12),
 
-          if (vuelta.fuentes.isEmpty)
-            const Text(
-              'Sin fuentes: no hay nada cargado que hable de esto, o lo que '
-              'hay es privado de otra persona.',
-              style: TextStyle(color: grisApagado, fontSize: 13),
-            )
-          else ...<Widget>[
+          // Con que se respondio: el filtro de permisos dicho como lo que es,
+          // una virtud. Va en TODAS las respuestas, no solo en las vacias.
+          _NotaChica(
+            icono: preguntoUnAdmin(vuelta)
+                ? Icons.admin_panel_settings_outlined
+                : Icons.lock_person_outlined,
+            texto: alcance(vuelta),
+          ),
+
+          if (vuelta.fuentes.isEmpty) ...<Widget>[
+            const SizedBox(height: 8),
+            _NotaChica(icono: Icons.flag_outlined, texto: avisoSinFuentes(vuelta)),
+          ] else ...<Widget>[
+            const SizedBox(height: 22),
             const Text(
               'De dónde lo saqué',
               style: TextStyle(
@@ -1504,21 +1661,15 @@ class TarjetaDeVuelta extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 10),
-            for (final dynamic f in vuelta.fuentes) _Fuente(datos: f),
+            for (final dynamic f in vuelta.fuentes) _Fuente(datos: f, duenos: duenos),
           ],
 
-          // Los dos numeros del filtro de privacidad. Se muestran a
-          // proposito: si la misma pregunta la hace el admin, "visibles" es
-          // mas grande. Es el requisito de roles hecho numero, y se puede
-          // mostrar en vivo en la defensa. Van por vuelta porque en cada
-          // vuelta el backend vuelve a filtrar en vivo.
-          if (vuelta.chunksMirados != null) ...<Widget>[
-            const SizedBox(height: 20),
-            Text(
-              'Miré ${vuelta.chunksMirados} fragmentos del equipo y pude usar '
-              '${vuelta.chunksVisibles}: el resto es privado de otras personas.',
-              style: const TextStyle(color: grisApagado, fontSize: 12),
-            ),
+          // Los numeros del filtro, solo para el admin (el backend no se los
+          // da a un miembro). Van por vuelta porque en cada vuelta el backend
+          // vuelve a filtrar en vivo.
+          if (numeros != null) ...<Widget>[
+            const SizedBox(height: 16),
+            Text(numeros, style: const TextStyle(color: grisApagado, fontSize: 12)),
           ],
         ],
       ],
@@ -1866,11 +2017,34 @@ class _ChipDeConfianza extends StatelessWidget {
   }
 }
 
-/// Una cita: [n] titulo, pagina y el fragmento exacto que uso la IA.
+/// Lo que necesita una fuente para decir de quien es y abrirse: quien mira,
+/// los nombres del equipo (en vivo), la memoria de items leidos y que hacer
+/// al tocarla. Va en un solo objeto para no pasar cuatro cosas por cada
+/// vuelta, y es publico para poder armarlo en los tests con una lectura de
+/// mentira (sin Firebase).
+class DuenosDeLasFuentes {
+  const DuenosDeLasFuentes({
+    required this.miUid,
+    required this.nombres,
+    required this.lecturas,
+    required this.alAbrir,
+  });
+
+  final String miUid;
+  final NombresDelEquipo nombres;
+  final LecturasDeItems lecturas;
+
+  /// Abre "Lo que leyó NeuroDesk" con esa fuente (el mapa de fuentes[]).
+  final void Function(Map<dynamic, dynamic> fuente) alAbrir;
+}
+
+/// Una cita: [n] titulo, pagina, de quien es y el fragmento exacto que uso
+/// la IA. Si hay [duenos], se puede tocar y abre el item.
 class _Fuente extends StatelessWidget {
-  const _Fuente({required this.datos});
+  const _Fuente({required this.datos, this.duenos});
 
   final dynamic datos;
+  final DuenosDeLasFuentes? duenos;
 
   @override
   Widget build(BuildContext context) {
@@ -1881,17 +2055,15 @@ class _Fuente extends StatelessWidget {
 
     final String titulo = (f['titulo'] ?? 'Sin título').toString();
     final String fragmento = (f['fragmento'] ?? '').toString();
+    final String itemId = (f['itemId'] ?? '').toString();
     final Object? pagina = f['pagina'];
     final Object? n = f['n'];
+    // null = esta fuente no se puede abrir: los tests sin Firebase, o una
+    // respuesta sin itemId (muy vieja o cargada a mano).
+    final DuenosDeLasFuentes? d = itemId.isEmpty ? null : duenos;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
+    final Widget contenido = Padding(
       padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: superficie,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: cian.withValues(alpha: 0.3)),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -1930,8 +2102,14 @@ class _Fuente extends StatelessWidget {
                   'pág. $pagina',
                   style: const TextStyle(color: grisApagado, fontSize: 12),
                 ),
+              // La flechita dice "esto se toca" sin tener que explicarlo.
+              if (d != null) const Icon(Icons.chevron_right, size: 20, color: cianElectrico),
             ],
           ),
+          if (d != null) ...<Widget>[
+            const SizedBox(height: 6),
+            _LineaDelDueno(itemId: itemId, duenos: d),
+          ],
           if (fragmento.isNotEmpty) ...<Widget>[
             const SizedBox(height: 8),
             Text(
@@ -1946,6 +2124,106 @@ class _Fuente extends StatelessWidget {
           ],
         ],
       ),
+    );
+
+    // Material + InkWell para que toda la tarjeta se pueda tocar con el
+    // efecto de onda (un Container con color taparia la onda).
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: superficie,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: cian.withValues(alpha: 0.3)),
+        ),
+        child: d == null ? contenido : InkWell(onTap: () => d.alAbrir(f), child: contenido),
+      ),
+    );
+  }
+}
+
+/// "Valentino Mattio · 24/08 · Del equipo" debajo del titulo de una fuente.
+///
+/// Lee el item UNA vez (LecturasDeItems guarda la lectura): la conversacion se
+/// redibuja sola cada tanto y no tiene que volver a pedirlo. Si ya estaba
+/// leido, se dibuja directo, sin un cuadro de "cargando" (initialData).
+class _LineaDelDueno extends StatelessWidget {
+  const _LineaDelDueno({required this.itemId, required this.duenos});
+
+  final String itemId;
+  final DuenosDeLasFuentes duenos;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<LecturaDeItem>(
+      future: duenos.lecturas.leer(itemId),
+      initialData: duenos.lecturas.yaLeida(itemId),
+      builder: (BuildContext context, AsyncSnapshot<LecturaDeItem> snapshot) {
+        final LecturaDeItem? lectura = snapshot.data;
+        // Mientras se lee, o si fallo la red: la fuente se ve igual, sin la
+        // linea. Nunca un error rojo por un dato que es de adorno.
+        if (lectura == null || lectura.fallo) return const SizedBox.shrink();
+        if (lectura.sinAcceso) {
+          // La respuesta es vieja: despues de responderla, el item se borro o
+          // su autor lo paso a privado. La respuesta queda; el item ya no.
+          return const _NotaChica(
+            icono: Icons.lock_outline,
+            texto: 'Ya no tenés acceso a esta fuente',
+          );
+        }
+        final Map<String, dynamic> item = lectura.datos!;
+        final bool privado = (item['visibilidad'] ?? 'privado').toString() != 'equipo';
+        return _NotaChica(
+          icono: privado ? Icons.lock : Icons.groups,
+          texto: etiquetaDelDueno(item: item, miUid: duenos.miUid, nombres: duenos.nombres),
+          color: privado ? colorProcesando : grisApagado,
+        );
+      },
+    );
+  }
+}
+
+/// Un renglon chico con icono: las notas grises de abajo de una respuesta.
+class _NotaChica extends StatelessWidget {
+  const _NotaChica({required this.icono, required this.texto, this.color = grisApagado});
+
+  final IconData icono;
+  final String texto;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.only(top: 1),
+          child: Icon(icono, size: 15, color: color),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(texto, style: TextStyle(color: color, fontSize: 12.5)),
+        ),
+      ],
+    );
+  }
+}
+
+/// La linea fija de abajo del historial: quien mas puede ver las preguntas.
+/// Publica para probarla sin Firebase.
+class AvisoDelHistorial extends StatelessWidget {
+  const AvisoDelHistorial({super.key, required this.texto});
+
+  final String texto;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: azulNoche,
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+      child: _NotaChica(icono: Icons.visibility_outlined, texto: texto),
     );
   }
 }

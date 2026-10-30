@@ -11,8 +11,9 @@
 //  RECORDATORIO DE ARQUITECTURA: el panel casi no usa el backend. Lee TODO de
 //  Firestore directo (por eso es en tiempo real y por eso funciona con Render
 //  dormido). Le pega al backend solo cuando hace falta una clave secreta o un
-//  privilegio que el cliente no tiene: invitar y quitar miembros, procesar y
-//  borrar items. Lo demas es onSnapshot.
+//  privilegio que el cliente no tiene: invitar y quitar miembros, cambiarles
+//  el rol, y procesar la nota que se carga desde el Radar. Lo demas es
+//  onSnapshot.
 // ============================================================================
 
 import { auth, signOut } from './firebase.js';

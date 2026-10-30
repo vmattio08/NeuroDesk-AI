@@ -6,11 +6,15 @@
 //
 //  QUE HACE
 //  Deja armada, de una sola corrida, una base realista de un colegio:
-//  1 workspace, 3 usuarios (1 admin + 2 miembros) creados de verdad en
-//  Firebase Auth, sus documentos en usuarios/ y en members/, 15 items de los
-//  cuatro tipos y en los cuatro estados, 40 chunks con embeddings del largo
-//  correcto, 3 respuestas con sus fuentes citadas, 20 eventos y el documento
-//  de suscripcion. Es lo que se ve en las capturas de la consola de Firebase.
+//  1 workspace, 4 usuarios (1 admin + 3 miembros, uno de ellos Lucas, el que
+//  se saca en la demo) creados de verdad en Firebase Auth, sus documentos en
+//  usuarios/ y en members/, 17 items de los cuatro tipos y en los cuatro
+//  estados, 45 chunks con embeddings del largo correcto, 3 respuestas con sus
+//  fuentes citadas, 23 eventos y el documento de suscripcion. Es lo que se ve
+//  en las capturas de la consola de Firebase.
+//  Lo de Lucas (su cuenta, sus 3 items y sus eventos) vive en _comun.js,
+//  porque tambien lo usa scripts/sumar-lucas.js, que se lo agrega a un
+//  espacio que ya existe SIN borrar nada.
 //
 //  ES IDEMPOTENTE: correrlo dos, tres o diez veces deja EXACTAMENTE la misma
 //  base. Tres decisiones lo consiguen:
@@ -38,11 +42,17 @@ import {
   fecha,
   escribirEnLotes,
   borrarPorQuery,
+  armarItemDelSeed,
   WS_ID,
   WS_NOMBRE,
   USUARIOS_SEED,
-  PASSWORD_DEMO,
+  passwordDemo,
   EMBED_DIMS,
+  PLAN_DEL_ESPACIO_DE_DEMO,
+  ID_REGLAMENTO,
+  ITEMS_DE_LUCAS,
+  EVENTOS_DE_LUCAS,
+  EVENTO_DEL_REGLAMENTO,
 } from "./_comun.js";
 
 // ============================================================================
@@ -52,7 +62,7 @@ import {
 //  vectores de 1024 numeros con un generador pseudo-azaroso SEMBRADO CON EL
 //  ID DEL CHUNK. Eso significa que el chunk "itm_seed_01_3" saca siempre el
 //  mismo vector, en esta maquina y en la de Martin: sin eso el seed no seria
-//  idempotente (cada corrida cambiaria los 40 vectores).
+//  idempotente (cada corrida cambiaria los 45 vectores).
 //
 //  Los vectores se normalizan a norma 1 (L2) porque el backend compara por
 //  similitud coseno: con vectores normalizados, el coseno es simplemente el
@@ -106,7 +116,7 @@ function embeddingFalso(chunkId) {
 
 const U = Object.fromEntries(USUARIOS_SEED.map((u) => [u.clave, u]));
 
-// --- LOS 15 ITEMS ----------------------------------------------------------
+// --- LOS 17 ITEMS (3 de ellos de Lucas: ver _comun.js) ----------------------
 // Los que tienen 'trozos' son los que quedaron en estado 'listo': de esos
 // trozos salen los chunks Y TAMBIEN el campo 'texto' del item (se arma
 // pegandolos con saltos de linea). Lo hacemos asi a proposito: si el texto se
@@ -210,28 +220,9 @@ const ITEMS = [
       { pagina: null, texto: "No me acuerdo de memoria los umbrales de confianza: 0.60 o más es alta, 0.45 o más es media, y abajo de eso es baja." },
     ],
   },
-  {
-    id: "itm_seed_06",
-    titulo: "Reglamento de convivencia 2026",
-    tipo: "pdf",
-    visibilidad: "equipo",
-    autor: U.camila,
-    nombreArchivo: "reglamento-convivencia-2026.pdf",
-    estado: "listo",
-    origen: "pdf-texto",
-    paginas: 5,
-    creadoEn: "2026-08-28T10:20:00-03:00",
-    actualizadoEn: "2026-08-28T10:20:47-03:00",
-    trozos: [
-      { pagina: 1, texto: "Reglamento de convivencia — ciclo lectivo 2026. Aprobado por el consejo institucional el 3 de marzo de 2026." },
-      { pagina: 1, texto: "Artículo 1: el ingreso al establecimiento es hasta las 7:45 hs. Después de ese horario se registra tardanza." },
-      { pagina: 2, texto: "Artículo 4: el uso del celular en el aula queda a criterio del docente y solo con fines pedagógicos." },
-      { pagina: 2, texto: "Artículo 7: los laboratorios de informática se usan con autorización del profesor a cargo. No se puede instalar software sin permiso." },
-      { pagina: 3, texto: "Artículo 9: las inasistencias se computan por jornada completa. Con 15 inasistencias el alumno queda en condición de reincorporación." },
-      { pagina: 4, texto: "Artículo 12: los actos escolares son de asistencia obligatoria y se computan como jornada de clase." },
-      { pagina: 5, texto: "Artículo 18: cualquier daño al equipamiento del taller se comunica a la familia y se labra un acta." },
-    ],
-  },
+  // El Reglamento (itm_seed_06) es de LUCAS y vive en _comun.js, porque
+  // sumar-lucas.js lo necesita igual. Va aca para que siga saliendo sexto.
+  ITEMS_DE_LUCAS.find((it) => it.id === ID_REGLAMENTO),
   {
     id: "itm_seed_07",
     titulo: "Reparto de tareas del grupo",
@@ -378,6 +369,11 @@ const ITEMS = [
     estado: "pendiente",
     creadoEn: "2026-09-04T07:50:00-03:00",
   },
+
+  // ------------------------------------------------------- LOS DE LUCAS
+  // Las otras dos notas de Lucas (itm_seed_16 y 17), listas y del equipo.
+  // Estan en _comun.js junto con el Reglamento: ver ITEMS_DE_LUCAS.
+  ...ITEMS_DE_LUCAS.filter((it) => it.id !== ID_REGLAMENTO),
 ];
 
 // --- LAS 3 RESPUESTAS ------------------------------------------------------
@@ -385,14 +381,19 @@ const ITEMS = [
 // script saca de ahi el titulo, la pagina y el fragmento. Asi una cita nunca
 // puede quedar apuntando a un chunk que no existe (invariante 11).
 //
-// chunksMirados / chunksVisibles es el filtro de privacidad hecho numero, y es
-// LO QUE HAY QUE MOSTRAR EN LA DEMO. Con estos datos:
-//   total de chunks del workspace .......... 40
+// chunksVisibles es el filtro de privacidad hecho numero, y es LO QUE HAY QUE
+// MOSTRAR EN LA DEMO. Con estos datos:
+//   total de chunks del workspace .......... 45
 //   privados de Martín (item 05) ............ 3
 //   privados de Valentino (item 09) ......... 2
-//   del equipo .............................. 35
-// Entonces: Camila ve 35, Martín ve 38 (35 + sus 3) y Valentino, que es
-// admin, ve los 40. Misma base, tres numeros distintos.
+//   del equipo .............................. 40  (con los 5 de las notas de Lucas)
+// Entonces: Camila ve 40, Martín ve 43 (40 + sus 3) y Valentino, que es
+// admin, ve los 45. Misma base, tres numeros distintos.
+// chunksMirados (el TOTAL del espacio) va SOLO en la respuesta del admin: a un
+// miembro el backend le escribe null (endpoint 11 del contrato), porque el
+// total le contaria cuanto contenido privado ajeno existe. Si el seed se lo
+// cargara a Martin o a Camila, la app les diria "Como sos admin..." al abrir
+// esa pregunta vieja.
 const RESPUESTAS = [
   {
     id: "resp_seed_01",
@@ -404,8 +405,8 @@ const RESPUESTAS = [
     respuesta:
       "La mesa de Programación II de 6.º 1.ª es el miércoles 16/12 a las 10:00 hs en el laboratorio 2, con el tribunal de los profesores Bonelli, Ferreyra y Gómez [1]. Acordate de presentarte 15 minutos antes con el DNI y la libreta [2].",
     confianza: "alta",
-    chunksMirados: 40,
-    chunksVisibles: 38,
+    chunksMirados: null, // es miembro: lo que escribe el backend (ver arriba)
+    chunksVisibles: 43,
     fuentes: [
       { itemId: "itm_seed_01", idxChunk: 2, similitud: 0.87 },
       { itemId: "itm_seed_01", idxChunk: 0, similitud: 0.64 },
@@ -421,8 +422,8 @@ const RESPUESTAS = [
     respuesta:
       "Valentino se ocupa del backend en Node con Express, las reglas de Firestore y la integración con la IA [1]. Martín hace la app en Flutter y el panel web [1]. El modelo de datos, el contrato y la defensa oral los preparan los dos [1], y la entrega se divide en tres fases [2].",
     confianza: "media",
-    chunksMirados: 40,
-    chunksVisibles: 35, // Camila NO ve ningun item privado ajeno
+    chunksMirados: null, // es miembro: lo que escribe el backend (ver arriba)
+    chunksVisibles: 40, // Camila NO ve ningun item privado ajeno
     fuentes: [
       { itemId: "itm_seed_07", idxChunk: 0, similitud: 0.58 },
       { itemId: "itm_seed_02", idxChunk: 0, similitud: 0.47 },
@@ -430,7 +431,7 @@ const RESPUESTAS = [
   },
   {
     id: "resp_seed_03",
-    autor: U.valentino, // es el ADMIN: ve los 40 chunks, incluso los privados
+    autor: U.valentino, // es el ADMIN: ve los 45 chunks, incluso los privados
     pregunta: "¿Qué tengo pendiente del entorno y qué pide la rúbrica?",
     estado: "listo",
     creadoEn: "2026-09-03T22:40:00-03:00",
@@ -438,8 +439,8 @@ const RESPUESTAS = [
     respuesta:
       "Del entorno: el backend de desarrollo escucha en el puerto 3000 y desde el emulador de Android se llega con 10.0.2.2 [1]. De la rúbrica, el criterio 3 pide demostrar en vivo, con dos cuentas, que un rol ve menos información que el otro [2], y el criterio 5 pide poder explicar cualquier fragmento del código [3].",
     confianza: "alta",
-    chunksMirados: 40,
-    chunksVisibles: 40,
+    chunksMirados: 45,
+    chunksVisibles: 45,
     fuentes: [
       // La fuente [1] sale de un item PRIVADO: se puede citar porque el que
       // pregunto es su autor (y ademas es admin). Si preguntara Camila lo
@@ -451,11 +452,14 @@ const RESPUESTAS = [
   },
 ];
 
-// --- LOS 20 EVENTOS --------------------------------------------------------
+// --- LOS 23 EVENTOS --------------------------------------------------------
 // Feed de auditoria, append-only y SOLO para el admin. Los ids van numerados
 // para que el orden por creadoEn coincida con el orden alfabetico: asi la
 // consola de Firebase (que ordena por id) los muestra en el mismo orden que
 // el panel (que ordena por creadoEn desc, o sea al reves).
+// Los 3 de Lucas van al final con su PROPIO id (evt_seed_lucas_N, ver
+// _comun.js): se sumaron despues, y numerarlos en el medio correria los
+// numeros de todos los que ya existen en la base.
 const EVENTOS = [
   { tipo: "workspace.creado",  actor: U.valentino, itemId: null,          resumen: "Valentino creó el espacio «6to 1ra - Programación II»",        creadoEn: "2026-08-24T09:00:00-03:00" },
   { tipo: "miembro.agregado",  actor: U.valentino, itemId: null,          resumen: "Valentino agregó a Martín Sosa como miembro",                  creadoEn: "2026-08-24T09:03:00-03:00" },
@@ -465,7 +469,7 @@ const EVENTOS = [
   { tipo: "item.listo",        actor: U.valentino, itemId: "itm_seed_03", resumen: "Valentino guardó el enlace «Reglas de seguridad de Firestore — documentación oficial»", creadoEn: "2026-08-25T11:05:14-03:00" },
   { tipo: "item.listo",        actor: U.camila,    itemId: "itm_seed_04", resumen: "Camila subió la foto «Pizarrón: diagrama del modelo de datos»", creadoEn: "2026-08-26T08:55:22-03:00" },
   { tipo: "item.listo",        actor: U.martin,    itemId: "itm_seed_05", resumen: "Martín cargó una nota privada",                                 creadoEn: "2026-08-27T21:30:06-03:00" },
-  { tipo: "item.listo",        actor: U.camila,    itemId: "itm_seed_06", resumen: "Camila subió «Reglamento de convivencia 2026»",                 creadoEn: "2026-08-28T10:20:47-03:00" },
+  EVENTO_DEL_REGLAMENTO, // evt_seed_09: "Lucas subió «Reglamento de convivencia 2026»" (ver _comun.js)
   { tipo: "item.listo",        actor: U.valentino, itemId: "itm_seed_07", resumen: "Valentino cargó la nota «Reparto de tareas del grupo»",         creadoEn: "2026-08-29T15:00:05-03:00" },
   { tipo: "item.listo",        actor: U.martin,    itemId: "itm_seed_08", resumen: "Martín guardó el enlace «Cómo usar StreamBuilder en Flutter»",  creadoEn: "2026-08-30T19:45:11-03:00" },
   { tipo: "item.listo",        actor: U.valentino, itemId: "itm_seed_09", resumen: "Valentino cargó una nota privada",                              creadoEn: "2026-08-31T08:10:04-03:00" },
@@ -477,6 +481,7 @@ const EVENTOS = [
   { tipo: "pregunta.hecha",    actor: U.martin,    itemId: null,          resumen: "Martín preguntó: «¿Cuándo es la mesa de Programación II y en qué aula?»", creadoEn: "2026-09-02T17:22:06-03:00" },
   { tipo: "pregunta.hecha",    actor: U.camila,    itemId: null,          resumen: "Camila preguntó: «¿Qué le toca hacer a cada uno en el trabajo práctico?»", creadoEn: "2026-09-03T09:05:08-03:00" },
   { tipo: "pregunta.hecha",    actor: U.valentino, itemId: null,          resumen: "Valentino preguntó: «¿Qué tengo pendiente del entorno y qué pide la rúbrica?»", creadoEn: "2026-09-03T22:40:07-03:00" },
+  ...EVENTOS_DE_LUCAS,
 ];
 
 // ============================================================================
@@ -532,7 +537,11 @@ async function main() {
         uid: u.uid, // uid FIJO: es lo que hace idempotente el alta
         email: u.email,
         emailVerified: true,
-        password: PASSWORD_DEMO,
+        // La clave sale de SEED_PASSWORD del .env y se pide RECIEN aca, cuando
+        // de verdad hay que crear una cuenta: si falta, passwordDemo() corta
+        // antes de este createUser y antes de escribir nada en Firestore (este
+        // es el primer paso). Con las cuentas ya creadas, el seed anda sin ella.
+        password: passwordDemo(),
         displayName: u.nombre,
       });
       cuentasCreadas.push(u.email);
@@ -556,22 +565,22 @@ async function main() {
     datos: {
       nombre: WS_NOMBRE,
       ownerUid: uidDe.valentino, // el owner es admin siempre (invariante 15)
-      plan: "free",
+      // El espacio de demo va en el plan 'pro', activo y sin cargo: tiene mas
+      // personas de las 5 que deja el plan free (ver PLAN_DEL_ESPACIO_DE_DEMO
+      // en _comun.js).
+      plan: PLAN_DEL_ESPACIO_DE_DEMO.plan,
       // planStatus usa el MISMO enum que suscripcion/actual.estado
       // ('sin_plan' | 'pendiente' | 'activa' | 'pausada' | 'cancelada')
       // y los dos valores tienen que coincidir siempre (invariante 21).
-      planStatus: "sin_plan",
+      planStatus: PLAN_DEL_ESPACIO_DE_DEMO.estado,
       creadoEn: fecha("2026-08-24T09:00:00-03:00"),
-      actualizadoEn: fecha("2026-08-24T09:04:00-03:00"),
+      actualizadoEn: fecha("2026-08-24T09:05:00-03:00"),
+      // Sin exMiembros a proposito: este set() pisa el documento entero, asi
+      // que un seed nuevo vuelve a poner a todos en members y no queda nadie
+      // "que se fue". exMiembros lo escribe el backend al sacar a alguien.
     },
   });
   resumen.workspaces = 1;
-
-  const agregadoEnPorClave = {
-    valentino: "2026-08-24T09:00:00-03:00",
-    martin: "2026-08-24T09:03:00-03:00",
-    camila: "2026-08-24T09:04:00-03:00",
-  };
 
   for (const u of usuarios) {
     escrituras.push({
@@ -583,7 +592,7 @@ async function main() {
         rol: u.rol,
         // Al owner lo "agrego" el mismo al crear el workspace.
         agregadoPor: uidDe.valentino,
-        agregadoEn: fecha(agregadoEnPorClave[u.clave]),
+        agregadoEn: fecha(u.agregadoEn),
       },
     });
     resumen.members++;
@@ -634,90 +643,20 @@ async function main() {
   const itemsPorId = {}; // para armar las citas de las respuestas
 
   for (const it of ITEMS) {
-    const uidAutor = uidDe[it.autor.clave];
+    // El documento del item y sus chunks los arma armarItemDelSeed (en
+    // _comun.js): (a) los campos del CLIENTE, iguales a los que escribe
+    // Flutter, y un item 'pendiente' se queda EXACTAMENTE con esos; (b) los
+    // del BACKEND segun el estado; (c) los chunks de los 'listo', con id
+    // itemId_idx y la copia de visibilidad y autor. Es la misma funcion que
+    // usa sumar-lucas.js, asi los items de Lucas quedan iguales por los dos
+    // caminos.
+    const { ref, datos, chunks } = armarItemDelSeed(db, it, uidDe[it.autor.clave]);
+    // Sin clave de Gemini quedan estos vectores falsos (ver PARTE 1); con
+    // clave, el PASO 5 los reemplaza por los de verdad.
+    for (const c of chunks) c.datos.embedding = embeddingFalso(c.ref.id);
+    chunksAEscribir.push(...chunks);
 
-    // (a) LOS CAMPOS DEL CLIENTE. Son los mismos, y en el mismo orden, que
-    //     escribe Flutter. Un item en 'pendiente' se queda EXACTAMENTE aca.
-    const datos = {
-      titulo: it.titulo,
-      tipo: it.tipo,
-      visibilidad: it.visibilidad,
-      workspaceId: WS_ID, // tiene que coincidir con el wsId del path
-      creadoPor: uidAutor,
-      creadoEn: fecha(it.creadoEn),
-      estado: it.estado,
-    };
-    if (it.url) datos.url = it.url;
-    if (it.nombreArchivo) datos.nombreArchivo = it.nombreArchivo;
-
-    // El texto de una nota lo escribe la PERSONA. Para las notas ya
-    // procesadas sale de pegar sus trozos; para la nota pendiente, del campo
-    // textoOriginalSuelto (todavia no la vio el backend).
-    if (it.tipo === "nota") {
-      datos.textoOriginal = it.trozos
-        ? it.trozos.map((t) => t.texto).join("\n")
-        : it.textoOriginalSuelto;
-    }
-
-    // (b) LOS CAMPOS DEL BACKEND, segun el estado.
-    if (it.estado === "procesando") {
-      // Lo unico que escribe la transaccion pendiente -> procesando.
-      datos.actualizadoEn = fecha(it.actualizadoEn);
-      datos.errorMsg = null;
-    }
-
-    if (it.estado === "error") {
-      datos.texto = "";
-      datos.cantChunks = 0; // invariante 6
-      datos.paginas = null;
-      datos.origen = null; // no se llego a extraer nada
-      datos.caracteres = 0;
-      datos.recortado = false;
-      datos.errorMsg = it.errorMsg;
-      datos.actualizadoEn = fecha(it.actualizadoEn);
-    }
-
-    if (it.estado === "listo") {
-      // 'texto' se arma pegando los trozos: asi el texto del item y sus chunks
-      // no pueden desincronizarse nunca.
-      const texto = it.trozos.map((t) => t.texto).join("\n");
-      datos.texto = texto;
-      datos.cantChunks = it.trozos.length; // invariante 6
-      datos.paginas = it.paginas;
-      datos.origen = it.origen;
-      datos.caracteres = texto.length; // el largo REAL, calculado, no inventado
-      datos.recortado = false; // ninguno pasa los 300.000 caracteres
-      datos.errorMsg = null;
-      datos.actualizadoEn = fecha(it.actualizadoEn);
-
-      // (c) LOS CHUNKS de este item. Id deterministico itemId_idx, idx desde 0
-      //     y sin huecos (invariante 5).
-      it.trozos.forEach((trozo, idx) => {
-        const chunkId = `${it.id}_${idx}`;
-        chunksAEscribir.push({
-          ref: db.collection("chunks").doc(chunkId),
-          datos: {
-            workspaceId: WS_ID, // filtro obligatorio de TODA busqueda
-            itemId: it.id,
-            titulo: it.titulo, // desnormalizado, para citar sin leer el item
-            idx,
-            pagina: trozo.pagina,
-            origen: it.origen,
-            texto: trozo.texto,
-            embedding: embeddingFalso(chunkId),
-            // COPIA de la visibilidad y del autor del item: es la SEGUNDA
-            // cerradura del filtro de privacidad, nunca la que manda. Puede
-            // quedar vieja hasta el proximo reproceso, y como se aplica con
-            // AND, una copia vieja solo puede esconder de mas.
-            visibilidad: it.visibilidad,
-            creadoPor: uidAutor,
-            creadoEn: fecha(it.actualizadoEn),
-          },
-        });
-      });
-    }
-
-    escrituras.push({ ref: refWs.collection("items").doc(it.id), datos });
+    escrituras.push({ ref, datos });
     itemsPorId[it.id] = it;
     resumen.items++;
     console.log(
@@ -733,7 +672,7 @@ async function main() {
   // que hace indexar() en el backend y lo que exige el invariante 5: si una
   // corrida anterior dejo mas chunks de los que escribe esta, los sobrantes
   // quedarian vivos con texto viejo y la IA los podria seguir citando.
-  // EMBEDDINGS REALES SI HAY CLAVE. Con GEMINI_API_KEY en el .env, los 40
+  // EMBEDDINGS REALES SI HAY CLAVE. Con GEMINI_API_KEY en el .env, los 45
   // trozos se mandan a Google (como documento, igual que /procesar) y
   // las preguntas de la demo encuentran lo que tienen que encontrar. Sin clave
   // quedan los falsos de la PARTE 1: la base existe y se ve, pero una pregunta
@@ -817,11 +756,21 @@ async function main() {
       },
     });
     resumen.respuestas++;
-    console.log(`  ${r.id}  ${r.confianza.padEnd(5)} ${fuentes.length} fuentes  ve ${r.chunksVisibles}/${r.chunksMirados} chunks  (${r.autor.nombre})`);
+    // El total va solo si lo hay (solo la del admin): si no, diria "43/null".
+    const deCuantos = r.chunksMirados == null ? "" : `/${r.chunksMirados}`;
+    console.log(`  ${r.id}  ${r.confianza.padEnd(5)} ${fuentes.length} fuentes  ve ${r.chunksVisibles}${deCuantos} chunks  (${r.autor.nombre})`);
   }
 
   EVENTOS.forEach((e, i) => {
-    const eventoId = `evt_seed_${String(i + 1).padStart(2, "0")}`;
+    // Los que traen id propio (los de Lucas y el del Reglamento, que estan en
+    // _comun.js) lo conservan; el resto se numera por su lugar en la lista.
+    const eventoId = e.id ?? `evt_seed_${String(i + 1).padStart(2, "0")}`;
+    if (e === EVENTO_DEL_REGLAMENTO && eventoId !== `evt_seed_${String(i + 1).padStart(2, "0")}`) {
+      // Si alguien mueve el evento del Reglamento de lugar en la lista, su id
+      // fijo ya no coincide con el numero y quedarian dos eventos con el
+      // mismo id (uno pisaria al otro). Mejor que reviente aca.
+      throw new Error(`El evento del Reglamento tiene que ser el numero ${eventoId.slice(-2)} de la lista`);
+    }
     escrituras.push({
       ref: refWs.collection("eventos").doc(eventoId),
       datos: {
@@ -840,23 +789,25 @@ async function main() {
   // PASO 7 — La suscripcion
   // --------------------------------------------------------------------
   // Documento UNICO, con id fijo 'actual'. Mercado Pago es un stretch goal:
-  // el doc existe igual, con plan 'free' y estado 'sin_plan'. Los nombres son
-  // 'vence' (no venceEn) y 'preapprovalId' (no mpPreapprovalId).
+  // el doc existe igual. El espacio de demo va en 'pro', activo y SIN CARGO
+  // (montoMensual 0 y sin preapprovalId: no hay ningun cobro de Mercado Pago
+  // detras), porque tiene mas personas de las que deja el plan free. Los
+  // nombres son 'vence' (no venceEn) y 'preapprovalId' (no mpPreapprovalId).
   console.log("\nPASO 7/7  Suscripcion");
   escrituras.push({
     ref: refWs.collection("suscripcion").doc("actual"),
     datos: {
-      plan: "free", // tiene que coincidir con workspaces/{wsId}.plan
-      estado: "sin_plan", // mismo enum que workspaces/{wsId}.planStatus
+      plan: PLAN_DEL_ESPACIO_DE_DEMO.plan, // tiene que coincidir con workspaces/{wsId}.plan
+      estado: PLAN_DEL_ESPACIO_DE_DEMO.estado, // mismo enum que workspaces/{wsId}.planStatus
       preapprovalId: null,
-      montoMensual: 0,
+      montoMensual: PLAN_DEL_ESPACIO_DE_DEMO.montoMensual,
       vence: null,
       eventosProcesados: [], // ids de notificacion de MP ya aplicados
       actualizadoEn: fecha("2026-08-24T09:00:00-03:00"),
     },
   });
   resumen.suscripcion = 1;
-  console.log("  suscripcion/actual  plan free, estado sin_plan");
+  console.log(`  suscripcion/actual  plan ${PLAN_DEL_ESPACIO_DE_DEMO.plan}, estado ${PLAN_DEL_ESPACIO_DE_DEMO.estado}, sin cargo`);
 
   // --------------------------------------------------------------------
   // ESCRIBIR TODO
@@ -892,7 +843,15 @@ function imprimirResumen() {
   console.log("\n  Cuentas de Firebase Auth:");
   console.log(`    creadas ahora ... ${cuentasCreadas.length ? cuentasCreadas.join(", ") : "(ninguna)"}`);
   console.log(`    ya existian ..... ${cuentasReusadas.length ? cuentasReusadas.join(", ") : "(ninguna)"}`);
-  console.log(`    contrasena de todas: ${PASSWORD_DEMO}`);
+  // La contrasena NO se imprime nunca: la terminal termina en capturas y en
+  // el log, y el repo es publico. A las cuentas que ya existian el seed no
+  // les toca la clave (para cambiarla esta npm run demo:clave).
+  const textoClave = cuentasCreadas.length === 0
+    ? "no se toco (las cuentas ya existian)"
+    : cuentasReusadas.length === 0
+      ? "la de SEED_PASSWORD del .env (no se imprime)"
+      : "las creadas ahora, la de SEED_PASSWORD del .env (no se imprime); a las que ya existian no se les toco";
+  console.log(`    contrasena ...... ${textoClave}`);
 
   console.log(`\n  Workspace: ${WS_ID}  (${WS_NOMBRE})`);
   console.log("  Podes correrlo de nuevo cuantas veces quieras: no duplica nada.");

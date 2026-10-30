@@ -14,11 +14,17 @@
 //        que ese uid puede ver AHORA, leido de Firestore en esta misma
 //        pregunta. Es la que manda.
 //    (b) EN EL DATO: ademas, la copia de visibilidad/creadoPor que cada chunk
-//        guarda tiene que dar permiso. Es defensa en profundidad y PUEDE
-//        QUEDAR VIEJA (si alguien cambia la visibilidad de un item ya
-//        indexado, los chunks siguen con el valor anterior hasta el proximo
-//        reproceso). Como se aplica con AND y la que manda es (a), una copia
-//        vieja solo puede ESCONDER DE MAS, nunca mostrar de mas.
+//        guarda tiene que dar permiso. Es defensa en profundidad. El autor
+//        no se cambia desde ningun lado de la app, y la visibilidad la
+//        reescribe en TODOS los chunks el candado en vivo (PATCH
+//        .../visibilidad, rutas/items-extra.js), sin reprocesar: las reglas
+//        no dejan cambiarla de otra forma desde la app. Igual PUEDE QUEDAR
+//        VIEJA: un instante en el medio de ese pedido ("primero cerrar,
+//        ultimo abrir"), si el pedido se corta a la mitad (hasta que se
+//        reintente) o si alguien toca el item desde la consola o con el
+//        Admin SDK (hasta el proximo reproceso o el proximo candado). Como
+//        se aplica con AND y la que manda es (a), una copia vieja solo puede
+//        ESCONDER DE MAS, nunca mostrar de mas.
 //
 //  SIN CACHE. Nada de guardarse "los items visibles de este uid" por 60
 //  segundos: en esos 60 segundos alguien puede pasar una nota de 'equipo' a

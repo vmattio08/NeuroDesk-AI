@@ -17,7 +17,9 @@
     "probar:api": "node --env-file=.env scripts/probar-api.js",
     "calibrar": "node --env-file=.env scripts/calibrar-umbral.js",
     "seed": "node --env-file=.env scripts/seed.js",
+    "seed:lucas": "node --env-file=.env scripts/sumar-lucas.js",
     "seed:borrar": "node --env-file=.env scripts/borrar-seed.js",
+    "demo:clave": "node --env-file=.env scripts/cambiar-clave-demo.js",
     "set-admin": "node --env-file=.env scripts/set-admin.js"
   },
   "dependencies": {

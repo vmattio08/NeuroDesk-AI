@@ -1,18 +1,19 @@
 // ============================================================================
-//  pantallas/miembros.js  —  quien esta en el equipo: alta y baja.
+//  pantallas/miembros.js  —  quien esta en el equipo: alta, baja y rol.
 //  Panel web de NeuroDesk AI.
 //
-//  ES LA UNICA PANTALLA DEL PANEL QUE LE ESCRIBE AL BACKEND. Vale la pena
+//  ES LA PANTALLA DEL PANEL QUE MAS LE ESCRIBE AL BACKEND. Vale la pena
 //  entender bien por que, porque es media defensa oral:
 //
 //  La tabla se LEE directo de Firestore con onSnapshot (rapido, en vivo,
-//  gratis en lecturas ya cacheadas). Pero el alta y la baja NO se pueden
-//  hacer desde el navegador: las reglas tienen, textualmente,
+//  gratis en lecturas ya cacheadas). Pero el alta, la baja y el cambio de rol
+//  NO se pueden hacer desde el navegador: las reglas tienen, textualmente,
 //      match /members/{miembroId} { allow create, update, delete: if false; }
 //  o sea que ni el admin puede escribir ahi.
 //
-//  ¿Por que cerrado? Porque agregar a alguien a un equipo no es escribir un
-//  documento: es escribir CUATRO cosas que tienen que quedar coherentes.
+//  ¿Por que cerrado? Porque agregar a alguien a un equipo (o cambiarle el rol)
+//  no es escribir un documento: es escribir CUATRO cosas que tienen que
+//  quedar coherentes.
 //    1. workspaces/{wsId}/members/{uid}          (el corte real de acceso)
 //    2. usuarios/{uid}.workspaces                (la fuente de verdad del rol)
 //    3. el CUSTOM CLAIM del token de esa persona (lo que leen las reglas)
@@ -24,25 +25,55 @@
 //  tampoco existe del lado del cliente.
 //
 //  Entonces: leer = Firestore. Escribir = backend. Y despues de escribir NO
-//  agregamos la fila a mano: el onSnapshot la trae solo. Si la agregaramos a
-//  mano y el backend fallara a la mitad, la tabla mostraria un miembro que no
-//  existe.
+//  tocamos la tabla a mano: el onSnapshot la trae sola. Si la cambiaramos a
+//  mano y el backend fallara a la mitad, la tabla mostraria algo que no paso.
 // ============================================================================
 
 import {
-  db, collection, doc, query, orderBy, onSnapshot, getDoc
+  db, collection, doc, query, orderBy, onSnapshot
 } from '../firebase.js';
 
 import { pedir } from '../api.js';
-import { esc, fechaCorta, uidCorto } from '../util.js';
+import { aFecha, diaCorto, esc, fechaCorta, plural, uidCorto } from '../util.js';
 
 
 let cortarEscucha = null;
+let cortarWorkspace = null;
 let raiz = null;
 let ctxPantalla = null;
 let miembros = [];
-let ownerUid = null;      // el dueño del workspace: no se lo puede sacar
+let ownerUid = null;      // el dueño del workspace: no se lo puede sacar ni bajar
+let wsCargado = false;    // ¿ya llego el doc del workspace? (sin el no sabemos quien es el dueño)
+let planActual = 'free';  // el tope de 5 personas es solo del plan Gratis
+let exMiembros = {};      // uid -> { nombre, salioEn }: los que se fueron
 let trabajando = false;   // hay un pedido al backend en curso
+
+
+// ----------------------------------------------------------------------------
+// El plan, en castellano. En la base se guarda 'free' / 'pro' y el estado del
+// cobro con el enum de Mercado Pago ('sin_plan', 'activa'...): eso es para el
+// codigo, no para el dueño. Un valor que no conocemos se muestra crudo (y
+// escapado), en vez de romper el encabezado.
+// ----------------------------------------------------------------------------
+const NOMBRE_DEL_PLAN = { free: 'Gratis', pro: 'Pro' };
+
+// 'sin_plan' es lo normal del plan Gratis: no hay nada que decir.
+// 'pausada' y 'cancelada' SI hay que decirlas: con esos dos el servidor deja
+// de procesar contenido nuevo (ver planStatus en MODELO-DATOS.md).
+const ESTADO_DEL_PLAN = {
+  sin_plan:  '',
+  pendiente: 'pago pendiente',
+  activa:    'al día',
+  pausada:   'pausado: no se procesa contenido nuevo',
+  cancelada: 'cancelado: no se procesa contenido nuevo'
+};
+
+function textoDelPlan(plan, estado) {
+  const p = plan ?? 'free';
+  const nombre = Object.hasOwn(NOMBRE_DEL_PLAN, p) ? NOMBRE_DEL_PLAN[p] : String(p);
+  const detalle = Object.hasOwn(ESTADO_DEL_PLAN, estado ?? '') ? ESTADO_DEL_PLAN[estado] : String(estado ?? '');
+  return `Plan ${nombre}` + (detalle ? ` · ${detalle}` : '');
+}
 
 
 // ============================================================================
@@ -56,39 +87,66 @@ export async function mount(contenedor, ctx) {
   engancharFormulario();
   engancharTabla();
 
-  // El doc del workspace, una sola lectura: de ahi sale el ownerUid.
-  // Cualquier miembro lo puede leer (allow read: if esMiembro(wsId)).
-  try {
-    const ws = await getDoc(doc(db, 'workspaces', ctxPantalla.wsId));
-    if (ws.exists()) {
-      ownerUid = ws.data().ownerUid ?? null;
-      const cajaPlan = raiz.querySelector('#datoPlan');
-      if (cajaPlan) {
-        cajaPlan.textContent =
-          `Plan ${ws.data().plan ?? 'free'} · ${ws.data().planStatus ?? 'sin_plan'}`;
-      }
-    }
-  } catch (e) {
-    console.warn('[miembros] no pude leer el workspace', e);
-  }
-
+  escucharWorkspace();
   escuchar();
 }
 
 
 // ============================================================================
-//  UNMOUNT  —  cortar el listener. Ver el comentario largo en items.js.
+//  UNMOUNT  —  cortar los listeners. Ver el comentario largo en items.js.
 // ============================================================================
 export function unmount() {
   if (cortarEscucha) {
     cortarEscucha();
     cortarEscucha = null;
   }
+  if (cortarWorkspace) {
+    cortarWorkspace();
+    cortarWorkspace = null;
+  }
   miembros = [];
   ownerUid = null;
+  wsCargado = false;
+  planActual = 'free';
+  exMiembros = {};
   trabajando = false;
   raiz = null;
   ctxPantalla = null;
+}
+
+
+// ============================================================================
+//  EL DOC DEL WORKSPACE, EN VIVO
+//
+//  Antes se leia una sola vez. Ahora se escucha (es UN documento, cuesta una
+//  lectura por cambio) porque de ahi salen tres cosas que cambian MIENTRAS el
+//  admin mira esta pantalla:
+//    - exMiembros: el admin saca a alguien y "Ya no están en el equipo" lo
+//      muestra al instante (el servidor guarda el nombre antes de borrar la
+//      ficha de members: la memoria que no se va);
+//    - el plan y su estado;
+//    - ownerUid, que no cambia nunca, pero viene en el mismo doc.
+//  Cualquier miembro puede leer este doc (allow read: if esMiembro).
+// ============================================================================
+function escucharWorkspace() {
+  cortarWorkspace = onSnapshot(
+    doc(db, 'workspaces', ctxPantalla.wsId),
+    (foto) => {
+      if (!foto.exists()) return;
+      const ws = foto.data();
+      wsCargado = true;
+      planActual = ws.plan ?? 'free';
+      ownerUid = ws.ownerUid ?? null;
+      exMiembros = ws.exMiembros && typeof ws.exMiembros === 'object' ? ws.exMiembros : {};
+
+      const cajaPlan = raiz?.querySelector('#datoPlan');
+      if (cajaPlan) cajaPlan.textContent = textoDelPlan(ws.plan, ws.planStatus);
+
+      // ownerUid decide que botones lleva cada fila: hay que redibujar.
+      dibujarTabla();
+    },
+    (e) => console.warn('[miembros] no pude leer el workspace', e)
+  );
 }
 
 
@@ -132,14 +190,14 @@ function plantilla() {
       </div>
     </div>
 
-    <div id="avisoMiembros"></div>
+    <div id="avisoMiembros" aria-live="polite"></div>
 
     <div class="tarjeta" style="margin-bottom:18px">
       <h2>Invitar a alguien</h2>
       <p class="apagado chico">
-        La persona tiene que tener cuenta en NeuroDesk (se registra desde la
-        app). Si todavía no se registró, el backend te avisa con
-        <b>USUARIO_NO_REGISTRADO</b> y no pasa nada más.
+        Escribí su email. Si todavía no tiene cuenta en NeuroDesk, el servidor
+        se la crea y te muestra <b>una sola vez</b> una contraseña temporal
+        para que se la pases.
       </p>
 
       <form id="formInvitar" class="form-invitar" novalidate>
@@ -177,6 +235,7 @@ function plantilla() {
     </div>
 
     <p class="resumen-filtro" id="resumenMiembros"></p>
+    <p class="resumen-filtro" id="exMiembros"></p>
   `;
 }
 
@@ -196,39 +255,85 @@ function dibujarTabla() {
   const resumen = raiz.querySelector('#resumenMiembros');
   const admins = miembros.filter((m) => m.rol === 'admin').length;
   resumen.textContent =
-    `${miembros.length} persona(s) · ${admins} administrador(es). ` +
-    `El plan gratuito permite hasta 5 miembros por espacio.`;
+    `${plural(miembros.length, 'persona', 'personas')} · ` +
+    `${plural(admins, 'administrador', 'administradores')}.` +
+    (planActual === 'free' ? ' El plan Gratis permite hasta 5 personas por espacio.' : '');
+
+  dibujarExMiembros();
+}
+
+
+// "Ya no están en el equipo: Lucas (salió el 05/11)". Sus items siguen en el
+// espacio y la IA los sigue citando con su nombre: se dice aca, donde el
+// admin lo acaba de sacar. Si alguien vuelve a entrar, el servidor borra su
+// clave de exMiembros y desaparece de esta linea solo.
+function dibujarExMiembros() {
+  const caja = raiz?.querySelector('#exMiembros');
+  if (!caja) return;
+
+  const idsActuales = new Set(miembros.map((m) => m.id));
+  const idos = Object.entries(exMiembros)
+    .filter(([uid, ex]) => !idsActuales.has(uid) && ex && typeof ex.nombre === 'string' && ex.nombre.trim());
+
+  if (idos.length === 0) {
+    caja.innerHTML = '';
+    return;
+  }
+
+  const lista = idos
+    .map(([, ex]) => {
+      const salio = aFecha(ex.salioEn);
+      return esc(ex.nombre.trim()) +
+        (salio ? ` <span class="apagado">(salió el ${esc(diaCorto(salio))})</span>` : '');
+    })
+    .join(', ');
+
+  caja.innerHTML =
+    `<b>Ya no están en el equipo:</b> ${lista}. ` +
+    `Lo que cargaron se queda en el espacio y la IA lo sigue usando, con su nombre.`;
 }
 
 
 function fila(m) {
   const esDueno = m.id === ownerUid;
   const soyYo   = m.id === ctxPantalla.uid;
+  const esAdmin = m.rol === 'admin';
 
-  // Quien NO se puede sacar desde aca:
+  // Quien NO se puede tocar desde aca:
   //  - el dueño del workspace: el backend contesta ACCION_NO_PERMITIDA
-  //    ("un workspace nunca queda sin ningun admin"), asi que ni ofrecemos
-  //    el boton;
-  //  - uno mismo: irse del espacio desde el panel que estas usando te deja la
-  //    pantalla rota a mitad de camino. Que te saque otro admin.
-  // El boton deshabilitado NO es la seguridad: el backend vuelve a chequear
-  // las dos cosas. Es para no ofrecer algo que va a fallar.
+  //    ("un workspace nunca queda sin ningun admin", y el dueño es admin
+  //    siempre), asi que ni ofrecemos los botones;
+  //  - uno mismo: irse del espacio (o bajarse de admin) desde el panel que
+  //    estas usando te deja la pantalla rota a mitad de camino. Que lo haga
+  //    otro admin.
+  // El boton que no aparece NO es la seguridad: el backend vuelve a chequear
+  // todo. Es para no ofrecer algo que va a fallar.
   let acciones = '';
-  if (esDueno) {
+  if (!wsCargado) {
+    // Todavia no sabemos quien es el dueño: mejor ningun boton un instante
+    // que ofrecerle "Quitar" al dueño y que el backend lo rechace.
+    acciones = '';
+  } else if (esDueno) {
     acciones = `<span class="apagado chico">Dueño del espacio</span>`;
   } else if (soyYo) {
     acciones = `<span class="apagado chico">Sos vos</span>`;
   } else {
-    acciones = `<button class="boton-peligro chico" data-quitar="${esc(m.id)}">Quitar</button>`;
+    // data-rol lleva el rol NUEVO que se pide: el que no tiene hoy.
+    const botonRol = esAdmin
+      ? `<button class="boton-suave chico" data-rol="miembro" data-uid="${esc(m.id)}">Pasar a miembro</button>`
+      : `<button class="boton-suave chico" data-rol="admin" data-uid="${esc(m.id)}">Hacer admin</button>`;
+    acciones = `
+      <div class="acciones-fila">
+        ${botonRol}
+        <button class="boton-peligro chico" data-quitar="${esc(m.id)}">Quitar</button>
+      </div>`;
   }
-
-  const claseRol = m.rol === 'admin' ? 'rol-admin' : 'rol-miembro';
 
   return `
     <tr>
       <td class="celda-titulo">${esc(m.nombre || uidCorto(m.id))}</td>
       <td>${esc(m.email)}</td>
-      <td class="${claseRol}">${m.rol === 'admin' ? 'Administrador' : 'Miembro'}</td>
+      <td class="${esAdmin ? 'rol-admin' : 'rol-miembro'}">${esAdmin ? 'Administrador' : 'Miembro'}</td>
       <td>${esc(fechaCorta(m.agregadoEn))}</td>
       <td>${acciones}</td>
     </tr>
@@ -272,7 +377,22 @@ function engancharFormulario() {
       );
 
       // NO agregamos la fila a mano: el onSnapshot de arriba ya la trae.
-      avisar(`Listo: ${rta.miembro.nombre || rta.miembro.email} ya está en el equipo.`, 'aviso-ok');
+      const quien = rta.miembro.nombre || rta.miembro.email;
+      if (rta.cuentaCreada && rta.passwordTemporal) {
+        // La persona NO tenia cuenta y el servidor se la creo. La contraseña
+        // temporal viaja UNA sola vez, en esta respuesta (no se guarda en
+        // ningun lado): si no se la mostramos aca, nadie la ve nunca y la
+        // persona no puede entrar. Por eso el cartel no se va solo.
+        avisarHtml(
+          `Listo: ${esc(quien)} ya está en el equipo. Le creamos la cuenta: ` +
+          `pasale esta contraseña temporal para que entre a la app ` +
+          `<code class="clave-temporal">${esc(rta.passwordTemporal)}</code> ` +
+          `(la vas a ver solo esta vez).`,
+          'aviso-ok'
+        );
+      } else {
+        avisar(`Listo: ${quien} ya está en el equipo.`, 'aviso-ok');
+      }
       raiz.querySelector('#emailInvitado').value = '';
 
     } catch (e) {
@@ -282,7 +402,7 @@ function engancharFormulario() {
       if (e.codigo === 'USUARIO_NO_REGISTRADO') {
         extra = ' Pedile que se registre en la app y volvé a invitarla.';
       } else if (e.codigo === 'LIMITE_PLAN') {
-        extra = ' El plan gratuito permite hasta 5 miembros por espacio.';
+        extra = ' El plan Gratis permite hasta 5 personas por espacio.';
       }
       avisar(e.mensaje + extra, 'aviso-error');
 
@@ -296,7 +416,7 @@ function engancharFormulario() {
 
 
 // ============================================================================
-//  BAJA  —  DELETE /v1/workspaces/:wsId/miembros/:uid
+//  BAJA Y CAMBIO DE ROL  —  DELETE y PATCH /v1/workspaces/:wsId/miembros/:uid
 // ============================================================================
 function engancharTabla() {
   // UN SOLO listener en el <tbody>, no uno por boton.
@@ -306,64 +426,156 @@ function engancharTabla() {
   // de cuenta). El tbody, en cambio, no se reemplaza nunca.
   const cuerpo = raiz.querySelector('#cuerpoMiembros');
 
-  cuerpo.addEventListener('click', async (evento) => {
-    const boton = evento.target.closest('[data-quitar]');
-    if (!boton || trabajando) return;
+  cuerpo.addEventListener('click', (evento) => {
+    if (trabajando) return;
 
-    const uid = boton.dataset.quitar;
-    const quien = miembros.find((m) => m.id === uid);
-    const nombre = quien?.nombre || quien?.email || uid;
-
-    // confirm() es feo, pero es una accion destructiva y no vale la pena
-    // escribir un modal propio para esto. Que el texto diga el nombre.
-    const seguro = confirm(
-      `¿Sacar a ${nombre} del espacio?\n\n` +
-      `Sus items NO se borran: quedan en el espacio de trabajo.\n` +
-      `Pierde el acceso al backend al instante, y a la lectura directa de ` +
-      `Firestore cuando le venza el token (hasta 1 hora).`
-    );
-    if (!seguro) return;
-
-    trabajando = true;
-    boton.disabled = true;
-    boton.textContent = 'Quitando…';
-    avisar(null);
-
-    try {
-      const rta = await pedir(
-        'DELETE',
-        `/v1/workspaces/${ctxPantalla.wsId}/miembros/${uid}`,
-        null,
-        { segundos: 60 }
-      );
-
-      // La fila desaparece sola por el onSnapshot. Lo que si mostramos es el
-      // dato honesto del corte de acceso, que viene en la respuesta y es
-      // justo lo que el contrato nos pide no esconder.
-      avisar(
-        `${nombre} ya no está en el equipo. Le quedan ${rta.quitado.itemsQueQuedan} items cargados. ` +
-        `Acceso al backend: ${rta.corteDeAcceso.backend}. ` +
-        `Lectura directa de Firestore: ${rta.corteDeAcceso.lecturaDirectaFirestore}.`,
-        'aviso-ok'
-      );
-
-    } catch (e) {
-      avisar(e.mensaje, 'aviso-error');
-      boton.disabled = false;
-      boton.textContent = 'Quitar';
-
-    } finally {
-      trabajando = false;
+    const quitar = evento.target.closest('[data-quitar]');
+    if (quitar) {
+      sacarDelEquipo(quitar);
+      return;
     }
+
+    const rol = evento.target.closest('[data-rol]');
+    if (rol) cambiarRol(rol);
   });
+}
+
+
+async function sacarDelEquipo(boton) {
+  const uid = boton.dataset.quitar;
+  const quien = miembros.find((m) => m.id === uid);
+  const nombre = quien?.nombre || quien?.email || uid;
+
+  // confirm() es feo, pero es una accion destructiva y no vale la pena
+  // escribir un modal propio para esto. Que el texto diga el nombre.
+  const seguro = confirm(
+    `¿Sacar a ${nombre} del espacio?\n\n` +
+    `Lo que cargó NO se borra: queda en el espacio y la IA lo sigue usando, con su nombre.\n` +
+    `Pierde el acceso al servidor al instante, y a la lectura directa de ` +
+    `Firestore cuando le venza la sesión (hasta 1 hora).`
+  );
+  if (!seguro) return;
+
+  trabajando = true;
+  boton.disabled = true;
+  boton.textContent = 'Quitando…';
+  avisar(null);
+
+  try {
+    const rta = await pedir(
+      'DELETE',
+      `/v1/workspaces/${ctxPantalla.wsId}/miembros/${uid}`,
+      null,
+      { segundos: 60 }
+    );
+
+    // La fila desaparece sola por el onSnapshot. Lo que si mostramos es el
+    // dato honesto del corte de acceso, que viene en la respuesta y es
+    // justo lo que el contrato nos pide no esconder.
+    const quedan = rta.quitado.itemsQueQuedan;
+    avisar(
+      `${nombre} ya no está en el equipo. ` +
+      (quedan > 0
+        ? `Le quedan ${plural(quedan, 'item cargado', 'items cargados')}: siguen en el espacio y la IA los sigue usando. `
+        : 'No había cargado nada. ') +
+      `Acceso al servidor: ${rta.corteDeAcceso.backend}. ` +
+      `Lectura directa de Firestore: ${rta.corteDeAcceso.lecturaDirectaFirestore}.`,
+      'aviso-ok'
+    );
+
+  } catch (e) {
+    avisar(e.mensaje, 'aviso-error');
+    boton.disabled = false;
+    boton.textContent = 'Quitar';
+
+  } finally {
+    trabajando = false;
+  }
+}
+
+
+// ----------------------------------------------------------------------------
+// "Hacer admin" / "Pasar a miembro"  —  PATCH .../miembros/:uid  { rol }
+//
+// El backend hace todo (members, usuarios, el custom claim y el evento
+// 'rol.cambiado'); aca solo se pide y se avisa. La tabla cambia sola por el
+// onSnapshot de members.
+//
+// LO QUE HAY QUE SABER DECIR (y por eso lo dice el confirm):
+//   - Subir a admin: el celular de esa persona se entera solo (escucha
+//     claimsActualizadoEn y pide un token nuevo) y le aparece lo de admin.
+//   - Bajar a miembro: el servidor le aplica el rol nuevo al instante, y
+//     ademas le revoca la sesion (revokeRefreshTokens): la app no puede sacar
+//     un token nuevo con el rol viejo, asi que tiene que volver a entrar. Las
+//     reglas de Firestore igual pueden verla como admin hasta que venza el
+//     token que ya tiene en la mano (hasta 1 hora).
+// ----------------------------------------------------------------------------
+async function cambiarRol(boton) {
+  const uid = boton.dataset.uid;
+  const rolNuevo = boton.dataset.rol === 'admin' ? 'admin' : 'miembro';
+  const quien = miembros.find((m) => m.id === uid);
+  const nombre = quien?.nombre || quien?.email || uid;
+
+  const seguro = confirm(rolNuevo === 'admin'
+    ? `¿Hacer administrador a ${nombre}?\n\n` +
+      `Va a poder ver todo el contenido del espacio (también lo privado de cada uno), ` +
+      `invitar y sacar gente, cambiar roles y entrar a este panel.`
+    : `¿Pasar a ${nombre} a miembro?\n\n` +
+      `Deja de ver lo privado de los demás y de entrar al panel. ` +
+      `Por seguridad, el servidor le cierra la sesión: va a tener que volver a entrar en la app.`
+  );
+  if (!seguro) return;
+
+  const textoOriginal = boton.textContent;
+  trabajando = true;
+  boton.disabled = true;
+  boton.textContent = 'Cambiando…';
+  avisar(null);
+
+  try {
+    await pedir(
+      'PATCH',
+      `/v1/workspaces/${ctxPantalla.wsId}/miembros/${uid}`,
+      { rol: rolNuevo },
+      { segundos: 60 }
+    );
+
+    avisar(rolNuevo === 'admin'
+      ? `Listo: ${nombre} ahora es administrador del espacio.`
+      : `Listo: ${nombre} ahora es miembro. Tiene que volver a entrar en la app.`,
+      'aviso-ok');
+
+  } catch (e) {
+    // ACCION_NO_PERMITIDA trae en 'detalle' el motivo exacto, escrito a mano
+    // por el servidor (por ejemplo, que el espacio se quedaria sin
+    // administradores): se lo sumamos. SOLO en ese codigo: en un error de red
+    // el 'detalle' es el texto crudo del navegador ("Failed to fetch"), y eso
+    // no se le muestra a nadie.
+    const detalle = e.codigo === 'ACCION_NO_PERMITIDA' && typeof e.detalle === 'string' && e.detalle
+      ? ` ${e.detalle}`
+      : '';
+    avisar(e.mensaje + detalle, 'aviso-error');
+    boton.disabled = false;
+    boton.textContent = textoOriginal;
+
+  } finally {
+    trabajando = false;
+  }
 }
 
 
 // ----------------------------------------------------------------------------
 // avisar(texto, tipo)  —  el cartelito de arriba. Con null, lo esconde.
+// avisarHtml() es la misma caja, para el UNICO caso que necesita marcado (la
+// contraseña temporal en <code>): el que llama tiene que haber pasado por
+// esc() todo lo que venga de afuera.
 // ----------------------------------------------------------------------------
 function avisar(texto, tipo = 'aviso-info') {
+  avisarHtml(texto ? esc(texto) : null, tipo);
+}
+
+function avisarHtml(html, tipo = 'aviso-info') {
   const caja = raiz?.querySelector('#avisoMiembros');
   if (!caja) return;
-  caja.innerHTML = texto ? `<div class="aviso ${tipo}">${esc(texto)}</div>` : '';
+  caja.innerHTML = html ? `<div class="aviso ${tipo}">${html}</div>` : '';
 }

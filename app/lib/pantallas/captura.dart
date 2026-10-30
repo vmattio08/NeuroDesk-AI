@@ -505,6 +505,9 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
               // puesta en manos de la persona: 'equipo' lo ve cualquier
               // miembro, 'privado' solo el autor y el admin. Y la IA, cuando
               // alguien pregunta, SOLO puede citar lo que esa persona ve.
+              // "(y el admin)" esta escrito A PROPOSITO: es lo que pasa de
+              // verdad (las reglas dejan al admin leer todo). Decirlo de
+              // frente es mejor que un "Solo yo" que despues resulta falso.
               SegmentedButton<String>(
                 segments: const <ButtonSegment<String>>[
                   ButtonSegment<String>(
@@ -514,7 +517,7 @@ class _CapturaPantallaState extends State<CapturaPantalla> {
                   ),
                   ButtonSegment<String>(
                     value: 'privado',
-                    label: Text('Solo yo'),
+                    label: Text('Solo yo (y el admin)'),
                     icon: Icon(Icons.lock),
                   ),
                 ],

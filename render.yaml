@@ -159,4 +159,5 @@ services:
       #  - FIRESTORE_EMULATOR_HOST / FIREBASE_AUTH_EMULATOR_HOST: si existieran,
       #    el backend le hablaria al EMULADOR en vez de a la base real.
       #  - SEED_PASSWORD, FIREBASE_WEB_API_KEY: solo los usan los scripts de
-      #    api/scripts (seed, probar-api), que se corren desde una PC.
+      #    api/scripts (seed, sumar-lucas y demo:clave la clave de las
+      #    cuentas demo; probar-api la apiKey web), que se corren desde una PC.

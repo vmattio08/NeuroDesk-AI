@@ -36,6 +36,11 @@ let grafico = null;
 const TOPE_FILAS = 200;   // el mismo tope que la pantalla de items
 const DIAS_GRAFICO = 7;
 
+// El cian de la marca (cian en app/lib/tema.dart, --marca en estilo.css). Va
+// repetido a mano porque Chart.js dibuja en un <canvas> y el canvas no lee
+// variables CSS. Es el mismo en los dos temas, asi que no hace falta leerlo.
+const CIAN_MARCA = '#06B6D4';
+
 
 // ============================================================================
 //  MOUNT
@@ -57,6 +62,11 @@ export async function mount(contenedor, ctx) {
        </div>`;
   }
 
+  // Si el admin cambia el tema (claro para el proyector / oscuro), las
+  // lineas y los numeros del grafico tienen que cambiar de color con el
+  // resto de la pagina. app.html avisa con este evento.
+  window.addEventListener('neurodesk:tema', recolorearGrafico);
+
   escuchar();
 }
 
@@ -69,6 +79,10 @@ export function unmount() {
     cortarEscucha();
     cortarEscucha = null;
   }
+
+  // El listener del tema es de window, que no se va con la pantalla: si no
+  // se saca, cada visita al Resumen deja uno mas colgado.
+  window.removeEventListener('neurodesk:tema', recolorearGrafico);
 
   // destroy() es OBLIGATORIO aca. Chart.js se guarda una referencia interna
   // por cada <canvas> que usa; si nos vamos de la pantalla sin destruir el
@@ -133,33 +147,33 @@ function plantilla() {
 
     <div class="grilla-kpis">
       <div class="tarjeta kpi">
-        <div class="etiqueta-kpi">Items</div>
+        <div class="etiqueta-kpi">Contenido</div>
         <div class="valor" id="kpiTotal">—</div>
-        <div class="pie-kpi">cargados en el espacio</div>
+        <div class="pie-kpi">notas, documentos, links y fotos del equipo</div>
       </div>
 
       <div class="tarjeta kpi kpi-listo">
-        <div class="etiqueta-kpi">Listos</div>
+        <div class="etiqueta-kpi">Listo para la IA</div>
         <div class="valor" id="kpiListos">—</div>
-        <div class="pie-kpi" id="kpiTrozos">la IA ya los puede citar</div>
+        <div class="pie-kpi" id="kpiFragmentos">la IA ya lo puede citar</div>
       </div>
 
       <div class="tarjeta kpi kpi-encola">
-        <div class="etiqueta-kpi">En cola</div>
+        <div class="etiqueta-kpi">Procesándose</div>
         <div class="valor" id="kpiEnCola">—</div>
-        <div class="pie-kpi">pendientes o procesándose</div>
+        <div class="pie-kpi">pendiente o leyéndose ahora</div>
       </div>
 
       <div class="tarjeta kpi kpi-error">
         <div class="etiqueta-kpi">Con error</div>
         <div class="valor" id="kpiErrores">—</div>
-        <div class="pie-kpi">hay que reintentarlos desde la app</div>
+        <div class="pie-kpi">hay que reintentarlo desde la app</div>
       </div>
     </div>
 
     <div class="tarjeta">
-      <h2>Actividad de los últimos ${DIAS_GRAFICO} días</h2>
-      <p class="apagado chico">Cuántos items se cargaron cada día.</p>
+      <h2>Lo que se cargó en los últimos ${DIAS_GRAFICO} días</h2>
+      <p class="apagado chico">Cuántas cosas subió el equipo cada día.</p>
       <div class="caja-grafico" id="cajaGrafico">
         <canvas id="lienzoGrafico"></canvas>
       </div>
@@ -172,12 +186,12 @@ function plantilla() {
 // Los cuatro numeros. Un solo recorrido del array.
 // ----------------------------------------------------------------------------
 function dibujarKpis(items) {
-  let listos = 0, enCola = 0, errores = 0, trozos = 0;
+  let listos = 0, enCola = 0, errores = 0, fragmentos = 0;
 
   for (const item of items) {
     if (item.estado === 'listo') {
       listos++;
-      trozos += item.cantChunks ?? 0;
+      fragmentos += item.cantChunks ?? 0;
     } else if (item.estado === 'pendiente' || item.estado === 'procesando') {
       enCola++;
     } else if (item.estado === 'error') {
@@ -195,11 +209,17 @@ function dibujarKpis(items) {
   poner('kpiEnCola',  enCola);
   poner('kpiErrores', errores);
 
-  // El total de trozos indexados es el numero que mejor explica en la demo
-  // que "la IA leyo el material": son los pedacitos con embedding que estan
-  // en la coleccion /chunks y que se comparan contra cada pregunta.
-  const pie = raiz?.querySelector('#kpiTrozos');
-  if (pie) pie.textContent = `${trozos} trozos indexados para la IA`;
+  // El total de fragmentos es el numero que mejor explica en la demo que "la
+  // IA leyo el material": son los pedacitos con embedding que estan en la
+  // coleccion /chunks y que se comparan contra cada pregunta. En pantalla se
+  // llaman "fragmentos", la misma palabra que usa la app (nunca "chunks" ni
+  // "trozos indexados": eso es como lo llamamos nosotros, no el dueño).
+  const pie = raiz?.querySelector('#kpiFragmentos');
+  if (pie) {
+    pie.textContent = fragmentos === 1
+      ? '1 fragmento que la IA puede citar'
+      : `${fragmentos} fragmentos que la IA puede citar`;
+  }
 }
 
 
@@ -241,16 +261,16 @@ function dibujarGrafico(items) {
   }
 
   // --- PRIMERA VUELTA: crear ---
+  const colores = coloresDelTema();
   grafico = new Chart(lienzo, {
     type: 'bar',
     data: {
       labels: etiquetas,
       datasets: [{
-        label: 'Items cargados',
+        label: 'Cosas cargadas',
         data: valores,
-        // El violeta de la marca. Esta repetido a mano porque Chart.js dibuja
-        // en un canvas y no lee variables CSS.
-        backgroundColor: '#5b58e8',
+        // El cian de la marca (ver CIAN_MARCA arriba).
+        backgroundColor: CIAN_MARCA,
         borderRadius: 5,
         maxBarThickness: 48
       }]
@@ -266,15 +286,40 @@ function dibujarGrafico(items) {
           beginAtZero: true,
           // Son items: no existe "2,5 items". Sin esto, con pocos datos el eje
           // se llena de decimales.
-          ticks: { precision: 0 },
-          grid: { color: '#e2e4ee' }
+          ticks: { precision: 0, color: colores.texto },
+          grid: { color: colores.lineas }
         },
         x: {
+          ticks: { color: colores.texto },
           grid: { display: false }
         }
       }
     }
   });
+}
+
+
+// ----------------------------------------------------------------------------
+// Los colores de las lineas y los numeros salen de las variables CSS del tema
+// que este puesto AHORA (oscuro o claro). Se leen con getComputedStyle porque
+// el canvas no las entiende solo. Si alguna faltara, un gris que se lee en los
+// dos temas.
+// ----------------------------------------------------------------------------
+function coloresDelTema() {
+  const css = getComputedStyle(document.documentElement);
+  return {
+    texto:  css.getPropertyValue('--apagado').trim() || '#94A3B8',
+    lineas: css.getPropertyValue('--borde').trim() || 'rgba(148, 163, 184, .25)'
+  };
+}
+
+function recolorearGrafico() {
+  if (!grafico) return;
+  const colores = coloresDelTema();
+  grafico.options.scales.y.ticks.color = colores.texto;
+  grafico.options.scales.y.grid.color = colores.lineas;
+  grafico.options.scales.x.ticks.color = colores.texto;
+  grafico.update();
 }
 
 

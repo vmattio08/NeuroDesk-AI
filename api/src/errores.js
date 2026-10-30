@@ -9,7 +9,7 @@
 //  que escribir un if distinto por pantalla y, peor, el stack le mostraba al
 //  cliente la ruta del servidor y pedazos de configuracion.
 //
-//  Ahora hay UNA sola forma, siempre igual, para los 26 codigos:
+//  Ahora hay UNA sola forma, siempre igual, para los 28 codigos del catalogo:
 //      { ok: false, codigo: 'ALGO', mensaje: 'texto en castellano', detalle: null }
 //  Martin escribe UNA sola funcion en Flutter: si (!body.ok) mostrar
 //  body.mensaje, y ramificar por body.codigo (NUNCA por el texto del mensaje,

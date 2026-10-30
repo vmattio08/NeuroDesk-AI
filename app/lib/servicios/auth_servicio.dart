@@ -89,6 +89,31 @@ class AuthServicio {
     }
   }
 
+  /// El token para el header Authorization de api.dart. Igual que
+  /// tokenActual, pero si no se pudo renovar POR FALTA DE RED deja subir el
+  /// error: sin senal no es una sesion vencida. Con el token vencido (pasa
+  /// mas o menos a la hora) y sin red, tokenActual devolvia null, api.dart
+  /// inventaba FALTA_TOKEN y la app cerraba la sesion: la persona quedaba
+  /// afuera justo cuando no podia volver a entrar. Ahora api.dart lo atrapa
+  /// y contesta SIN_CONEXION. tokenActual queda como esta porque
+  /// refrescarToken (y quien lo llama) cuenta con que nunca tire.
+  static Future<String?> tokenParaElBackend() async {
+    try {
+      final User? u = _auth.currentUser;
+      if (u == null) return null;
+      return await u.getIdToken();
+    } catch (e) {
+      if (esErrorDeRed(e)) rethrow;
+      debugPrint('[NeuroDesk] no se pudo conseguir el token: $e');
+      return null;
+    }
+  }
+
+  /// ¿El error de Firebase Auth es por falta de red? Aparte para poder
+  /// probarla en la compu (test/widget_test.dart), sin Firebase.
+  static bool esErrorDeRed(Object e) =>
+      e is FirebaseAuthException && e.code == 'network-request-failed';
+
   /// Fuerza un token nuevo. Se usa cuando el backend responde
   /// debeRefrescarToken: true o cuando Firestore tira un permission-denied raro.
   static Future<void> refrescarToken() async {

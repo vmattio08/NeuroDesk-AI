@@ -51,8 +51,9 @@ export const configFirebase = {
 // cambiarla, se cambia EN LAS TRES: si quedan dos versiones distintas
 // conviviendo, el SDK tira errores rarisimos ("Firebase App named DEFAULT
 // already exists" o "Type does not match the expected instance").
-// Version congelada para la entrega: 12.9.0 (igual que Flutter 3.44.7, no se
-// actualiza hasta despues del 16/10).
+// Version congelada para la entrega: 12.9.0. No se toca hasta despues de la
+// entrega final del 5/11 (igual que Flutter, que queda en la 3.41.6): cambiar
+// de version a ultimo momento es sumar errores nuevos sin tiempo de probarlos.
 // Si el navegador tira 404 en estos imports, es que esa version no existe en
 // gstatic: probar con otra de https://firebase.google.com/support/release-notes/js
 // ----------------------------------------------------------------------------
@@ -67,7 +68,7 @@ import {
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   collection, doc, query, where, orderBy, limit,
-  onSnapshot, getDoc, getDocs, updateDoc, serverTimestamp
+  onSnapshot, getDoc, getDocs, setDoc, updateDoc, serverTimestamp
 } from 'https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js';
 
 
@@ -133,10 +134,15 @@ export const db = initializeFirestore(app, {
 // son las mismas funciones del SDK pasando de largo. Un solo lugar con la
 // version, y nada mas.
 // ----------------------------------------------------------------------------
+//
+// setDoc es la UNICA escritura de items que hace el panel: el boton "Cargar la
+// respuesta para el equipo" del Radar crea una nota (ver pantallas/radar.js).
+// Se usa setDoc sobre un doc() con id generado en el navegador, igual que la
+// app, para tener el id ANTES de escribir y poder mandarlo a /procesar.
 export {
   // auth
   signInWithEmailAndPassword, signOut, onAuthStateChanged,
   // firestore
   collection, doc, query, where, orderBy, limit,
-  onSnapshot, getDoc, getDocs, updateDoc, serverTimestamp
+  onSnapshot, getDoc, getDocs, setDoc, updateDoc, serverTimestamp
 };

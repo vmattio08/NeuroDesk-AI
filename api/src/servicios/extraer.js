@@ -373,8 +373,9 @@ async function achicarParaOcr(buffer, tipoMime) {
  * @returns {Promise<{texto:string, paginas:number, origen:string, paginasOcr:number[]}>}
  *
  * `texto` viene con las marcas <<<PAGINA:n>>> puestas, que es lo que trocear()
- * necesita para poder citar "pág. 3". El que llama guarda en el item el texto
- * SIN marcas (quitarMarcasDePagina) y trocea el que las tiene.
+ * necesita para poder citar "pág. 3". El que llama (items.js) lo guarda en
+ * item.texto CON las marcas y trocea ese mismo texto; sin marcas
+ * (quitarMarcasDePagina) solo cuenta los caracteres.
  */
 export async function extraerDePdf(buffer, opciones = {}) {
   const nombre = opciones.nombreArchivo || 'documento.pdf';

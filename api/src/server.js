@@ -33,6 +33,7 @@ import { cuerpoDeError, esErrorApi, CATALOGO_DE_ERRORES } from './errores.js';
 import { rutasDeAuth } from './rutas/auth.js';
 import { rutasDeWorkspaces } from './rutas/workspaces.js';
 import { rutasDeItems } from './rutas/items.js';
+import { rutasDeItemsExtra } from './rutas/items-extra.js';
 import { rutasDePreguntar } from './rutas/preguntar.js';
 
 const VERSION = '2.0.0';
@@ -173,6 +174,10 @@ app.use('/v1/workspaces', rutasDeWorkspaces);
 // exigirMiembro corta con DATOS_INVALIDOS). No chocan con rutasDeWorkspaces:
 // ese router no tiene ninguna ruta '/:wsId/items...' ni '/:wsId/preguntar'.
 app.use('/v1/workspaces/:wsId/items', rutasDeItems);
+// El candado en vivo (PATCH /:itemId/visibilidad) cuelga del mismo prefijo.
+// No choca con rutasDeItems: ese router no tiene ningun PATCH, asi que el
+// pedido pasa de largo por el y lo atiende este.
+app.use('/v1/workspaces/:wsId/items', rutasDeItemsExtra);
 app.use('/v1/workspaces/:wsId', rutasDePreguntar);
 
 // ---------------------------------------------------------------------------
