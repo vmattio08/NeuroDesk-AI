@@ -13,11 +13,13 @@
      /descargas/neurodesk.apk  -> el APK de la app, SOLO si existe
 
    COMO SE COMPLETA SIN TOCAR EL DISEÑO (lo que va a cambiar antes de entregar):
-     1. CAPTURAS: copiar los PNG a img/capturas/ con estos nombres exactos:
-          app-feed.png  app-captura.png  app-chat.png  app-seguimiento.png
-          panel-dashboard.png  panel-miembros.png
-        js/capturas.js las encuentra solas. Mientras falten, cada marco muestra
-        un placeholder con la marca. Los marcos se buscan con data-captura="...".
+     1. CAPTURAS: ya estan app-feed, app-captura, app-chat y app-seguimiento
+        (PNG + WebP liviano). Faltan:
+          panel-lo-que-falta.png  panel-en-vivo.png   (el panel con la marca nueva)
+        Para sumar una: copiar el PNG a img/capturas/ con ese nombre exacto y
+        agregar el nombre a la lista DISPONIBLES de js/capturas.js (ahi esta
+        explicado). Mientras falte, el marco muestra un placeholder con la
+        marca. Los marcos se buscan con data-captura="...".
      2. VIDEO: pegar el link de YouTube en data-video-url (seccion #video).
         Mientras este vacio, la seccion no aparece (js/video.js).
      3. TEXTO DE DIFERENCIACION: lo que esta entre los comentarios
@@ -36,8 +38,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>NeuroDesk AI — El segundo cerebro de tu equipo</title>
-  <meta name="description" content="Capturá notas, fotos, PDF, Word y links desde el celular y preguntale a la IA: responde solo con lo que subió tu equipo y te muestra la fuente de cada dato. Beta abierta para pymes y equipos.">
+  <title>NeuroDesk AI — La memoria de tu equipo, con llave en cada dato</title>
+  <meta name="description" content="El segundo cerebro con IA para equipos: cada uno carga notas, fotos, PDF, Word y links desde el celular, la IA responde solo con lo que puede ver quien pregunta y cada dato dice quién lo aportó. Beta abierta para pymes y equipos.">
   <meta name="theme-color" content="#0F172A">
   <meta name="color-scheme" content="dark">
 
@@ -55,8 +57,8 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="NeuroDesk AI">
   <meta property="og:locale" content="es_AR">
-  <meta property="og:title" content="NeuroDesk AI — El segundo cerebro de tu equipo">
-  <meta property="og:description" content="Capturá desde el celular, preguntá en lenguaje natural y recibí la respuesta con la fuente. Solo con lo que subió tu equipo y respetando qué puede ver cada uno.">
+  <meta property="og:title" content="NeuroDesk AI — La memoria de tu equipo, con llave en cada dato">
+  <meta property="og:description" content="Gemini sabe de todo. NeuroDesk sabe lo de tu equipo: quién aportó cada dato, quién lo puede ver y qué todavía nadie cargó.">
   <meta property="og:url" content="https://neurodesk-6to.web.app/">
   <meta property="og:image" content="https://neurodesk-6to.web.app/img/marca-completa-oscuro.png">
   <meta property="og:image:type" content="image/png">
@@ -121,6 +123,9 @@
     <symbol id="i-cerrar" viewBox="0 0 24 24"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
     <symbol id="i-abajo" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
     <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+    <symbol id="i-radar" viewBox="0 0 24 24"><path d="M19.07 4.93A10 10 0 0 0 6.99 3.34"/><path d="M4 6h.01"/><path d="M2.29 9.62A10 10 0 1 0 21.31 8.35"/><path d="M16.24 7.76A6 6 0 1 0 8.23 16.67"/><path d="M12 18h.01"/><path d="M17.99 11.66A6 6 0 0 1 15.77 16.67"/><circle cx="12" cy="12" r="2"/><path d="m13.41 10.59 5.66-5.66"/></symbol>
+    <symbol id="i-duenio" viewBox="0 0 24 24"><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M15 18a3 3 0 1 0-6 0"/><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><circle cx="12" cy="13" r="2"/></symbol>
+    <symbol id="i-actividad" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></symbol>
   </svg>
 
 
@@ -177,19 +182,21 @@
                la imagen no toquen las esquinas redondeadas: no se recorta nada. -->
           <span class="placa placa--hero"><img src="img/isotipo-oscuro.png" alt="NeuroDesk AI" width="601" height="601"></span>
 
-          <p class="etiqueta-mono hero__etiqueta">Beta abierta · Pymes y equipos de 3 a 50 personas</p>
+          <p class="etiqueta-mono hero__etiqueta">Beta abierta · Segundo cerebro con IA para pymes y equipos</p>
 
           <!-- Titulo "en dos tiempos", como el lema del logo: "Tu información.
-               Inteligente." -> la segunda frase va en cian. -->
+               Inteligente." -> la segunda frase va en cian. Es la frase de la
+               landing del documento de diferenciacion (seccion 5). -->
           <h1 class="titulo-hero" id="hero-titulo">
-            El segundo cerebro de tu equipo.
-            <span class="segundo-tiempo">Te responde y te muestra la fuente.</span>
+            La memoria de tu equipo,
+            <span class="segundo-tiempo">con llave en cada dato.</span>
           </h1>
 
           <p class="hero__bajada">
-            Capturás notas, fotos, PDF, Word y links desde el celular. Preguntás
-            como le hablarías a un compañero. NeuroDesk responde solo con lo que
-            subió tu equipo y cita de dónde sacó cada dato.
+            Cada uno guarda notas, fotos, PDF, Word y links desde el celular.
+            Preguntás como le hablarías a un compañero y NeuroDesk responde solo
+            con lo que vos podés ver, citando de dónde salió cada dato y quién
+            lo cargó.
           </p>
 
           <div class="hero__acciones">
@@ -217,20 +224,23 @@
               <span class="navegador__punto"></span><span class="navegador__punto"></span><span class="navegador__punto"></span>
               <span class="navegador__url">neurodesk-6to.web.app/panel</span>
             </div>
-            <div class="navegador__pantalla" data-captura="panel-dashboard" data-alt="Captura del panel web: el resumen del espacio con indicadores y el gráfico de actividad">
+            <div class="navegador__pantalla" data-captura="panel-en-vivo" data-alt="Captura del panel web: la pantalla «En vivo», con lo que hace el equipo en el momento">
               <div class="captura-pendiente">
                 <span class="placa placa--pantalla"><img src="img/isotipo-oscuro.png" alt="" width="601" height="601"></span>
-                <span class="captura-pendiente__titulo">Panel del dueño · Resumen</span>
+                <span class="captura-pendiente__titulo">Panel del dueño · En vivo</span>
                 <span class="captura-pendiente__esqueleto captura-pendiente__esqueleto--panel" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
               </div>
             </div>
           </div>
 
+          <!-- El telefono muestra el muro REAL de la app (la memoria del equipo,
+               separada en "Del equipo" y "Mis notas"). Si mas adelante prefieren
+               la respuesta con citas, cambiar app-feed por app-chat (y el alt). -->
           <div class="telefono hero__telefono">
-            <div class="telefono__pantalla" data-captura="app-chat" data-alt="Captura de la app: una respuesta de la IA con citas y el chip de confianza">
+            <div class="telefono__pantalla" data-captura="app-feed" data-alt="Captura real de la app NeuroDesk: el muro «Del equipo» con documentos, links, notas y fotos, cada uno en estado «Listo»">
               <div class="captura-pendiente">
                 <span class="placa placa--pantalla"><img src="img/isotipo-oscuro.png" alt="" width="601" height="601"></span>
-                <span class="captura-pendiente__titulo">Preguntale al equipo</span>
+                <span class="captura-pendiente__titulo">Lo del equipo</span>
                 <span class="captura-pendiente__esqueleto" aria-hidden="true"><i></i><i></i><i></i></span>
               </div>
             </div>
@@ -318,7 +328,7 @@
           <li class="paso" data-revelar>
             <span class="paso__pad" aria-hidden="true">1</span>
             <h3 class="paso__titulo">Capturás desde el celular</h3>
-            <p>Una nota, una foto del pizarrón, un PDF, un Word o un link, incluso de YouTube. Elegís si lo ve todo el equipo o solo vos.</p>
+            <p>Una nota, una foto del pizarrón, un PDF, un Word o un link, incluso de YouTube. Elegís si lo ve todo el equipo o solo vos (y el administrador), y lo podés cambiar cuando quieras.</p>
             <div class="vineta" aria-hidden="true">
               <div class="vineta__tipos">
                 <span class="tipo"><svg class="icono"><use href="#i-nota"></use></svg>Nota</span>
@@ -337,7 +347,7 @@
           <li class="paso" data-revelar>
             <span class="paso__pad" aria-hidden="true">2</span>
             <h3 class="paso__titulo">La IA lo lee y lo indexa</h3>
-            <p>Saca el texto, también de fotos y PDF escaneados, y lo guarda en fragmentos para buscar por lo que dice, no por cómo se llama el archivo.</p>
+            <p>Saca el texto de notas, documentos y links, y también de las fotos (con OCR), y lo guarda en fragmentos para buscar por lo que dice, no por cómo se llama el archivo.</p>
             <div class="vineta" aria-hidden="true">
               <ul class="vineta__items">
                 <li><svg class="icono"><use href="#i-documento"></use></svg><span>Presupuesto Ruiz.pdf</span><span class="chip chip--listo">Listo</span></li>
@@ -350,11 +360,12 @@
           <li class="paso" data-revelar>
             <span class="paso__pad" aria-hidden="true">3</span>
             <h3 class="paso__titulo">Preguntás y te responde con la fuente</h3>
-            <p>Una respuesta corta, con citas que te llevan al ítem original y un aviso de qué tan segura está. Si no lo encuentra, te lo dice.</p>
+            <p>Una respuesta corta, con citas que dicen quién cargó cada dato y te llevan al texto original, y un aviso de cuánto se parece a tu pregunta lo que encontró. Si no lo encuentra, te lo dice, y la pregunta le queda anotada al dueño en «Lo que falta».</p>
             <div class="vineta" aria-hidden="true">
               <p class="vineta__pregunta">¿Dónde quedó el presupuesto de agosto?</p>
               <span class="chip chip--listo">Confianza alta</span>
               <p class="vineta__respuesta">Está en «Presupuesto Ruiz.pdf», en la página 2 <span class="cita-mini">[1]</span>.</p>
+              <p class="duenio"><span class="avatar avatar--mini avatar--miembro">J</span><span><span class="cita-mini">[1]</span> Juli · 10/08 · Del equipo</span></p>
             </div>
           </li>
         </ol>
@@ -368,12 +379,18 @@
     <!-- COPY-DIFERENCIACION -->
     <section class="seccion diferencia" id="diferencia" aria-labelledby="diferencia-titulo">
       <div class="contenedor">
-        <header class="encabezado-seccion" data-revelar>
-          <h2 class="titulo-seccion" id="diferencia-titulo">No es un chat con IA. <span class="segundo-tiempo">Es la memoria de tu equipo, con reglas.</span></h2>
+        <!-- El titulo es, palabra por palabra, la frase de la seccion de
+             diferencias del documento: "Gemini sabe de todo. NeuroDesk sabe lo
+             de tu equipo: quién aportó cada dato, quién lo puede ver y qué
+             todavía nadie cargó." La tercera parte va mas chica (.titulo-detalle)
+             para que el titulo no quede gigante. -->
+        <header class="encabezado-seccion encabezado-seccion--ancho" data-revelar>
+          <h2 class="titulo-seccion" id="diferencia-titulo">Gemini sabe de todo. <span class="segundo-tiempo">NeuroDesk sabe lo de tu equipo:</span> <span class="titulo-detalle">quién aportó cada dato, quién lo puede ver y qué todavía nadie cargó.</span></h2>
           <p class="bajada">
-            Un chat de IA sabe un poco de todo. NeuroDesk sabe lo que sabe tu
-            equipo, te dice de dónde lo sacó y no le cuenta a nadie lo que no le
-            corresponde.
+            La IA puede ser la misma: de hecho, NeuroDesk usa Gemini por dentro.
+            Gemini Notebook es un cuaderno que se presta entero o no se presta;
+            NeuroDesk es una cajonera con llaves, y la IA solo abre los cajones
+            de quien pregunta. No vendemos la IA: vendemos el llavero.
           </p>
         </header>
 
@@ -425,24 +442,30 @@
               <p class="respuesta__pie" data-para="miembro" hidden>Usó 2 fuentes que Tomás puede ver.</p>
             </article>
 
+            <!-- Cada fuente dice de quien es, de cuando y con que candado
+                 ("Cada dato con dueño"). Nico ya no esta en el equipo: su foto
+                 se sigue citando con su nombre ("La memoria que no se va"). -->
             <ul class="fuentes" role="list" aria-label="Fuentes del equipo">
               <li class="fuente" id="fuente-1" data-n="1">
                 <span class="fuente__pista" aria-hidden="true"></span>
                 <p class="fuente__meta"><span class="fuente__n">1</span><svg class="icono" aria-hidden="true"><use href="#i-documento"></use></svg><span class="fuente__tipo">PDF · Del equipo · pág. 2</span></p>
                 <p class="fuente__titulo">Presupuesto Ruiz — agosto.pdf</p>
                 <p class="fuente__fragmento">«Total de la obra: $ 4.850.000 + IVA»</p>
+                <p class="duenio"><span class="avatar avatar--mini avatar--miembro" aria-hidden="true">J</span><span>Cargado por Juli · 10/08</span></p>
               </li>
               <li class="fuente" id="fuente-2" data-n="2">
                 <span class="fuente__pista" aria-hidden="true"></span>
                 <p class="fuente__meta"><span class="fuente__n">2</span><svg class="icono" aria-hidden="true"><use href="#i-camara"></use></svg><span class="fuente__tipo">Foto · Del equipo · leída con OCR</span></p>
                 <p class="fuente__titulo">Pizarrón de la reunión 12/8</p>
                 <p class="fuente__fragmento">«Ruiz: sumar 10 % aberturas»</p>
+                <p class="duenio duenio--ex"><span class="avatar avatar--mini avatar--ex" aria-hidden="true">N</span><span>Cargado por Nico (ya no está en el equipo) · 12/08</span></p>
               </li>
               <li class="fuente fuente--privada" id="fuente-3" data-n="3">
                 <span class="fuente__pista" aria-hidden="true"></span>
-                <p class="fuente__meta"><span class="fuente__n">3</span><svg class="icono" aria-hidden="true"><use href="#i-candado"></use></svg><span class="fuente__tipo">Nota · Privada de Lucía</span></p>
+                <p class="fuente__meta"><span class="fuente__n">3</span><svg class="icono" aria-hidden="true"><use href="#i-candado"></use></svg><span class="fuente__tipo"><span data-para="admin">Nota · Tu nota privada</span><span data-para="miembro" hidden>Nota · Privada de Lucía</span></span></p>
                 <p class="fuente__titulo">Negociación Ruiz</p>
                 <p class="fuente__fragmento">«Mínimo para cerrar: $ 4.500.000»</p>
+                <p class="duenio" data-para="admin"><span class="avatar avatar--mini avatar--admin" aria-hidden="true">L</span><span>Cargada por vos · 11/08</span></p>
                 <p class="fuente__bloqueo" data-para="miembro" hidden><svg class="icono" aria-hidden="true"><use href="#i-candado"></use></svg>Tomás no la ve, y la IA tampoco cuando le responde a él.</p>
               </li>
             </ul>
@@ -455,37 +478,124 @@
           <p class="demo__aclaracion">Ejemplo con datos inventados de un estudio de arquitectura. El comportamiento es el de NeuroDesk: los permisos se aplican antes de buscar.</p>
         </div>
 
-        <ul class="ventajas" role="list">
-          <li class="ventaja" data-revelar>
-            <svg class="icono ventaja__icono" aria-hidden="true"><use href="#i-candado"></use></svg>
-            <h3 class="ventaja__titulo">Respeta quién puede ver qué</h3>
-            <p>La IA busca solo en lo que puede ver quien pregunta. Los permisos se aplican antes de buscar, no después: lo privado nunca entra en la respuesta de otro.</p>
+        <!--
+          LAS 5 FUNCIONES QUE NOS DIFERENCIAN (documento de diferenciacion,
+          seccion 4). Cada tarjeta: donde vive, que es en criollo, que no tiene
+          un chat personal, y una viñeta hecha en HTML con datos inventados del
+          mismo estudio de la demo (Lucia es la admin, Tomas y Juli son
+          miembros, Nico ya no esta en el equipo). Las viñetas son decorativas
+          (aria-hidden): todo lo importante esta dicho en el texto.
+        -->
+        <div class="funciones__encabezado" data-revelar>
+          <h3 class="funciones__titulo">Cinco cosas que un chat personal no tiene</h3>
+          <p class="funciones__bajada">Un chat de IA le responde a una persona. NeuroDesk está pensado para la memoria de un equipo entero: quién aporta, quién ve qué y qué falta.</p>
+        </div>
+
+        <ol class="funciones" role="list">
+          <li class="funcion funcion--destacada" data-revelar>
+            <div class="funcion__cuerpo">
+              <p class="funcion__cabeza"><svg class="icono funcion__icono" aria-hidden="true"><use href="#i-radar"></use></svg><span class="funcion__donde">En el panel del dueño</span></p>
+              <h4 class="funcion__titulo">Radar «Lo que falta»</h4>
+              <p class="funcion__texto">Cuando alguien pregunta algo que nadie cargó, la pregunta no se pierde: le aparece al dueño, agrupada y contada («3 veces esta semana»). Con un botón carga la respuesta para todo el equipo, y la próxima vez la IA ya la encuentra.</p>
+              <p class="funcion__contra"><svg class="icono" aria-hidden="true"><use href="#i-charla"></use></svg><span>Un chat personal no puede saber qué preguntó tu equipo y no encontró: cada historial es de una sola persona.</span></p>
+            </div>
+            <div class="vineta funcion__vineta radar" aria-hidden="true">
+              <p class="vineta__titulo"><svg class="icono"><use href="#i-radar"></use></svg>Lo que falta<span>esta semana</span></p>
+              <ul class="radar__lista">
+                <li class="radar__fila">
+                  <span class="radar__pregunta">«¿Quién es el proveedor de las aberturas?»</span>
+                  <span class="radar__veces">3 veces</span>
+                  <span class="boton-mini">Cargar la respuesta</span>
+                </li>
+                <li class="radar__fila">
+                  <span class="radar__pregunta">«¿Cuándo vence el seguro de la camioneta?»</span>
+                  <span class="radar__veces">2 veces</span>
+                  <span class="chip chip--listo">Resuelta</span>
+                </li>
+              </ul>
+              <p class="radar__dato"><b>8 de cada 10</b> preguntas de la semana se respondieron con fuente.</p>
+            </div>
           </li>
-          <li class="ventaja" data-revelar>
-            <svg class="icono ventaja__icono" aria-hidden="true"><use href="#i-verificada"></use></svg>
-            <h3 class="ventaja__titulo">Fuentes que podés verificar</h3>
-            <p>Cada dato trae su cita al ítem original, con el fragmento exacto. Las citas se validan en el código: la IA no puede inventar una fuente.</p>
+
+          <li class="funcion" data-revelar>
+            <div class="funcion__cuerpo">
+              <p class="funcion__cabeza"><svg class="icono funcion__icono" aria-hidden="true"><use href="#i-candado"></use></svg><span class="funcion__donde">En la app</span></p>
+              <h4 class="funcion__titulo">Un candado en cada dato</h4>
+              <p class="funcion__texto">Cada nota, foto o documento es del equipo o privado, y lo cambiás cuando quieras desde el celular. Desde la pregunta siguiente la IA lo respeta, sin volver a procesar nada. Privado quiere decir vos y el administrador.</p>
+              <p class="funcion__contra"><svg class="icono" aria-hidden="true"><use href="#i-charla"></use></svg><span>En un cuaderno compartido, el permiso es del cuaderno entero, no de cada dato.</span></p>
+            </div>
+            <div class="vineta funcion__vineta" aria-hidden="true">
+              <div class="item-mini">
+                <svg class="icono"><use href="#i-nota"></use></svg>
+                <span class="item-mini__titulo">Medidas de la obra Ruiz<small>de Tomás · 14/10</small></span>
+                <span class="chip chip--privado"><svg class="icono"><use href="#i-candado"></use></svg>Privada</span>
+              </div>
+              <div class="menu-mini">
+                <span class="menu-mini__opcion menu-mini__opcion--activa"><svg class="icono"><use href="#i-equipo"></use></svg>Compartir con el equipo</span>
+                <span class="menu-mini__opcion"><svg class="icono"><use href="#i-candado"></use></svg>Pasar a privado</span>
+              </div>
+            </div>
           </li>
-          <li class="ventaja" data-revelar>
-            <svg class="icono ventaja__icono" aria-hidden="true"><use href="#i-memoria"></use></svg>
-            <h3 class="ventaja__titulo">Memoria que no se va</h3>
-            <p>Lo que se sube queda en el espacio del equipo. Si alguien se va, lo que compartió sigue ahí para el que viene.</p>
+
+          <li class="funcion" data-revelar>
+            <div class="funcion__cuerpo">
+              <p class="funcion__cabeza"><svg class="icono funcion__icono" aria-hidden="true"><use href="#i-duenio"></use></svg><span class="funcion__donde">En cada respuesta</span></p>
+              <h4 class="funcion__titulo">Cada dato con dueño</h4>
+              <p class="funcion__texto">Cada fuente dice quién la cargó, cuándo y con qué candado. La tocás y ves el texto que leyó NeuroDesk, con el renglón citado resaltado.</p>
+              <p class="funcion__contra"><svg class="icono" aria-hidden="true"><use href="#i-charla"></use></svg><span>Un chat no sabe qué compañero aportó cada dato ni con qué permiso.</span></p>
+            </div>
+            <div class="vineta funcion__vineta" aria-hidden="true">
+              <p class="vineta__pregunta">¿Cuándo vence el contrato del depósito?</p>
+              <p class="vineta__respuesta">El 31/03/2027 <span class="cita-mini">[1]</span>.</p>
+              <div class="fuente-mini">
+                <p class="fuente-mini__titulo"><span class="fuente__n">1</span>Contrato del depósito.pdf · pág.&nbsp;3</p>
+                <p class="duenio"><span class="avatar avatar--mini avatar--miembro">J</span><span>Juli · 24/08 · Del equipo</span></p>
+                <p class="fuente-mini__texto">«…el plazo <mark>vence el 31/03/2027</mark> y se renueva…»</p>
+              </div>
+            </div>
           </li>
-          <li class="ventaja" data-revelar>
-            <svg class="icono ventaja__icono" aria-hidden="true"><use href="#i-panel"></use></svg>
-            <h3 class="ventaja__titulo">El dueño tiene el control</h3>
-            <p>Desde el panel web ves el contenido y los miembros en tiempo real, invitás y das de baja, decidís quién es admin, y cada movimiento queda registrado.</p>
+
+          <li class="funcion" data-revelar>
+            <div class="funcion__cuerpo">
+              <p class="funcion__cabeza"><svg class="icono funcion__icono" aria-hidden="true"><use href="#i-actividad"></use></svg><span class="funcion__donde">En el panel del dueño</span></p>
+              <h4 class="funcion__titulo">El panel «En vivo»</h4>
+              <p class="funcion__texto">El dueño ve en el momento, y en castellano, lo que pasa en el equipo: quién subió algo, quién preguntó y con cuántas fuentes, quién entró y quién se fue. Desde el panel invita, da de baja y decide quién es admin, y cada movimiento queda registrado.</p>
+              <p class="funcion__contra"><svg class="icono" aria-hidden="true"><use href="#i-charla"></use></svg><span>Sin consolas técnicas: lo entiende un dueño que no es de sistemas.</span></p>
+            </div>
+            <div class="vineta funcion__vineta" aria-hidden="true">
+              <p class="vineta__titulo"><span class="punto-vivo"></span>En vivo</p>
+              <ul class="envivo__lista">
+                <li><span class="avatar avatar--mini avatar--miembro">T</span><span><b>Tomás</b> subió «Lista de precios de aberturas»</span><span class="envivo__hora">ahora</span></li>
+                <li><span class="avatar avatar--mini avatar--miembro">J</span><span><b>Juli</b> preguntó algo · 2 fuentes, confianza alta</span><span class="envivo__hora">1 min</span></li>
+                <li><span class="avatar avatar--mini avatar--admin">L</span><span><b>Lucía</b> sacó a Nico del equipo</span><span class="envivo__hora">5 min</span></li>
+              </ul>
+            </div>
           </li>
-          <li class="ventaja" data-revelar>
-            <svg class="icono ventaja__icono" aria-hidden="true"><use href="#i-celular"></use></svg>
-            <h3 class="ventaja__titulo">Captura sin fricción</h3>
-            <p>Foto, PDF, Word, nota o link en segundos, desde el celular. Sin señal, las notas se guardan igual y se suben solas cuando vuelve internet.</p>
+
+          <li class="funcion" data-revelar>
+            <div class="funcion__cuerpo">
+              <p class="funcion__cabeza"><svg class="icono funcion__icono" aria-hidden="true"><use href="#i-memoria"></use></svg><span class="funcion__donde">Para todo el equipo</span></p>
+              <h4 class="funcion__titulo">La memoria que no se va</h4>
+              <p class="funcion__lema">Si alguien se va, lo que sabía se queda.</p>
+              <p class="funcion__texto">Lo que cargó para el equipo sigue en el espacio, y la IA lo sigue citando con su nombre.</p>
+              <p class="funcion__contra"><svg class="icono" aria-hidden="true"><use href="#i-charla"></use></svg><span>En un chat personal, lo que sabe cada uno se va con su cuenta.</span></p>
+            </div>
+            <div class="vineta funcion__vineta" aria-hidden="true">
+              <div class="fuente-mini">
+                <p class="fuente-mini__titulo"><span class="fuente__n">1</span>Reglamento interno.pdf · pág.&nbsp;2</p>
+                <p class="duenio duenio--ex"><span class="avatar avatar--mini avatar--ex">N</span><span>Nico (ya no está en el equipo) · Del equipo</span></p>
+              </div>
+              <p class="memoria-mini"><svg class="icono"><use href="#i-check"></use></svg>Sus 3 ítems siguen en el espacio del equipo</p>
+            </div>
           </li>
-          <li class="ventaja" data-revelar>
-            <svg class="icono ventaja__icono" aria-hidden="true"><use href="#i-charla"></use></svg>
-            <h3 class="ventaja__titulo">Repreguntás sin repetir</h3>
-            <p>Seguís la charla como con una persona: «¿y para cuándo?» se entiende con lo que venían hablando.</p>
-          </li>
+        </ol>
+        <p class="funciones__aclaracion">Las viñetas usan datos inventados del mismo estudio de la demo.</p>
+
+        <!-- Lo de todos los dias: no nos diferencia de un chat, pero suma. -->
+        <ul class="extras" role="list" data-revelar>
+          <li class="extra"><svg class="icono" aria-hidden="true"><use href="#i-verificada"></use></svg><p><b>Citas que no se inventan.</b> Se validan en el código: la IA no puede citar un ítem que no existe.</p></li>
+          <li class="extra"><svg class="icono" aria-hidden="true"><use href="#i-celular"></use></svg><p><b>Anda sin señal.</b> Las notas se guardan igual y se suben solas cuando vuelve internet.</p></li>
+          <li class="extra"><svg class="icono" aria-hidden="true"><use href="#i-charla"></use></svg><p><b>Repreguntás sin repetir.</b> «¿Y para cuándo?» se entiende con lo que venían hablando.</p></li>
         </ul>
       </div>
     </section>
@@ -506,20 +616,20 @@
         <div class="galeria galeria--telefonos">
           <figure class="captura" data-revelar>
             <div class="telefono">
-              <div class="telefono__pantalla" data-captura="app-feed" data-alt="Captura de la app: el feed del equipo con los ítems y su estado">
+              <div class="telefono__pantalla" data-captura="app-feed" data-alt="Captura real de la app NeuroDesk: el muro «Del equipo» con documentos, links, notas y fotos, cada uno en estado «Listo»">
                 <div class="captura-pendiente">
                   <span class="placa placa--pantalla"><img src="img/isotipo-oscuro.png" alt="" width="601" height="601" loading="lazy"></span>
-                  <span class="captura-pendiente__titulo">Feed del equipo</span>
+                  <span class="captura-pendiente__titulo">Lo del equipo</span>
                   <span class="captura-pendiente__esqueleto" aria-hidden="true"><i></i><i></i><i></i></span>
                 </div>
               </div>
             </div>
-            <figcaption><strong>Lo del equipo y lo tuyo</strong> El feed en tiempo real, con el estado de cada ítem.</figcaption>
+            <figcaption><strong>Lo del equipo y lo tuyo</strong> El muro en tiempo real, separado en «Del equipo» y «Mis notas», con el estado de cada ítem.</figcaption>
           </figure>
 
           <figure class="captura" data-revelar>
             <div class="telefono">
-              <div class="telefono__pantalla" data-captura="app-captura" data-alt="Captura de la app: la pantalla para agregar una nota, una foto, un documento o un link">
+              <div class="telefono__pantalla" data-captura="app-captura" data-alt="Captura real de la app NeuroDesk: la pantalla «Agregar contenido», con el tipo (nota, foto, documento o link), el título, el texto y quién lo puede ver">
                 <div class="captura-pendiente">
                   <span class="placa placa--pantalla"><img src="img/isotipo-oscuro.png" alt="" width="601" height="601" loading="lazy"></span>
                   <span class="captura-pendiente__titulo">Agregar contenido</span>
@@ -532,7 +642,7 @@
 
           <figure class="captura" data-revelar>
             <div class="telefono">
-              <div class="telefono__pantalla" data-captura="app-chat" data-alt="Captura de la app: una respuesta de la IA con citas y el chip de confianza">
+              <div class="telefono__pantalla" data-captura="app-chat" data-alt="Captura real de la app NeuroDesk: la respuesta a «¿Qué dice el reglamento sobre los laboratorios?», con el chip de confianza y la fuente citada, que dice quién la cargó">
                 <div class="captura-pendiente">
                   <span class="placa placa--pantalla"><img src="img/isotipo-oscuro.png" alt="" width="601" height="601" loading="lazy"></span>
                   <span class="captura-pendiente__titulo">Preguntale al equipo</span>
@@ -540,12 +650,12 @@
                 </div>
               </div>
             </div>
-            <figcaption><strong>Preguntale al equipo</strong> Respuesta corta, citas a cada fuente y el nivel de confianza.</figcaption>
+            <figcaption><strong>Preguntale al equipo</strong> Respuesta corta, citas con el nombre de quien cargó cada dato y el nivel de confianza.</figcaption>
           </figure>
 
           <figure class="captura" data-revelar>
             <div class="telefono">
-              <div class="telefono__pantalla" data-captura="app-seguimiento" data-alt="Captura de la app: una pregunta de seguimiento dentro de la misma charla">
+              <div class="telefono__pantalla" data-captura="app-seguimiento" data-alt="Captura real de la app NeuroDesk: la pregunta de seguimiento «¿Y sobre el celular?» dentro de la misma charla, con cómo la entendió la IA y su fuente">
                 <div class="captura-pendiente">
                   <span class="placa placa--pantalla"><img src="img/isotipo-oscuro.png" alt="" width="601" height="601" loading="lazy"></span>
                   <span class="captura-pendiente__titulo">Seguir la charla</span>
@@ -553,7 +663,7 @@
                 </div>
               </div>
             </div>
-            <figcaption><strong>Seguí la charla</strong> Repreguntás «¿y para cuándo?» y entiende de qué venían hablando.</figcaption>
+            <figcaption><strong>Seguí la charla</strong> Repreguntás «¿y sobre el celular?» y entiende de qué venían hablando.</figcaption>
           </figure>
         </div>
 
@@ -575,15 +685,15 @@
                 <span class="navegador__punto"></span><span class="navegador__punto"></span><span class="navegador__punto"></span>
                 <span class="navegador__url">neurodesk-6to.web.app/panel</span>
               </div>
-              <div class="navegador__pantalla" data-captura="panel-dashboard" data-alt="Captura del panel web: el resumen del espacio con indicadores y el gráfico de actividad">
+              <div class="navegador__pantalla" data-captura="panel-lo-que-falta" data-alt="Captura del panel web: el radar «Lo que falta», con las preguntas del equipo que nadie había cargado">
                 <div class="captura-pendiente">
                   <span class="placa placa--pantalla"><img src="img/isotipo-oscuro.png" alt="" width="601" height="601" loading="lazy"></span>
-                  <span class="captura-pendiente__titulo">Resumen del espacio</span>
+                  <span class="captura-pendiente__titulo">Lo que falta</span>
                   <span class="captura-pendiente__esqueleto captura-pendiente__esqueleto--panel" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
                 </div>
               </div>
             </div>
-            <figcaption><strong>Resumen del espacio</strong> Ítems cargados, listos, en cola y con error, y la actividad de los últimos días.</figcaption>
+            <figcaption><strong>Lo que falta</strong> Las preguntas que el equipo hizo y nadie había cargado, agrupadas y contadas, con un botón para cargar la respuesta.</figcaption>
           </figure>
 
           <figure class="captura" data-revelar>
@@ -592,15 +702,15 @@
                 <span class="navegador__punto"></span><span class="navegador__punto"></span><span class="navegador__punto"></span>
                 <span class="navegador__url">neurodesk-6to.web.app/panel</span>
               </div>
-              <div class="navegador__pantalla" data-captura="panel-miembros" data-alt="Captura del panel web: la lista de miembros con su rol y el formulario para invitar">
+              <div class="navegador__pantalla" data-captura="panel-en-vivo" data-alt="Captura del panel web: la pantalla «En vivo», con lo que hace el equipo en el momento">
                 <div class="captura-pendiente">
                   <span class="placa placa--pantalla"><img src="img/isotipo-oscuro.png" alt="" width="601" height="601" loading="lazy"></span>
-                  <span class="captura-pendiente__titulo">Miembros del espacio</span>
+                  <span class="captura-pendiente__titulo">En vivo</span>
                   <span class="captura-pendiente__esqueleto captura-pendiente__esqueleto--panel" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
                 </div>
               </div>
             </div>
-            <figcaption><strong>Miembros</strong> Invitás por email, elegís el rol y das de baja a quien ya no está.</figcaption>
+            <figcaption><strong>En vivo</strong> Lo que hace el equipo, en el momento y en castellano: quién subió algo, quién preguntó, quién entró y quién se fue.</figcaption>
           </figure>
         </div>
 
@@ -647,11 +757,18 @@
             <h3 class="plan__nombre">Free</h3>
             <p class="plan__precio"><span class="plan__monto">$ 0</span></p>
             <p class="plan__para">Para probar con tu equipo.</p>
+            <!-- Los limites del plan gratis son LOS QUE APLICA EL CODIGO del
+                 servidor (no otros): api/src/rutas/workspaces.js
+                 (MAX_MIEMBROS_PLAN_FREE = 5), api/src/rutas/items.js
+                 (TOPE_ITEMS_PLAN_FREE = 200 items procesados) y
+                 api/src/rutas/preguntar.js (PREGUNTAS_POR_MINUTO = 10 por
+                 persona, sin tope por mes). El OCR no depende del plan.
+                 Si cambian esos numeros en el codigo, cambiarlos aca. -->
             <ul class="plan__lista" role="list">
-              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>Hasta 3 miembros</span></li>
-              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>100 ítems en total</span></li>
-              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>30 preguntas a la IA por mes</span></li>
-              <li class="plan__no"><svg class="icono" aria-hidden="true"><use href="#i-menos"></use></svg><span>Sin OCR: no lee fotos ni PDF escaneados</span></li>
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>Hasta 5 miembros</span></li>
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>Hasta 200 ítems</span></li>
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>Preguntas a la IA sin tope por mes <small class="plan__detalle">hasta 10 por minuto por persona</small></span></li>
+              <li><svg class="icono" aria-hidden="true"><use href="#i-check"></use></svg><span>Lee el texto de las fotos (OCR)</span></li>
             </ul>
             <a class="boton boton--secundario plan__boton" href="#contacto" data-plan="free">Pedir acceso gratis</a>
           </li>
@@ -705,7 +822,7 @@
         <p class="precios__pago" data-revelar>
           <svg class="icono" aria-hidden="true"><use href="#i-tarjeta"></use></svg>
           <span>Pagás con Mercado Pago <span class="pronto">Próximamente</span></span>
-          <span class="precios__aclaracion">Precios de referencia: pueden cambiar antes de que empecemos a cobrar.</span>
+          <span class="precios__aclaracion">Los límites del plan Free son los que aplica hoy el servidor. Los precios y los límites de los planes pagos son de referencia: pueden cambiar antes de que empecemos a cobrar.</span>
         </p>
       </div>
     </section>
@@ -733,7 +850,7 @@
             <svg class="icono garantia__icono" aria-hidden="true"><use href="#i-nube"></use></svg>
             <div>
               <h3 class="garantia__titulo">Usa servicios externos</h3>
-              <p>Para entender y responder, el texto pasa por Google Gemini. Para leer fotos y PDF escaneados usamos OCR.space, también cuando el ítem es privado. En el plan gratuito de Gemini, Google puede usar lo que recibe para mejorar sus productos.</p>
+              <p>Para entender y responder, el texto pasa por Google Gemini. Para leer el texto de las fotos usamos OCR, que puede pasar por OCR.space, un servicio externo, también cuando el ítem es privado. En el plan gratuito de Gemini, Google puede usar lo que recibe para mejorar sus productos.</p>
             </div>
           </li>
           <li class="garantia" data-revelar>
@@ -775,11 +892,26 @@
         </header>
 
         <div class="faq" data-revelar>
-          <!-- COPY-DIFERENCIACION -->
+          <!-- COPY-DIFERENCIACION: la respuesta honesta del documento de
+               diferenciacion (seccion 5), que nombra a Gemini Notebook. -->
           <details class="faq__item">
             <summary>¿En qué se diferencia de preguntarle a un chat de IA?<svg class="icono" aria-hidden="true"><use href="#i-abajo"></use></svg></summary>
             <div class="faq__respuesta">
-              <p>Un chat de IA responde con lo que sabe en general o con lo que le pegues en ese momento. NeuroDesk responde solo con lo que fue subiendo tu equipo, cita el ítem exacto de donde sacó cada dato y respeta qué puede ver cada persona. Y lo que se sube queda para todos, aunque alguien se vaya.</p>
+              <p>Si trabajás solo, Gemini Notebook (el ex NotebookLM) es muy bueno y gratis. NeuroDesk es para equipos: todos cargan en una sola memoria, cada dato tiene dueño y candado, solo el que lo cargó o el administrador lo pueden borrar, la IA usa solo lo que puede ver quien pregunta, lo que se carga queda aunque alguien se vaya, y el dueño ve qué preguntó el equipo que nadie había cargado.</p>
+            </div>
+          </details>
+
+          <details class="faq__item">
+            <summary>¿Y si ya pagamos Google Workspace?<svg class="icono" aria-hidden="true"><use href="#i-abajo"></use></svg></summary>
+            <div class="faq__respuesta">
+              <p>Con Workspace, Gemini también respeta los permisos de cada archivo de Drive, si la empresa paga por persona y tiene el Drive ordenado y bien compartido. NeuroDesk es para el equipo que no tiene eso: cargás desde el celular sin elegir dónde va, cada dato tiene su candado y el panel lo entiende un dueño que no es técnico.</p>
+            </div>
+          </details>
+
+          <details class="faq__item">
+            <summary>¿Lo privado lo ve alguien más?<svg class="icono" aria-hidden="true"><use href="#i-abajo"></use></svg></summary>
+            <div class="faq__respuesta">
+              <p>Sí: el administrador del espacio. Privado quiere decir vos y el administrador, como pasa con el mail del trabajo. Tus compañeros no lo ven, y la IA no lo usa cuando les responde a ellos.</p>
             </div>
           </details>
           <!-- /COPY-DIFERENCIACION -->
@@ -794,7 +926,7 @@
           <details class="faq__item">
             <summary>¿Qué puedo subir?<svg class="icono" aria-hidden="true"><use href="#i-abajo"></use></svg></summary>
             <div class="faq__respuesta">
-              <p>Notas, fotos (con la cámara o de la galería), PDF y Word (.docx) de hasta 10 MB, y links. De los videos de YouTube toma el título, la descripción y el canal: no mira el video.</p>
+              <p>Notas, fotos (con la cámara o de la galería), PDF y Word (.docx) de hasta 10 MB, y links. De los PDF lee el texto que traen adentro: si solo tenés el papel, sacale una foto, que las fotos se leen con OCR. De los videos de YouTube toma el título, la descripción y el canal: no mira el video.</p>
             </div>
           </details>
 

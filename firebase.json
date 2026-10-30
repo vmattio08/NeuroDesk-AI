@@ -15,11 +15,11 @@
     ],
     "headers": [
       {
-        "regex": "^[^.]*$|\\.(html|apk)$",
+        "regex": "^[^.]*$|\\.(html|apk|css|js|mjs)$",
         "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
       },
       {
-        "regex": "\\.(css|js|mjs|png|jpe?g|gif|svg|webp|avif|ico|woff2?)$",
+        "regex": "\\.(png|jpe?g|gif|svg|webp|avif|ico|woff2?)$",
         "headers": [{ "key": "Cache-Control", "value": "public, max-age=600" }]
       }
     ]

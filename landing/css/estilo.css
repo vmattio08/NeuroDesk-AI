@@ -220,6 +220,19 @@ a:hover { color: #67E8F9; }
 }
 
 .encabezado-seccion { max-width: 780px; }
+.encabezado-seccion--ancho { max-width: 900px; }
+
+/* La tercera parte de un titulo largo: mas chica y mas liviana, en su linea.
+   (La usa el titulo de "Por que NeuroDesk", que es una frase entera.) */
+.titulo-detalle {
+  display: block;
+  margin-top: .45em;
+  color: var(--texto);
+  font-size: clamp(1.1875rem, 1rem + .9vw, 1.625rem);
+  font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
 
 .seccion { padding-block: clamp(4.5rem, 3rem + 5vw, 7.5rem); }
 
@@ -454,7 +467,7 @@ a:hover { color: #67E8F9; }
 }
 
 
-/* --- La captura real (la pone js/capturas.js cuando el PNG existe) --------- */
+/* --- La captura real (la pone js/capturas.js si esta en su lista) ---------- */
 .captura-img {
   width: 100%;
   height: 100%;
@@ -1392,20 +1405,67 @@ a:hover { color: #67E8F9; }
   .fuente:first-child::before { top: 50%; }
 }
 
-.ventajas {
-  display: grid;
-  gap: 16px;
-  margin-top: 40px;
+/* --- El dueño de cada dato ("Cada dato con dueño") --------------------------
+   La linea "J · Juli · 10/08" que llevan las fuentes: en la demo, en el paso 3
+   y en las viñetas de las funciones. */
+.duenio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--texto-apagado);
+  font: .75rem/1.4 var(--fuente-mono);
+}
+.avatar--mini { width: 20px; height: 20px; font-size: .625rem; }
+/* Alguien que ya no esta en el equipo: el mismo circulo, punteado y gris. */
+.avatar--ex {
+  color: var(--texto-apagado);
+  background: rgba(100, 116, 139, .16);
+  border-style: dashed;
+  border-color: rgba(148, 163, 184, .6);
 }
 
-.ventaja {
+
+/* --- Las 5 funciones que nos diferencian ------------------------------------
+   Una tarjeta por funcion: donde vive, que es, que no tiene un chat personal
+   y una viñeta (un pedacito de la interfaz hecho en HTML, como en los pasos).
+   La primera (el Radar) va destacada y ancha: es la respuesta mas directa a
+   "¿que cambia con un chat de IA?". */
+.funciones__encabezado { margin-top: 72px; max-width: 720px; }
+
+.funciones__titulo {
+  font-size: clamp(1.375rem, 1.15rem + .9vw, 1.75rem);
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+}
+.funciones__bajada { margin-top: 10px; max-width: 62ch; color: var(--texto-apagado); }
+
+.funciones {
+  display: grid;
+  gap: 16px;
+  margin-top: 28px;
+}
+
+.funcion {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
   padding: 24px;
   border: 1px solid var(--borde);
-  border-radius: var(--radio);
+  border-radius: 20px;
   background: var(--superficie-suave);
 }
 
-.ventaja__icono {
+.funcion__cuerpo { padding-bottom: 20px; }
+
+.funcion__cabeza {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.funcion__icono {
   width: 44px;
   height: 44px;
   padding: 10px;
@@ -1415,11 +1475,243 @@ a:hover { color: #67E8F9; }
   color: var(--cian-electrico);
 }
 
-.ventaja__titulo { margin-top: 16px; font-size: 1.125rem; font-weight: 600; line-height: 1.3; }
-.ventaja p { margin-top: 8px; color: var(--texto-apagado); }
+.funcion__donde {
+  color: var(--texto-apagado);
+  font: 500 .75rem/1.4 var(--fuente-mono);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
 
-@media (min-width: 640px)  { .ventajas { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (min-width: 1024px) { .ventajas { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.funcion__titulo { margin-top: 16px; font-size: 1.25rem; font-weight: 600; line-height: 1.3; }
+.funcion__lema   { margin-top: 8px; color: var(--cian-electrico); font-weight: 700; }
+.funcion__texto  { margin-top: 8px; color: var(--texto-apagado); }
+
+/* "Lo que no tiene un chat": una linea aparte, con el globito de charla. */
+.funcion__contra {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--borde-medio);
+  color: var(--texto);
+  font-size: .9375rem;
+  line-height: 1.45;
+}
+.funcion__contra .icono { width: 16px; height: 16px; margin-top: 3px; color: var(--texto-apagado); }
+
+/* La viñeta va siempre al fondo de la tarjeta: asi quedan parejas por fila. */
+.funcion__vineta { margin-top: auto; }
+
+/* El Radar destacado: borde cian, como el plan recomendado. */
+.funcion--destacada {
+  border-color: rgba(34, 211, 238, .45);
+  background: linear-gradient(160deg, rgba(6, 182, 212, .12), rgba(30, 41, 59, .55) 55%);
+}
+
+.funciones__aclaracion {
+  margin-top: 12px;
+  color: var(--texto-apagado);
+  font: .75rem/1.5 var(--fuente-mono);
+}
+
+@media (min-width: 720px) {
+  .funciones { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .funcion--destacada {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 32px;
+    align-items: center;
+  }
+  .funcion--destacada .funcion__cuerpo { padding-bottom: 0; }
+  .funcion--destacada .funcion__vineta { margin-top: 0; }
+}
+@media (min-width: 1024px) {
+  .funcion { padding: 28px; }
+  .funcion--destacada { gap: 48px; padding: 32px; }
+}
+
+/* --- Piezas de las viñetas de las funciones --- */
+.vineta__titulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: var(--texto-fuerte);
+  font: 600 .875rem/1.3 var(--fuente-titulo);
+}
+.vineta__titulo .icono { width: 16px; height: 16px; color: var(--cian-electrico); }
+.vineta__titulo span:not(.punto-vivo) {
+  margin-left: auto;
+  color: var(--texto-apagado);
+  font: 400 .6875rem/1.4 var(--fuente-mono);
+}
+
+/* Radar: cada pregunta sin respuesta, cuantas veces se hizo y que se hace. */
+.radar__lista { display: grid; gap: 8px; list-style: none; }
+.radar__fila {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  background: var(--noche);
+  font-size: .875rem;
+  line-height: 1.35;
+}
+.radar__pregunta { flex: 1 1 100%; color: var(--texto-fuerte); }
+.radar__veces { color: var(--procesando-texto); font: 500 .75rem/1.4 var(--fuente-mono); }
+.radar__fila .boton-mini,
+.radar__fila .chip { margin-left: auto; }
+.radar__dato { margin-top: 12px; color: var(--texto-apagado); font-size: .8125rem; }
+.radar__dato b { color: var(--listo); }
+
+.boton-mini {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 8px;
+  background: var(--cian);
+  color: var(--noche);
+  font: 700 .75rem/1.5 var(--fuente-texto);
+  white-space: nowrap;
+}
+
+/* Candado: un item privado y el menu para compartirlo. */
+.item-mini {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  background: var(--noche);
+  font-size: .875rem;
+  line-height: 1.3;
+}
+.item-mini > .icono { width: 16px; height: 16px; color: var(--azul-claro); }
+.item-mini__titulo { min-width: 0; color: var(--texto-fuerte); }
+.item-mini__titulo small {
+  display: block;
+  color: var(--texto-apagado);
+  font: .6875rem/1.4 var(--fuente-mono);
+}
+
+.chip--privado { color: var(--azul-claro); background: rgba(59, 130, 246, .15); border-color: rgba(96, 165, 250, .5); }
+.chip .icono { width: 12px; height: 12px; }
+
+.menu-mini {
+  display: grid;
+  gap: 2px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 8px 0 0 auto;
+  padding: 6px;
+  border: 1px solid var(--borde-medio);
+  border-radius: 12px;
+  background: var(--superficie);
+  box-shadow: var(--sombra-profunda);
+  font-size: .8125rem;
+  line-height: 1.3;
+}
+.menu-mini__opcion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: var(--texto);
+}
+.menu-mini__opcion .icono { width: 15px; height: 15px; color: var(--texto-apagado); }
+.menu-mini__opcion--activa { background: rgba(6, 182, 212, .16); color: var(--texto-fuerte); }
+.menu-mini__opcion--activa .icono { color: var(--cian-electrico); }
+
+/* Cada dato con dueño: la fuente con su dueño y el renglon resaltado. */
+.fuente-mini {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--borde-medio);
+  border-radius: 10px;
+  background: var(--noche);
+}
+.fuente-mini:first-child { margin-top: 0; }
+.fuente-mini__titulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--texto-fuerte);
+  font-size: .8125rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.fuente-mini__titulo .fuente__n { flex: none; min-width: 18px; height: 18px; font: 500 .6875rem/1 var(--fuente-mono); }
+.fuente-mini__texto { margin-top: 8px; color: var(--texto-apagado); font-size: .8125rem; line-height: 1.5; }
+
+mark {
+  padding: 0 2px;
+  border-radius: 3px;
+  background: rgba(34, 211, 238, .22);
+  color: var(--texto-fuerte);
+  box-shadow: inset 0 -2px 0 var(--cian-electrico);
+}
+
+/* En vivo: lo ultimo que paso arriba, con borde verde. */
+.envivo__lista { display: grid; gap: 8px; list-style: none; }
+.envivo__lista li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  background: var(--noche);
+  font-size: .8125rem;
+  line-height: 1.35;
+}
+.envivo__lista li:first-child { border-color: rgba(34, 197, 94, .45); }
+.envivo__lista b { color: var(--texto-fuerte); }
+.envivo__hora { color: var(--texto-apagado); font: .6875rem/1.4 var(--fuente-mono); white-space: nowrap; }
+
+/* La memoria que no se va. */
+.memoria-mini {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--listo);
+  font-size: .8125rem;
+  font-weight: 700;
+}
+.memoria-mini .icono { width: 16px; height: 16px; }
+
+/* Lo de todos los dias, mas chico: suma, pero no es lo que nos diferencia. */
+.extras {
+  display: grid;
+  gap: 14px 32px;
+  margin-top: 40px;
+  padding-top: 28px;
+  border-top: 1px solid var(--borde);
+}
+.extra {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  color: var(--texto-apagado);
+  font-size: .9375rem;
+  line-height: 1.5;
+}
+.extra .icono { width: 20px; height: 20px; margin-top: 1px; color: var(--cian-electrico); }
+.extra b { color: var(--texto-fuerte); }
+
+@media (min-width: 900px) {
+  .extras { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 
 
 /* --- 5.5 Producto (las capturas) ------------------------------------------- */
@@ -1576,6 +1868,7 @@ a:hover { color: #67E8F9; }
 .plan__lista .icono { width: 18px; height: 18px; margin-top: 2px; color: var(--cian-electrico); }
 .plan__no,
 .plan__no .icono { color: var(--texto-apagado); }
+.plan__detalle { display: block; color: var(--texto-apagado); font: .75rem/1.45 var(--fuente-mono); }
 
 .plan__boton { margin-top: auto; }
 
