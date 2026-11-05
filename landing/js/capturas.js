@@ -29,12 +29,16 @@ const CARPETA = 'img/capturas/';
 // como sale del celular o del emulador, y su version .webp de 540 x 1200,
 // unas 6 veces mas liviana). Las del chat y el seguimiento son de la vista del
 // admin: por eso dicen "Como sos admin..." (lo mismo que la landing cuenta en
-// "Privado quiere decir vos y el administrador").
+// "Privado quiere decir vos y el administrador"). Las del panel son de 1440 x 900
+// (la original de 2880 x 1800 esta en la carpeta de la entrega) y se sacaron con
+// el email de la cuenta oculto, porque esta pagina es publica.
 const DISPONIBLES = {
-  'app-feed':        { webp: true },
-  'app-captura':     { webp: true },
-  'app-chat':        { webp: true },
-  'app-seguimiento': { webp: true },
+  'app-feed':           { webp: true },
+  'app-captura':        { webp: true },
+  'app-chat':           { webp: true },
+  'app-seguimiento':    { webp: true },
+  'panel-lo-que-falta': { webp: true },
+  'panel-en-vivo':      { webp: true },
 };
 
 // Solo nombres simples: letras, numeros y guiones. Si alguien escribe en el
