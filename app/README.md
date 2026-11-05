@@ -131,10 +131,10 @@ La URL del backend **no esta hardcodeada**: entra por `--dart-define`.
 flutter run --dart-define=API_URL=http://10.0.2.2:8080
 
 # Contra el backend publicado en Render.
-flutter run --dart-define=API_URL=https://neurodesk-api.onrender.com
+flutter run --dart-define=API_URL=https://neurodesk-api-u97j.onrender.com
 
 # Compilar el APK para la entrega.
-flutter build apk --release --dart-define=API_URL=https://neurodesk-api.onrender.com
+flutter build apk --release --dart-define=API_URL=https://neurodesk-api-u97j.onrender.com
 ```
 
 ### 2.7 Permisos de Android (ya estan puestos en el repo)

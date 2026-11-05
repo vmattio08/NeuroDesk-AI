@@ -82,7 +82,7 @@ class RespuestaApi {
 class Api {
   // --------------------------------------------------------------------------
   // La URL del backend viene de afuera, nunca hardcodeada en las pantallas:
-  //   flutter run --dart-define=API_URL=https://neurodesk-api.onrender.com
+  //   flutter run --dart-define=API_URL=https://neurodesk-api-u97j.onrender.com
   // El default es 10.0.2.2, que es como el emulador de Android ve el localhost
   // de la computadora ('localhost' adentro del emulador es el emulador mismo).
   // --------------------------------------------------------------------------

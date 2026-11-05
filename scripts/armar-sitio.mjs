@@ -9,8 +9,12 @@
 //  QUE ARMA, y nada mas:
 //      landing/                      ->  sitio/                       la pagina publica
 //      panel/   (sin el README.md)   ->  sitio/panel/                 el panel del admin
-//      app-release.apk, SI existe    ->  sitio/descargas/neurodesk.apk
 //  y al final muestra cada archivo con su tamaño y el total.
+//
+//  EL APK NO VA ACA: Hosting en el plan gratis (Spark) rechaza los archivos
+//  ejecutables ("Executable files are forbidden on the Spark billing plan") y
+//  el deploy entero falla. Se publica como release de GitHub
+//  (gh release create ... neurodesk.apk) y la landing apunta ahi (descarga.js).
 //
 //  POR QUE SE ARMA Y NO SE PUBLICA landing/ DIRECTO: Hosting publica UNA sola
 //  carpeta, y lo nuestro vive en tres lugares (la landing y el panel en el
@@ -147,7 +151,7 @@ async function recorrer(origen, destino, plan, omitidos) {
 
 
 async function armar() {
-  console.log('Armando sitio/ (landing/ + panel/ + APK si existe)...');
+  console.log('Armando sitio/ (landing/ + panel/)...');
 
   // -- 1. Lo minimo para que tenga sentido publicar ------------------------
   // Lo de firebase.json es para no borrar nunca una carpeta "sitio" que no sea
@@ -172,11 +176,6 @@ async function armar() {
   const omitidos = [];
   await recorrer(LANDING, SITIO, plan, omitidos);
   await recorrer(PANEL, path.join(SITIO, 'panel'), plan, omitidos);
-
-  const apk = (await existe(APK)) ? await stat(APK) : null;
-  if (apk) {
-    plan.push({ desde: APK, hacia: path.join(SITIO, 'descargas', 'neurodesk.apk') });
-  }
 
   // -- 3. Recien ahora: borrar y copiar ------------------------------------
   // maxRetries: en Windows, si el emulador justo tiene un archivo abierto, el
@@ -208,21 +207,9 @@ async function armar() {
     for (const [ruta, motivo] of omitidos) console.log(`  ${ruta}  (${motivo})`);
   }
 
-  if (apk) {
-    const mb = apk.size / 1024 / 1024;
-    const cuando = apk.mtime.toLocaleString('es-AR', {
-      day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
-    });
-    // El cupo gratis de Hosting (sin plan Blaze) es de 10 GB de transferencia
-    // por mes, y cada descarga del APK lo gasta entero. Pasado el cupo,
-    // Firebase deshabilita el sitio hasta el mes siguiente: mejor saberlo.
-    console.log(`\nAPK: app-release.apk del ${cuando} -> /descargas/neurodesk.apk`);
-    console.log(`  Cada descarga gasta ${numero.format(mb)} MB de los 10 GB por mes que Hosting da gratis`
-      + ` (entran unas ${Math.floor((10 * 1024) / mb)} descargas por mes).`);
-  } else {
-    console.log('\nAPK: no hay app/build/app/outputs/flutter-apk/app-release.apk, así que no se publica.');
-    console.log('  La landing lo detecta y muestra "Pedí acceso a la beta".'
-      + ' Para sumarlo: flutter build apk --release (en app/) y volver a armar.');
+  if (await existe(APK)) {
+    console.log('\nAPK: no se copia a sitio/ (Hosting gratis no acepta ejecutables).'
+      + ' Si es nuevo, subilo como release de GitHub: gh release upload <tag> neurodesk.apk --clobber');
   }
 }
 

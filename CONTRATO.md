@@ -13,7 +13,7 @@ Sirve para tres cosas:
 - **Los clientes hablan directo con Firestore** para leer y para el tiempo real. Al backend se le pega **solo** cuando hace falta una clave secreta (IA, OCR, Mercado Pago) o privilegios que las reglas no dan (borrar chunks, tocar claims, cambiar el candado de un item).
 - **El backend nunca crea items ni respuestas: solo los actualiza.** El documento lo crea el cliente en Firestore y recién después manda el POST con ese id.
 - **La fuente de verdad de la UI es Firestore, no la respuesta HTTP.** El POST es una confirmación; la pantalla se dibuja con `StreamBuilder` / `onSnapshot`.
-- **Base URL.** Producción: `https://neurodesk-api.onrender.com`. Desarrollo: `http://10.0.2.2:8080` desde el emulador de Android (`localhost` no funciona ahí) y `http://localhost:8080` desde el panel. Va en **una** constante (`--dart-define=API_URL` en Flutter; en el panel, `URL_API` de `panel/js/api.js`, que se elige sola según dónde corre el panel), nunca escrita a mano en cada pantalla.
+- **Base URL.** Producción: `https://neurodesk-api-u97j.onrender.com`. Desarrollo: `http://10.0.2.2:8080` desde el emulador de Android (`localhost` no funciona ahí) y `http://localhost:8080` desde el panel. Va en **una** constante (`--dart-define=API_URL` en Flutter; en el panel, `URL_API` de `panel/js/api.js`, que se elige sola según dónde corre el panel), nunca escrita a mano en cada pantalla.
 - **Todas las rutas cuelgan de `/v1/`, con una sola excepción: `/salud`.** Responde en `GET /salud` (la que usan la app, el panel y el health check de Render) y también en `GET /v1/salud`, que es un alias con el mismo manejador.
 
 ---
@@ -115,7 +115,7 @@ El invitado está escuchando su propio `usuarios/{uid}`: ve cambiar `claimsActua
 **Request:** sin headers, sin body.
 
 ```
-GET https://neurodesk-api.onrender.com/salud
+GET https://neurodesk-api-u97j.onrender.com/salud
 ```
 
 **Respuesta OK — HTTP 200:**

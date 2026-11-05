@@ -22,7 +22,7 @@
 
 services:
   - type: web
-    name: neurodesk-api            # => https://neurodesk-api.onrender.com (la URL que ya figura en CONTRATO.md, la app y el panel)
+    name: neurodesk-api            # => https://neurodesk-api-u97j.onrender.com (Render le agrego "-u97j" porque "neurodesk-api" ya lo usaba otra cuenta; es la URL de CONTRATO.md, la app y el panel)
     runtime: node
     plan: free
 

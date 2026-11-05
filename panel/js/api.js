@@ -41,7 +41,7 @@ const ES_LOCAL = location.hostname === 'localhost' || location.hostname === '127
 
 export const URL_API = ES_LOCAL
   ? 'http://localhost:8080'
-  : 'https://neurodesk-api.onrender.com';
+  : 'https://neurodesk-api-u97j.onrender.com';
 
 
 // ----------------------------------------------------------------------------

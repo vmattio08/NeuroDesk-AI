@@ -17,7 +17,7 @@ No hay nada que pegar antes de abrirlo.
 | Archivo | Qué tiene |
 |---|---|
 | `js/firebase.js` | el objeto `configFirebase` del proyecto `neurodesk-6to` (sale de Consola de Firebase → ⚙ Configuración del proyecto → Tus apps → App web → **Config**) |
-| `js/api.js` | `URL_API`, que **se elige sola** según desde dónde se abre el panel: desde `localhost` o `127.0.0.1`, el backend de la compu (`http://localhost:8080`); desde cualquier otro lado (el sitio publicado), el de Render (`https://neurodesk-api.onrender.com`). Así nunca se publica apuntando a `localhost`. |
+| `js/api.js` | `URL_API`, que **se elige sola** según desde dónde se abre el panel: desde `localhost` o `127.0.0.1`, el backend de la compu (`http://localhost:8080`); desde cualquier otro lado (el sitio publicado), el de Render (`https://neurodesk-api-u97j.onrender.com`). Así nunca se publica apuntando a `localhost`. |
 
 Si algún día la config de Firebase queda vacía, el login lo avisa con un cartel
 rojo en vez de tirar un error críptico en la consola.
