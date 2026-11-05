@@ -379,9 +379,9 @@ Además de la hora que tarda en cortarse la lectura de alguien que sacamos (punt
   a preguntar». Lo que no usa el chat (el «no encontré», el candado, el panel) anda
   igual.
 - **Lo privado también lo ve el admin, y las preguntas también.** Es una decisión
-  de producto, como el mail del trabajo, y la decimos en pantalla: al cargar dice
-  «Solo yo (y el admin)», la fuente avisa «la ves porque sos admin» y el chat avisa
-  que el administrador puede ver las preguntas. El Radar arranca sin nombres.
+  de producto, como el mail del trabajo, y la decimos en pantalla: la fuente le
+  avisa al admin «la ves porque sos admin» y el chat avisa que el administrador
+  puede ver las preguntas. El Radar arranca sin nombres.
 - **El Radar agrupa por texto.** *"¿Cuándo es la reunión?"* y *"fecha de la
   reunión"* quedan en dos filas. Para juntarlas habría que comparar los vectores de
   las preguntas, que el panel no tiene.
