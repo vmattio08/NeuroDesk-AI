@@ -31,6 +31,8 @@
 //  sesion nueva, no encuentra la ficha usuarios/{uid} y llama a
 //  POST /v1/auth/registro. Por eso no hay una "pantalla de registro con
 //  Google" ni otra llamada al backend: se reusa el mismo camino.
+//  En la WEB cambia solo el primer paso: en vez de la hoja de Android se
+//  abre la ventanita (popup) de Google de Firebase Auth. Lo demas, igual.
 //  ------------------------------------------------------------------------
 // ============================================================================
 
@@ -176,10 +178,16 @@ class AuthServicio {
   /// con traducirErrorDeGoogle() y FirebaseAuthException con
   /// traducirErrorDeAuth(e, conGoogle: true).
   static Future<UserCredential?> entrarConGoogle() async {
+    // EN LA WEB no se usa el paquete google_sign_in: su authenticate() no
+    // existe en el navegador (pide dibujar el boton propio de Google y un
+    // client ID aparte). Firebase Auth ya trae el camino web: una ventanita
+    // de Google (popup) que devuelve la sesion de Firebase directo. Desde
+    // ahi es todo igual (la Puerta, la ficha, el registro).
+    if (kIsWeb) return _entrarConGoogleEnLaWeb();
+
     await _prepararGoogle();
-    // En Android siempre da true; en otras plataformas (web) authenticate()
-    // no existe y hay que usar el boton propio de Google. La entrega es
-    // Android, pero mejor un mensaje claro que una excepcion rara.
+    // En Android siempre da true. Queda por si algun dia se compila para
+    // otra plataforma: mejor un mensaje claro que una excepcion rara.
     if (!GoogleSignIn.instance.supportsAuthenticate()) {
       throw const GoogleSignInException(
         code: GoogleSignInExceptionCode.providerConfigurationError,
@@ -216,6 +224,44 @@ class AuthServicio {
     final OAuthCredential credencial =
         GoogleAuthProvider.credential(idToken: idToken);
     return _auth.signInWithCredential(credencial);
+  }
+
+  /// "Continuar con Google" en el navegador: el popup de Google de Firebase.
+  ///
+  /// prompt: select_account para que SIEMPRE aparezca el selector de
+  /// cuentas. Es lo mismo que en Android hace GoogleSignIn.signOut() al
+  /// cerrar sesion: sin esto, en una compu compartida el navegador entraria
+  /// solo con la cuenta de Google del que se sento antes.
+  ///
+  /// Cerrar la ventanita NO es un error (como cancelar en Android): null.
+  static Future<UserCredential?> _entrarConGoogleEnLaWeb() async {
+    final GoogleAuthProvider proveedor = GoogleAuthProvider()
+      ..setCustomParameters(<String, String>{'prompt': 'select_account'});
+    try {
+      return await _auth.signInWithPopup(proveedor);
+    } on FirebaseAuthException catch (e) {
+      if (esCancelacionDeGoogleEnLaWeb(e)) {
+        debugPrint('[NeuroDesk] Google (web) cancelado: ${e.code}');
+        return null;
+      }
+      rethrow;
+    }
+  }
+
+  /// La persona cerro la ventana de Google, o toco el boton dos veces y el
+  /// navegador corto el primer popup. Ninguno de los dos merece un cartel
+  /// rojo. Aparte para probarla sin Firebase (test/widget_test.dart).
+  static bool esCancelacionDeGoogleEnLaWeb(FirebaseAuthException e) =>
+      e.code == 'popup-closed-by-user' || e.code == 'cancelled-popup-request';
+
+  /// El wsId del espacio de prueba al que el servidor sumo a la persona en
+  /// POST /v1/auth/registro (campo 'espacioDeBienvenida'), o null si no la
+  /// sumo a ninguno (o si el servidor es uno viejo, sin ese campo). Si hay
+  /// uno, la Puerta pide un token nuevo enseguida para traer el claim.
+  /// Aparte para probarla sin Firebase.
+  static String? espacioDeBienvenida(Map<String, dynamic> respuesta) {
+    final Object? ws = respuesta['espacioDeBienvenida'];
+    return (ws is String && ws.trim().isNotEmpty) ? ws : null;
   }
 
   /// Llama a GoogleSignIn.instance.initialize() una sola vez en toda la vida
@@ -283,7 +329,10 @@ class AuthServicio {
     try {
       await _auth.signOut();
     } finally {
-      await _olvidarCuentaDeGoogle();
+      // En la web no se uso google_sign_in (ver entrarConGoogle): no hay nada
+      // que olvidar, y su initialize() sin client ID web solo tiraria un
+      // error al log. El selector de cuentas lo asegura el select_account.
+      if (!kIsWeb) await _olvidarCuentaDeGoogle();
     }
   }
 
@@ -373,6 +422,20 @@ class AuthServicio {
           return 'Google no pudo confirmar tu cuenta. Probá de nuevo.';
         case 'operation-not-allowed':
           return 'El ingreso con Google no está habilitado en el proyecto.';
+        // Los tres que siguen son solo de la WEB (el popup de Google).
+        case 'popup-blocked':
+          return 'El navegador bloqueó la ventana de Google. Permití las '
+              'ventanas emergentes de esta página y probá de nuevo.';
+        case 'unauthorized-domain':
+          // La direccion de la pagina no esta en "Dominios autorizados" de
+          // Firebase Authentication. Es configuracion, no culpa de la persona.
+          debugPrint('[NeuroDesk] Google: dominio no autorizado en Firebase.');
+          return 'Esta página todavía no está habilitada para entrar con '
+              'Google. Entrá con tu email.';
+        case 'popup-closed-by-user':
+        case 'cancelled-popup-request':
+          // entrarConGoogle() ya los convierte en null; queda por las dudas.
+          return 'Se canceló el ingreso con Google.';
       }
       // El resto de los codigos dicen lo mismo con o sin Google: siguen abajo.
     }

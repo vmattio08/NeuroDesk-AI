@@ -54,12 +54,21 @@ dependencies:
   # Foto de la camara o de la galeria. Se usa con imageQuality: 70 para que la
   # imagen salga liviana (OCR.space gratis acepta hasta ~1 MB).
   image_picker: 1.2.0
-  # Elegir un PDF del telefono.
+  # Elegir PDF y Word (.docx) del telefono o de la compu (varios a la vez).
   file_picker: 10.3.3
 
   # --- Red ------------------------------------------------------------------
   # Cliente HTTP para hablar con nuestro backend de Render (multipart incluido).
   http: 1.5.0
+  # NO ES UN PAQUETE NUEVO: 'http' ya lo bajaba por su cuenta (estaba en el
+  # pubspec.lock como dependencia "transitive", en esta MISMA version). Va
+  # aca solo para poder importar MediaType, el tipo que pide
+  # http.MultipartFile.fromBytes para decir que es cada archivo
+  # (application/pdf, image/jpeg...). Desde que la app compila para la web,
+  # los archivos viajan como bytes (dart:io no existe en el navegador) y sin
+  # ese dato saldrian todos como application/octet-stream. Sin esta linea,
+  # 'flutter analyze' marca depend_on_referenced_packages.
+  http_parser: 4.1.2
   # Para saber si hay internet y mostrar el cartel de "sin conexion" en vez de
   # dejar al usuario mirando un spinner eterno.
   connectivity_plus: 6.1.5
@@ -82,6 +91,8 @@ flutter:
   # mismos bytes). No se edita: si cambia el logo, se reemplaza este PNG.
   # Lo dibuja LogoNeuroDesk (lib/tema.dart) en el login y en "Preparando tu
   # cuenta...". El icono del launcher de Android (mipmap-*/ic_launcher.png)
-  # es este mismo PNG escalado a 48/72/96/144/192 px.
+  # es este mismo PNG escalado a 48/72/96/144/192 px. En la web,
+  # web/favicon.png es este PNG con los mismos bytes y web/icons/Icon-*.png
+  # (los del manifest) son este mismo PNG achicado a 192 y 512 px.
   assets:
     - assets/marca/isotipo-oscuro.png

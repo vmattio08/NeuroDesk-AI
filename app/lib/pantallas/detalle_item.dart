@@ -31,6 +31,19 @@
 //  EL RESALTADO puede no encontrar el fragmento (el item se volvio a procesar
 //  y el texto cambio, o hay espacios distintos): en ese caso se muestra el
 //  texto sin resaltar y se avisa. Nunca se rompe la pantalla por eso.
+//
+//  ===================== LOS 'mixto' («Varios») ============================
+//  Un item 'mixto' junta varias partes (un texto, fotos, PDF, Word, links).
+//  El backend las guarda una tras otra en 'texto', cada una precedida por
+//  <<<PARTE:etiqueta>>> en su propio renglon (adentro de un PDF siguen las
+//  <<<PAGINA:n>>>), y ademas deja la lista 'partes' con lo de cada una:
+//  { etiqueta, tipo, origen, paginas, caracteres, error }.
+//  Aca se muestran separadas: cada parte con su encabezado ("Foto 2", "PDF
+//  «cronograma.pdf»") y, abajo, sus tarjetas de siempre (una por pagina en
+//  el PDF). Una parte que fallo se avisa EN esa parte. La cita se busca
+//  primero en la parte que dice la fuente (fuentes[].parte): dos fotos del
+//  mismo pizarron pueden tener el mismo renglon, y se resalta el citado.
+//  Los items viejos no tienen marcas de parte: se ven exactamente igual.
 // ============================================================================
 
 import 'dart:math' as math;
@@ -51,6 +64,7 @@ class DetalleItemPantalla extends StatefulWidget {
     this.titulo = '',
     this.fragmento,
     this.pagina,
+    this.parte,
   });
 
   final String wsId;
@@ -67,6 +81,10 @@ class DetalleItemPantalla extends StatefulWidget {
 
   /// La pagina que dice la cita (fuentes[].pagina), si tiene.
   final int? pagina;
+
+  /// La parte de un 'mixto' que dice la cita (fuentes[].parte), por ejemplo
+  /// "Foto 2". null en los tipos de siempre.
+  final String? parte;
 
   @override
   State<DetalleItemPantalla> createState() => _DetalleItemPantallaState();
@@ -121,15 +139,21 @@ class _DetalleItemPantallaState extends State<DetalleItemPantalla> {
         .snapshots(includeMetadataChanges: true);
   }
 
-  TextoArmado _armar(String texto) {
+  TextoArmado _armar(String texto, Map<String, dynamic> datos) {
+    // La memoria mira el texto Y la lista de partes: al reprocesar un
+    // 'mixto' puede cambiar el error de una parte sin que cambie el texto.
+    final List<ParteDelItem> partes = TextoDelItem.partesDelItem(datos);
+    final String clave = '$texto\u0000${partes.join('\u0001')}';
     final TextoArmado? anterior = _armado;
-    if (anterior != null && texto == _textoYaArmado) return anterior;
+    if (anterior != null && clave == _textoYaArmado) return anterior;
     final TextoArmado nuevo = TextoDelItem.armar(
       texto,
       fragmento: widget.fragmento,
       paginaCitada: widget.pagina,
+      parteCitada: widget.parte,
+      partes: partes,
     );
-    _textoYaArmado = texto;
+    _textoYaArmado = clave;
     _armado = nuevo;
     return nuevo;
   }
@@ -286,7 +310,11 @@ class _DetalleItemPantallaState extends State<DetalleItemPantalla> {
                 }
 
                 final String texto = TextoDelItem.textoParaMostrar(datos);
-                final TextoArmado? armado = texto.isEmpty ? null : _armar(texto);
+                // Un 'mixto' con TODAS sus partes fallidas no tiene texto, pero
+                // igual se arma: cada parte tiene que mostrar su error.
+                final bool hayPartes = TextoDelItem.partesDelItem(datos).isNotEmpty;
+                final TextoArmado? armado =
+                    (texto.isEmpty && !hayPartes) ? null : _armar(texto, datos);
 
                 // La primera vez que hay cita, bajamos solos hasta ella. Va
                 // despues del cuadro: recien ahi existe la lista.
@@ -305,6 +333,7 @@ class _DetalleItemPantallaState extends State<DetalleItemPantalla> {
                   dueno: etiquetaDelDueno(item: datos, miUid: widget.miUid, nombres: nombres),
                   fragmentoCitado: widget.fragmento,
                   paginaCitada: widget.pagina,
+                  parteCitada: widget.parte,
                   controlador: _scroll,
                   claveDelResaltado: _claveDelResaltado,
                 );
@@ -378,6 +407,7 @@ class CuerpoDelDetalle extends StatelessWidget {
     required this.dueno,
     this.fragmentoCitado,
     this.paginaCitada,
+    this.parteCitada,
     this.controlador,
     this.claveDelResaltado,
   });
@@ -393,6 +423,9 @@ class CuerpoDelDetalle extends StatelessWidget {
 
   final String? fragmentoCitado;
   final int? paginaCitada;
+
+  /// La parte de un 'mixto' que dice la cita ("Foto 2"), o null.
+  final String? parteCitada;
   final ScrollController? controlador;
   final GlobalKey? claveDelResaltado;
 
@@ -432,6 +465,21 @@ class CuerpoDelDetalle extends StatelessWidget {
     final String? fragmento =
         (fragmentoCitado ?? '').trim().isEmpty ? null : fragmentoCitado!.trim();
     final bool resaltado = armado?.bloqueResaltado != null;
+    // Los links de un 'mixto' (los escribe la app al crearlo).
+    final List<String> links = datos['links'] is List
+        ? (datos['links'] as List<dynamic>)
+            .map((dynamic l) => (l ?? '').toString())
+            .where((String l) => l.trim().isNotEmpty)
+            .toList()
+        : const <String>[];
+    // Cuantas partes de un 'mixto' no se pudieron leer: se avisa arriba y
+    // cada una tiene su cartel abajo, en su lugar.
+    final List<ParteDelItem> partes = TextoDelItem.partesDelItem(datos);
+    final int partesConError = partes.where((ParteDelItem p) => p.tieneError).length;
+    final String parte = (parteCitada ?? '').trim();
+    final String dondeCito = parte.isNotEmpty
+        ? ' (en $parte${paginaCitada != null ? ', pág. $paginaCitada' : ''})'
+        : '';
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -465,12 +513,22 @@ class CuerpoDelDetalle extends StatelessWidget {
           _renglon(esPrivado ? Icons.lock : Icons.groups, dueno),
           if (nombreArchivo.isNotEmpty) _renglon(Icons.attach_file, nombreArchivo),
           if (url.isNotEmpty) _renglon(Icons.link, url, seleccionable: true),
+          for (final String l in links) _renglon(Icons.link, l, seleccionable: true),
           if (caracteres is num && caracteres > 0)
             _renglon(Icons.notes, '${TextoDelItem.conPuntos(caracteres.toInt())} caracteres leídos'),
           if (recortado)
             _renglon(
               Icons.content_cut,
               'Era muy largo: la IA leyó solo la primera parte.',
+              color: colorProcesando,
+            ),
+          if (partesConError > 0)
+            _renglon(
+              Icons.error_outline,
+              partesConError == 1
+                  ? '1 de ${partes.length} partes no se pudo leer: está marcada abajo.'
+                  : '$partesConError de ${partes.length} partes no se pudieron leer: '
+                      'están marcadas abajo.',
               color: colorProcesando,
             ),
 
@@ -511,9 +569,11 @@ class CuerpoDelDetalle extends StatelessWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      paginaCitada != null && !(armado?.tienePaginas ?? false)
-                          ? 'En cian, lo que citó la respuesta (es de la pág. $paginaCitada).'
-                          : 'En cian, lo que citó la respuesta.',
+                      parte.isNotEmpty
+                          ? 'En cian, lo que citó la respuesta$dondeCito.'
+                          : paginaCitada != null && !(armado?.tienePaginas ?? false)
+                              ? 'En cian, lo que citó la respuesta (es de la pág. $paginaCitada).'
+                              : 'En cian, lo que citó la respuesta.',
                       style: const TextStyle(color: cianElectrico, fontSize: 13),
                     ),
                   ),
@@ -522,7 +582,7 @@ class CuerpoDelDetalle extends StatelessWidget {
             else
               Text(
                 'No encontramos la cita en el texto de hoy (puede que lo hayan '
-                'vuelto a procesar). La respuesta citó: "$fragmento"',
+                'vuelto a procesar). La respuesta citó$dondeCito: "$fragmento"',
                 style: const TextStyle(
                   color: grisApagado,
                   fontSize: 13,
@@ -554,7 +614,85 @@ class CuerpoDelDetalle extends StatelessWidget {
 
   /// Un pedazo del texto. Los bloques de una misma pagina van pegados (sin
   /// espacio ni bordes redondeados en el medio), asi se ven como UNA tarjeta.
+  /// En un 'mixto', el primer bloque de cada parte lleva arriba el
+  /// encabezado de esa parte (y su error, si fallo).
   Widget _bloque(BloqueDelTexto b, int indice) {
+    final ParteDelItem? encabezado = b.encabezadoDeParte;
+    // Una parte sin texto (fallo, o no se leyo nada) es solo su encabezado.
+    final Widget? tarjeta = b.texto.isEmpty ? null : _tarjeta(b);
+    if (encabezado == null) {
+      return KeyedSubtree(
+        key: indice == armado?.bloqueResaltado ? claveDelResaltado : null,
+        child: tarjeta ?? const SizedBox.shrink(),
+      );
+    }
+    // La key va en el conjunto: el texto en cian (el ultimo parrafo, ver
+    // rectDelResaltado) sigue estando adentro.
+    return Column(
+      key: indice == armado?.bloqueResaltado ? claveDelResaltado : null,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        _encabezadoDeParte(encabezado, esLaPrimera: indice == 0),
+        // '?tarjeta' = "si no es null, va en la lista" (Dart 3.8+): es lo
+        // mismo que 'if (tarjeta != null) tarjeta', y lo pide flutter analyze.
+        ?tarjeta,
+      ],
+    );
+  }
+
+  /// "Foto 2" con su icono, como se leyo, y el aviso si esa parte fallo.
+  Widget _encabezadoDeParte(ParteDelItem p, {required bool esLaPrimera}) {
+    return Padding(
+      padding: EdgeInsets.only(top: esLaPrimera ? 16 : 26, left: 4, right: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              Icon(iconoDeTipo(p.tipoComoItem), size: 18, color: cianElectrico),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  p.etiqueta,
+                  style: const TextStyle(
+                    color: cianElectrico,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          // Si fallo, NO se dice "como se leyo" ("se guardo el texto que
+          // tenia..."): seria contradecir el cartel rojo de abajo.
+          if (!p.tieneError) ...<Widget>[
+            const SizedBox(height: 4),
+            Text(
+              TextoDelItem.comoSeLeyoLaParte(p),
+              style: const TextStyle(color: grisApagado, fontSize: 12.5),
+            ),
+          ],
+          if (p.tieneError) ...<Widget>[
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: colorError.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                'No se pudo leer esta parte: ${p.error}',
+                style: const TextStyle(color: colorError, fontSize: 12.5),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _tarjeta(BloqueDelTexto b) {
     final String visible = b.texto.trimRight();
     final int? desde = b.resaltadoDesde;
     final int? hasta = b.resaltadoHasta == null
@@ -573,8 +711,7 @@ class CuerpoDelDetalle extends StatelessWidget {
 
     const Radius redondeo = Radius.circular(14);
     return Container(
-      key: indice == armado?.bloqueResaltado ? claveDelResaltado : null,
-      margin: EdgeInsets.only(top: b.esPrimeroDeLaPagina ? 12 : 0),
+      margin: EdgeInsets.only(top: b.esPrimeroDeLaPagina ? (b.encabezadoDeParte != null ? 8 : 12) : 0),
       padding: EdgeInsets.fromLTRB(
         16,
         b.esPrimeroDeLaPagina ? 14 : 0,
@@ -622,8 +759,76 @@ class CuerpoDelDetalle extends StatelessWidget {
 /// pagina (nota, link, Word) o en lo que haya antes de la primera. La foto
 /// trae una sola marca: es la pagina 1.
 class PaginaDelTexto {
-  const PaginaDelTexto({required this.numero, required this.texto});
+  const PaginaDelTexto({required this.numero, required this.texto, this.parte});
   final int? numero;
+  final String texto;
+
+  /// La etiqueta de la parte de un 'mixto' a la que pertenece ("Foto 2"), o
+  /// null en los tipos de siempre.
+  final String? parte;
+}
+
+/// Una parte de un 'mixto', como la describe el backend en la lista 'partes'
+/// del item: { etiqueta, tipo, origen, paginas, caracteres, error }.
+class ParteDelItem {
+  const ParteDelItem({
+    required this.etiqueta,
+    this.tipo = '',
+    this.origen = '',
+    this.paginas,
+    this.caracteres,
+    this.error = '',
+  });
+
+  /// Lo leido con cuidado: el documento lo escribe el backend, pero un mapa
+  /// a medio escribir no puede romper la pantalla.
+  factory ParteDelItem.desdeMapa(Map<dynamic, dynamic> m) {
+    final Object? paginas = m['paginas'];
+    final Object? caracteres = m['caracteres'];
+    final Object? error = m['error'];
+    return ParteDelItem(
+      etiqueta: (m['etiqueta'] ?? '').toString().trim(),
+      tipo: (m['tipo'] ?? '').toString(),
+      origen: (m['origen'] ?? '').toString(),
+      paginas: paginas is num ? paginas.toInt() : null,
+      caracteres: caracteres is num ? caracteres.toInt() : null,
+      // El error puede venir como texto (lo esperado) o, si algun dia el
+      // backend manda true, igual se avisa con un texto generico.
+      error: error is String
+          ? error.trim()
+          : (error == true ? 'no se pudo leer.' : ''),
+    );
+  }
+
+  /// "Foto 2", "PDF «cronograma.pdf»": la misma etiqueta de la marca
+  /// <<<PARTE:...>>> y de fuentes[].parte.
+  final String etiqueta;
+
+  /// 'texto' | 'link' | 'foto' | 'pdf' | 'word'.
+  final String tipo;
+  final String origen;
+  final int? paginas;
+  final int? caracteres;
+
+  /// Por que fallo esa parte, o vacio si se leyo bien.
+  final String error;
+
+  bool get tieneError => error.isNotEmpty;
+
+  /// El tipo como si fuera un item suelto, para el icono: la parte 'texto'
+  /// se dibuja como una nota.
+  String get tipoComoItem => tipo == 'texto' ? 'nota' : tipo;
+
+  @override
+  String toString() => 'ParteDelItem($etiqueta, $tipo, $origen, $paginas, $caracteres, $error)';
+}
+
+/// Un pedazo del texto entre dos marcas <<<PARTE:...>>> (sin las marcas).
+class SeccionDeParte {
+  const SeccionDeParte({required this.etiqueta, required this.texto});
+
+  /// null en lo que hay antes de la primera marca (o si no hay marcas).
+  final String? etiqueta;
   final String texto;
 }
 
@@ -659,12 +864,25 @@ class BloqueDelTexto {
     required this.esUltimoDeLaPagina,
     this.resaltadoDesde,
     this.resaltadoHasta,
+    this.parte,
+    this.encabezadoDeParte,
   });
 
   final int? numeroDePagina;
+
+  /// Puede ser '' en una parte de un 'mixto' que no tiene texto (fallo): ese
+  /// bloque es solo el encabezado de la parte, con su error.
   final String texto;
   final bool esPrimeroDeLaPagina;
   final bool esUltimoDeLaPagina;
+
+  /// La etiqueta de la parte de un 'mixto' ("Foto 2"), o null.
+  final String? parte;
+
+  /// Solo en el PRIMER bloque de cada parte de un 'mixto': lo que va arriba
+  /// de sus tarjetas (la etiqueta, como se leyo y el error). null en los
+  /// demas bloques y en los tipos de siempre.
+  final ParteDelItem? encabezadoDeParte;
 
   /// La parte de ESTE bloque que va en cian (posiciones dentro de [texto]).
   /// Una cita que cae justo entre dos bloques se pinta en los dos.
@@ -692,6 +910,18 @@ class TextoArmado {
 
   /// true si el texto vino con marcas de pagina.
   bool get tienePaginas => paginas.any((PaginaDelTexto p) => p.numero != null);
+
+  /// true si es un 'mixto' separado en partes.
+  bool get tienePartes => bloques.any((BloqueDelTexto b) => b.encabezadoDeParte != null);
+}
+
+/// Una parte ya ubicada: su etiqueta, lo que dice 'partes' de ella (si lo
+/// dice) y su texto. Es de uso interno de TextoDelItem.armar.
+class _ParteOrdenada {
+  const _ParteOrdenada(this.etiqueta, this.info, this.texto);
+  final String? etiqueta;
+  final ParteDelItem? info;
+  final String texto;
 }
 
 class TextoDelItem {
@@ -699,6 +929,80 @@ class TextoDelItem {
 
   /// La marca que pone extraer.js entre pagina y pagina (texto.js del backend).
   static final RegExp marcaDePagina = RegExp(r'<<<PAGINA:(\d+)>>>');
+
+  /// La marca de parte de un 'mixto': sola en su renglon. El (.*?) deja
+  /// pasar cualquier etiqueta, incluidas las comillas de PDF «x.pdf».
+  static final RegExp marcaDeParte = RegExp(r'^[ \t]*<<<PARTE:(.*?)>>>[ \t]*$', multiLine: true);
+
+  /// La lista 'partes' del item (la escribe el backend en los 'mixto'),
+  /// leida con cuidado. Vacia en los tipos de siempre y mientras no se leyo.
+  static List<ParteDelItem> partesDelItem(Map<String, dynamic> datos) {
+    final Object? crudo = datos['partes'];
+    if (crudo is! List) return const <ParteDelItem>[];
+    return <ParteDelItem>[
+      for (final Object? p in crudo)
+        if (p is Map) ParteDelItem.desdeMapa(p),
+    ].where((ParteDelItem p) => p.etiqueta.isNotEmpty).toList();
+  }
+
+  /// Corta el texto en las marcas <<<PARTE:etiqueta>>>. Lo de antes de la
+  /// primera marca (si hay algo) va sin etiqueta. Sin marcas (los tipos de
+  /// siempre) devuelve UNA seccion sin etiqueta con el texto entero, asi el
+  /// resto del armado no cambia en nada para ellos.
+  static List<SeccionDeParte> cortarEnPartes(String texto) {
+    final List<RegExpMatch> marcas = marcaDeParte.allMatches(texto).toList();
+    if (marcas.isEmpty) return <SeccionDeParte>[SeccionDeParte(etiqueta: null, texto: texto)];
+    final List<SeccionDeParte> secciones = <SeccionDeParte>[];
+    final String antes = texto.substring(0, marcas.first.start);
+    if (antes.trim().isNotEmpty) secciones.add(SeccionDeParte(etiqueta: null, texto: antes));
+    for (int i = 0; i < marcas.length; i++) {
+      final int fin = i + 1 < marcas.length ? marcas[i + 1].start : texto.length;
+      secciones.add(
+        SeccionDeParte(
+          etiqueta: (marcas[i].group(1) ?? '').trim(),
+          texto: texto.substring(marcas[i].end, fin),
+        ),
+      );
+    }
+    return secciones;
+  }
+
+  /// Las partes en el orden de la lista 'partes' del item, cada una con su
+  /// texto. Una parte de la lista sin texto (fallo) igual aparece, para
+  /// avisar su error en su lugar. Un texto sin lugar en la lista (no deberia
+  /// pasar) va al final: lo leido nunca se esconde.
+  static List<_ParteOrdenada> _ordenar(List<SeccionDeParte> secciones, List<ParteDelItem> partes) {
+    if (partes.isEmpty) {
+      return <_ParteOrdenada>[
+        for (final SeccionDeParte s in secciones) _ParteOrdenada(s.etiqueta, null, s.texto),
+      ];
+    }
+    final Set<int> usadas = <int>{};
+    final List<_ParteOrdenada> orden = <_ParteOrdenada>[];
+    for (int i = 0; i < secciones.length; i++) {
+      if (secciones[i].etiqueta == null) {
+        usadas.add(i);
+        orden.add(_ParteOrdenada(null, null, secciones[i].texto));
+      }
+    }
+    for (final ParteDelItem info in partes) {
+      int cual = -1;
+      for (int i = 0; i < secciones.length; i++) {
+        if (!usadas.contains(i) && secciones[i].etiqueta == info.etiqueta) {
+          cual = i;
+          break;
+        }
+      }
+      if (cual >= 0) usadas.add(cual);
+      orden.add(_ParteOrdenada(info.etiqueta, info, cual >= 0 ? secciones[cual].texto : ''));
+    }
+    for (int i = 0; i < secciones.length; i++) {
+      if (!usadas.contains(i)) {
+        orden.add(_ParteOrdenada(secciones[i].etiqueta, null, secciones[i].texto));
+      }
+    }
+    return orden;
+  }
 
   /// Cuanto texto entra en un bloque como mucho.
   static const int maximoPorBloque = 1500;
@@ -796,20 +1100,31 @@ class TextoDelItem {
     return m == null ? null : Tramo(m.start, m.end);
   }
 
-  /// Busca la cita en las paginas: primero en la que dice la fuente (si el
-  /// mismo renglon se repite en dos paginas, como un encabezado, se resalta
-  /// el de la cita) y despues en las demas, en orden.
+  /// Busca la cita en las paginas: primero donde dice la fuente (si el mismo
+  /// renglon se repite en dos paginas, como un encabezado, se resalta el de
+  /// la cita) y despues en las demas, en orden.
+  ///
+  /// "Donde dice la fuente" en un 'mixto' es la PARTE y la pagina: primero la
+  /// pagina citada de la parte citada, despues el resto de esa parte,
+  /// despues esa pagina en otras partes y al final todo lo demas. Sin parte
+  /// (los tipos de siempre) queda igual que antes: la pagina, y despues el
+  /// resto.
   static UbicacionDeLaCita? ubicarCita(
     List<PaginaDelTexto> paginas,
     String? fragmento, {
     int? paginaCitada,
+    String? parteCitada,
   }) {
     if (fragmento == null || fragmento.trim().isEmpty) return null;
+    final String? parte =
+        (parteCitada ?? '').trim().isEmpty ? null : parteCitada!.trim();
+    int puntaje(PaginaDelTexto p) =>
+        (parte != null && p.parte == parte ? 2 : 0) +
+        (paginaCitada != null && p.numero == paginaCitada ? 1 : 0);
     final List<int> orden = <int>[
-      for (int i = 0; i < paginas.length; i++)
-        if (paginaCitada != null && paginas[i].numero == paginaCitada) i,
-      for (int i = 0; i < paginas.length; i++)
-        if (paginaCitada == null || paginas[i].numero != paginaCitada) i,
+      for (final int nivel in const <int>[3, 2, 1, 0])
+        for (int i = 0; i < paginas.length; i++)
+          if (puntaje(paginas[i]) == nivel) i,
     ];
     for (final int i in orden) {
       final Tramo? tramo = buscarFragmento(paginas[i].texto, fragmento);
@@ -818,21 +1133,56 @@ class TextoDelItem {
     return null;
   }
 
-  /// Todo junto: paginas, bloques y la cita repartida en los bloques.
+  /// Todo junto: partes (si es un 'mixto'), paginas, bloques y la cita
+  /// repartida en los bloques. [partes] es la lista 'partes' del item ya
+  /// leida (partesDelItem); vacia en los tipos de siempre.
   static TextoArmado armar(
     String texto, {
     String? fragmento,
     int? paginaCitada,
+    String? parteCitada,
+    List<ParteDelItem> partes = const <ParteDelItem>[],
     int maximo = maximoPorBloque,
   }) {
-    final List<PaginaDelTexto> paginas = cortarEnPaginas(texto);
-    final UbicacionDeLaCita? cita = ubicarCita(paginas, fragmento, paginaCitada: paginaCitada);
+    // 1) Las partes, y adentro de cada una sus paginas. En los tipos de
+    //    siempre hay UNA sola parte sin etiqueta: es el armado de antes.
+    final List<_ParteOrdenada> ordenadas = _ordenar(cortarEnPartes(texto), partes);
+    final List<PaginaDelTexto> paginas = <PaginaDelTexto>[];
+    // Que encabezado va en la primera pagina de cada parte (por indice).
+    final Map<int, ParteDelItem> encabezados = <int, ParteDelItem>{};
+    for (final _ParteOrdenada o in ordenadas) {
+      List<PaginaDelTexto> suyas = cortarEnPaginas(o.texto);
+      // Una parte de la lista que no tiene texto (fallo) igual ocupa su
+      // lugar: una "pagina" vacia que se dibuja como su encabezado.
+      if (suyas.isEmpty && o.info != null) {
+        suyas = const <PaginaDelTexto>[PaginaDelTexto(numero: null, texto: '')];
+      }
+      if (suyas.isEmpty) continue;
+      final String? etiqueta = o.etiqueta;
+      if (etiqueta != null) {
+        encabezados[paginas.length] = o.info ?? ParteDelItem(etiqueta: etiqueta);
+      }
+      for (final PaginaDelTexto p in suyas) {
+        paginas.add(PaginaDelTexto(numero: p.numero, texto: p.texto, parte: etiqueta));
+      }
+    }
 
+    // 2) La cita, buscada primero en su parte y en su pagina.
+    final UbicacionDeLaCita? cita = ubicarCita(
+      paginas,
+      fragmento,
+      paginaCitada: paginaCitada,
+      parteCitada: parteCitada,
+    );
+
+    // 3) Los bloques.
     final List<BloqueDelTexto> bloques = <BloqueDelTexto>[];
     int? bloqueResaltado;
     for (int p = 0; p < paginas.length; p++) {
       final PaginaDelTexto pagina = paginas[p];
-      final List<Tramo> tramos = cortarEnBloques(pagina.texto, maximo: maximo);
+      final List<Tramo> tramos = pagina.texto.isEmpty
+          ? const <Tramo>[Tramo(0, 0)] // la parte sin texto: solo encabezado
+          : cortarEnBloques(pagina.texto, maximo: maximo);
       for (int b = 0; b < tramos.length; b++) {
         final Tramo tramo = tramos[b];
         int? desde;
@@ -855,6 +1205,8 @@ class TextoDelItem {
             esUltimoDeLaPagina: b == tramos.length - 1,
             resaltadoDesde: desde,
             resaltadoHasta: hasta,
+            parte: pagina.parte,
+            encabezadoDeParte: b == 0 ? encabezados[p] : null,
           ),
         );
       }
@@ -872,6 +1224,14 @@ class TextoDelItem {
   static String comoSeLeyo(Map<String, dynamic> datos) {
     final String tipo = (datos['tipo'] ?? '').toString();
     final String origen = (datos['origen'] ?? '').toString();
+
+    // El 'mixto' va primero: lo que diga su 'origen' no describe a todas sus
+    // partes. Se cuenta de que esta hecho; cada parte dice abajo como se leyo.
+    if (tipo == 'mixto') {
+      final List<ParteDelItem> partes = partesDelItem(datos);
+      if (partes.isEmpty) return 'Varios: texto, archivos y links en una sola carga.';
+      return 'Varios: ${resumenDePartes(partes)}. Cada parte se leyó por separado.';
+    }
     final Object? campoPaginas = datos['paginas'];
     final int paginas = campoPaginas is num
         ? campoPaginas.toInt()
@@ -914,6 +1274,41 @@ class TextoDelItem {
       default:
         return 'Contenido del equipo.';
     }
+  }
+
+  /// "1 texto, 2 fotos, 1 PDF y 1 link": de que esta hecho un 'mixto'.
+  static String resumenDePartes(List<ParteDelItem> partes) {
+    int cuantas(String tipo) => partes.where((ParteDelItem p) => p.tipo == tipo).length;
+    String plural(int n, String uno, String varios) => '$n ${n == 1 ? uno : varios}';
+    final List<String> trozos = <String>[
+      if (cuantas('texto') > 0) plural(cuantas('texto'), 'texto', 'textos'),
+      if (cuantas('foto') > 0) plural(cuantas('foto'), 'foto', 'fotos'),
+      if (cuantas('pdf') > 0) plural(cuantas('pdf'), 'PDF', 'PDF'),
+      if (cuantas('word') > 0) plural(cuantas('word'), 'Word', 'Word'),
+      if (cuantas('link') > 0) plural(cuantas('link'), 'link', 'links'),
+    ];
+    // Un tipo que no conocemos (uno nuevo del backend) igual cuenta.
+    final int otras = partes.length -
+        <String>['texto', 'foto', 'pdf', 'word', 'link'].fold<int>(0, (int s, String t) => s + cuantas(t));
+    if (otras > 0) trozos.add(plural(otras, 'parte más', 'partes más'));
+    if (trozos.isEmpty) return '';
+    if (trozos.length == 1) return trozos.single;
+    return '${trozos.sublist(0, trozos.length - 1).join(', ')} y ${trozos.last}';
+  }
+
+  /// "Como se leyo" UNA parte de un 'mixto': lo mismo que comoSeLeyo de un
+  /// item suelto de ese tipo, y cuantos caracteres salieron.
+  static String comoSeLeyoLaParte(ParteDelItem p) {
+    final String como = p.tipo == 'texto'
+        ? 'Texto escrito en la app.'
+        : comoSeLeyo(<String, dynamic>{
+            'tipo': p.tipoComoItem,
+            'origen': p.origen,
+            'paginas': p.paginas,
+          });
+    final int? c = p.caracteres;
+    if (c == null || c <= 0) return como;
+    return '$como ${conPuntos(c)} ${c == 1 ? 'carácter' : 'caracteres'}.';
   }
 
   /// 18422 -> "18.422", como se escriben los numeros en castellano.

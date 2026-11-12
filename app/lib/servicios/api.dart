@@ -20,11 +20,39 @@
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
+// MediaType es el tipo que pide http.MultipartFile para decir que es cada
+// archivo. Viene del paquete http_parser, que ya bajaba 'http' por su cuenta:
+// figura en el pubspec solo para poder importarlo (ver el comentario ahi).
+import 'package:http_parser/http_parser.dart' show MediaType;
 
 import 'auth_servicio.dart';
+
+/// Un archivo listo para mandar al backend: su nombre, sus BYTES y su tipo.
+///
+/// POR QUE BYTES Y NO UN File: File es de dart:io, que en el navegador no
+/// existe (la app tambien compila para la web). Con los bytes en la mano el
+/// mismo codigo sirve en Android y en la web: image_picker los da con
+/// XFile.readAsBytes() y file_picker con PlatformFile.bytes.
+class ArchivoParaSubir {
+  const ArchivoParaSubir({
+    required this.nombre,
+    required this.bytes,
+    required this.tipoMime,
+  });
+
+  /// El nombre con su extension ("cronograma.pdf"). El backend lo usa para
+  /// la etiqueta de la parte (PDF «cronograma.pdf») en un item 'mixto'.
+  final String nombre;
+  final Uint8List bytes;
+
+  /// "application/pdf", "image/jpeg"... (ver Api.tipoMimeDe).
+  final String tipoMime;
+
+  int get tamano => bytes.length;
+}
 
 /// Lo que devuelve CUALQUIER llamado al backend.
 ///
@@ -134,39 +162,41 @@ class Api {
   // creado por la app en estado 'pendiente'. Este endpoint solo lo actualiza.
   // El backend nunca crea el item.
   //
-  // 'archivo' va SOLO para tipo 'pdf', 'word' y 'foto'. Para 'nota' y 'link'
-  // el backend lee el texto del propio documento (textoOriginal / url).
+  // Que viaja segun el tipo del item:
+  //   'nota' y 'link'        -> nada: POST comun. El backend lee el texto del
+  //                             propio documento (textoOriginal / url).
+  //   'pdf', 'word', 'foto'  -> [archivo]: multipart con UNA parte 'archivo'.
+  //   'mixto'                -> [archivos]: multipart con 0 a 8 partes
+  //                             'archivos' y SIN la parte 'archivo'. Va
+  //                             multipart aunque sea una lista vacia (texto y
+  //                             links solos): asi lo pide el contrato. El
+  //                             texto y los links los lee del documento.
   // --------------------------------------------------------------------------
   static Future<RespuestaApi> procesarItem({
     required String wsId,
     required String itemId,
-    File? archivo,
+    ArchivoParaSubir? archivo,
+    List<ArchivoParaSubir>? archivos,
   }) async {
     final String ruta = '/v1/workspaces/$wsId/items/$itemId/procesar';
 
-    // Sin archivo (nota o link): es un POST comun.
-    if (archivo == null) {
+    // Sin archivos (nota o link): es un POST comun.
+    if (archivo == null && archivos == null) {
       return _pedir(metodo: 'POST', ruta: ruta, timeout: _timeoutLargo);
     }
 
-    // Con archivo: multipart. NO se escribe el header Content-Type a mano;
-    // http.MultipartRequest le pone el boundary correcto solo. Si lo
-    // escribimos nosotros, el backend no encuentra donde empieza cada parte.
     try {
       // Sin red y con el token vencido, tokenParaElBackend tira el error de
       // red y el catch de abajo lo vuelve SIN_CONEXION (ver _pedir).
       final String? token = await AuthServicio.tokenParaElBackend();
       if (token == null) return _errorLocal('FALTA_TOKEN', 'Tenés que iniciar sesión para hacer esto.');
 
-      final http.MultipartRequest pedido =
-          http.MultipartRequest('POST', Uri.parse('$urlBase$ruta'));
-      pedido.headers['Authorization'] = 'Bearer $token';
-      // El nombre de la parte es 'archivo', tal cual lo espera el contrato.
-      // Sin contentType A PROPOSITO: viaja como application/octet-stream y el
-      // backend decide el tipo REAL mirando los primeros bytes (no le cree a
-      // lo que declara el cliente). Por eso la misma linea sirve para PDF,
-      // Word y foto, y sumar un formato no toca este archivo.
-      pedido.files.add(await http.MultipartFile.fromPath('archivo', archivo.path));
+      final http.MultipartRequest pedido = armarMultipart(
+        url: Uri.parse('$urlBase$ruta'),
+        token: token,
+        archivo: archivo,
+        archivos: archivos,
+      );
 
       final http.StreamedResponse cruda = await pedido.send().timeout(_timeoutLargo);
       final http.Response respuesta = await http.Response.fromStream(cruda);
@@ -178,6 +208,70 @@ class Api {
       );
     } catch (e) {
       return _errorDeRed(e);
+    }
+  }
+
+  /// El pedido multipart de /procesar, armado pero SIN mandar. Aparte y
+  /// publico para probar en la compu que partes lleva (test/carga_test.dart).
+  ///
+  /// NO se escribe el header Content-Type a mano: http.MultipartRequest le
+  /// pone el boundary correcto solo. Si lo escribimos nosotros, el backend no
+  /// encuentra donde empieza cada parte.
+  ///
+  /// Cada parte lleva el nombre del archivo y su tipo. El backend igual mira
+  /// los primeros bytes para saber que es de verdad (no le cree al cliente),
+  /// pero el nombre lo necesita para la etiqueta de la parte, y sin tipo un
+  /// archivo armado con bytes viajaria como application/octet-stream.
+  static http.MultipartRequest armarMultipart({
+    required Uri url,
+    required String token,
+    ArchivoParaSubir? archivo,
+    List<ArchivoParaSubir>? archivos,
+  }) {
+    final http.MultipartRequest pedido = http.MultipartRequest('POST', url);
+    pedido.headers['Authorization'] = 'Bearer $token';
+    http.MultipartFile parte(String campo, ArchivoParaSubir a) {
+      return http.MultipartFile.fromBytes(
+        campo,
+        a.bytes,
+        filename: a.nombre,
+        contentType: MediaType.parse(a.tipoMime),
+      );
+    }
+
+    // 'archivo' (uno solo) para pdf/word/foto; 'archivos' (0 a 8) para el
+    // 'mixto'. Los nombres de las partes son los del contrato, tal cual.
+    if (archivo != null) pedido.files.add(parte('archivo', archivo));
+    for (final ArchivoParaSubir a in archivos ?? const <ArchivoParaSubir>[]) {
+      pedido.files.add(parte('archivos', a));
+    }
+    return pedido;
+  }
+
+  /// El tipo MIME segun la extension del nombre. Lo que no conocemos va como
+  /// application/octet-stream ("bytes sin tipo"): el backend decide igual.
+  static String tipoMimeDe(String nombre) {
+    final String n = nombre.trim().toLowerCase();
+    final int punto = n.lastIndexOf('.');
+    final String ext = punto < 0 ? '' : n.substring(punto + 1);
+    switch (ext) {
+      case 'pdf':
+        return 'application/pdf';
+      case 'docx':
+        return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'webp':
+        return 'image/webp';
+      case 'gif':
+        return 'image/gif';
+      case 'heic':
+        return 'image/heic';
+      default:
+        return 'application/octet-stream';
     }
   }
 

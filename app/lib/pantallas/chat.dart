@@ -78,6 +78,9 @@
 //  Para eso se lee cada item citado UNA vez por conversacion (LecturasDeItems
 //  en equipo.dart: hasta 6 por respuesta, guardadas en memoria porque la
 //  pantalla se redibuja sola) y los nombres salen de members y exMiembros.
+//  Si la cita salio de un item «Varios» ('mixto'), la fuente trae ademas
+//  'parte' ("Foto 2", "PDF «x.pdf»") y se muestra con la pagina si tiene
+//  ("PDF «x.pdf» · pág. 3"); el detalle resalta la cita EN esa parte.
 //
 //  ================= LA PRIVACIDAD, DICHA DE FRENTE =========================
 //  Un "no encontré" de un miembro no es una falla: la IA busco SOLO en lo que
@@ -1009,6 +1012,7 @@ class _ConversacionPantallaState extends State<ConversacionPantalla> {
     final String itemId = (fuente['itemId'] ?? '').toString();
     if (itemId.isEmpty) return;
     final Object? pagina = fuente['pagina'];
+    final Object? parte = fuente['parte'];
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => DetalleItemPantalla(
@@ -1018,6 +1022,8 @@ class _ConversacionPantallaState extends State<ConversacionPantalla> {
           titulo: (fuente['titulo'] ?? '').toString(),
           fragmento: (fuente['fragmento'] ?? '').toString(),
           pagina: pagina is num ? pagina.toInt() : null,
+          // La parte de un 'mixto' ("Foto 2"): la cita se busca primero ahi.
+          parte: parte is String && parte.trim().isNotEmpty ? parte.trim() : null,
         ),
       ),
     );
@@ -2038,6 +2044,23 @@ class DuenosDeLasFuentes {
   final void Function(Map<dynamic, dynamic> fuente) alAbrir;
 }
 
+/// Donde esta la cita adentro del item, para mostrar al lado del titulo:
+///   'pág. 3'                    -> un PDF de siempre
+///   'Foto 2'                    -> una parte de un 'mixto' (fuentes[].parte)
+///   'PDF «x.pdf» · pág. 3'      -> una pagina de un PDF adentro de un 'mixto'
+///   null                        -> nada que decir (nota, link, Word)
+/// 'parte' viene en null en los tipos de siempre. Es publica para probarla
+/// sin Firebase (test/carga_test.dart).
+String? ubicacionDeLaFuente(Map<dynamic, dynamic> fuente) {
+  final Object? crudaParte = fuente['parte'];
+  final String parte = crudaParte is String ? crudaParte.trim() : '';
+  final Object? pagina = fuente['pagina'];
+  final String? pag = pagina is num ? 'pág. ${pagina.toInt()}' : null;
+  if (parte.isNotEmpty && pag != null) return '$parte · $pag';
+  if (parte.isNotEmpty) return parte;
+  return pag;
+}
+
 /// Una cita: [n] titulo, pagina, de quien es y el fragmento exacto que uso
 /// la IA. Si hay [duenos], se puede tocar y abre el item.
 class _Fuente extends StatelessWidget {
@@ -2056,8 +2079,13 @@ class _Fuente extends StatelessWidget {
     final String titulo = (f['titulo'] ?? 'Sin título').toString();
     final String fragmento = (f['fragmento'] ?? '').toString();
     final String itemId = (f['itemId'] ?? '').toString();
-    final Object? pagina = f['pagina'];
     final Object? n = f['n'];
+    // "pág. 3", "Foto 2" o "PDF «x.pdf» · pág. 3" (ver ubicacionDeLaFuente).
+    final String? ubicacion = ubicacionDeLaFuente(f);
+    // Una parte de un 'mixto' puede ser larga (el nombre del PDF): va en su
+    // propio renglon, abajo del titulo, para no aplastarlo. La pagina sola
+    // de siempre ("pág. 3") sigue al lado del titulo, como antes.
+    final bool conParte = f['parte'] is String && (f['parte'] as String).trim().isNotEmpty;
     // null = esta fuente no se puede abrir: los tests sin Firebase, o una
     // respuesta sin itemId (muy vieja o cargada a mano).
     final DuenosDeLasFuentes? d = itemId.isEmpty ? null : duenos;
@@ -2097,15 +2125,32 @@ class _Fuente extends StatelessWidget {
                   ),
                 ),
               ),
-              if (pagina != null)
+              if (ubicacion != null && !conParte)
                 Text(
-                  'pág. $pagina',
+                  ubicacion,
                   style: const TextStyle(color: grisApagado, fontSize: 12),
                 ),
               // La flechita dice "esto se toca" sin tener que explicarlo.
               if (d != null) const Icon(Icons.chevron_right, size: 20, color: cianElectrico),
             ],
           ),
+          if (ubicacion != null && conParte) ...<Widget>[
+            const SizedBox(height: 4),
+            Row(
+              children: <Widget>[
+                const Icon(Icons.layers, size: 14, color: grisApagado),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    ubicacion,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: grisApagado, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+          ],
           if (d != null) ...<Widget>[
             const SizedBox(height: 6),
             _LineaDelDueno(itemId: itemId, duenos: d),

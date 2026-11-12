@@ -1,8 +1,9 @@
 ﻿# NeuroDesk AI — app movil (Flutter)
 
-La app con la que el equipo **captura** conocimiento (notas, fotos, PDF, Word, links) y despues le **pregunta en castellano**, recibiendo una respuesta **que cita la fuente**.
+La app con la que el equipo **captura** conocimiento (un texto, fotos, PDF, Word y links, todo junto en una sola carga) y despues le **pregunta en castellano**, recibiendo una respuesta **que cita la fuente**.
 
 - **Stack:** Flutter 3.41.6 · `StatefulWidget` + `StreamBuilder` + `setState` (SIN gestor de estado) · Firebase Auth (email/contrasena y Google) + Cloud Firestore.
+- **Dos plataformas con el MISMO codigo:** Android (el APK) y **la web** (se publica en `https://neurodesk-6to.web.app/app/`, ver 2.8).
 - **Sin Firebase Storage y sin Cloud Functions:** los dos piden tarjeta de credito. El archivo **no se guarda en ningun lado**: viaja al backend, se le extrae el texto y se descarta.
 - Autores: Valentino (backend/Firebase/APIs) y Martin (app/panel/QA).
 
@@ -12,15 +13,16 @@ La app con la que el equipo **captura** conocimiento (notas, fotos, PDF, Word, l
 
 | Archivo | Para que |
 |---|---|
-| `lib/main.dart` | Arranque **blindado** (las 3 capas anti-pantalla-roja) y **la Puerta**: el unico lugar donde se decide login / sin-workspace / home. |
-| `lib/tema.dart` | La paleta de la marca, los colores de los 4 estados, y los widgets chicos que se repiten (chip de estado, vacio, error, SnackBar). |
-| `lib/servicios/auth_servicio.dart` | Entrar (email o Google), registrarse, salir, el ID token, la traduccion de errores a castellano y **la vigilancia de `claimsActualizadoEn`** para refrescar el token cuando cambian los permisos. |
-| `lib/servicios/api.dart` | El **unico** lugar que habla con el backend. Manda el `Authorization: Bearer <idToken>` y traduce la forma unica de error a castellano. |
+| `lib/main.dart` | Arranque **blindado** (las 3 capas anti-pantalla-roja) y **la Puerta**: el unico lugar donde se decide login / sin-workspace / home. En la web inicializa Firebase con las opciones de `firebase_web.dart` y deja la persistencia offline apagada (ver 5). Despues del registro, si el servidor sumo a la persona al espacio de bienvenida, pide un token nuevo antes de abrir el muro. |
+| `lib/firebase_web.dart` | La configuracion **publica** de la app web de Firebase (la misma de `panel/js/firebase.js`). Solo se usa con `kIsWeb`. No es un secreto (ver 2.3). |
+| `lib/tema.dart` | La paleta de la marca, los colores de los 4 estados, el icono y el nombre de cada tipo (`mixto` = «Varios», con icono de capas), `MarcoDeLaApp` (la columna centrada de 720 px en una pantalla ancha) y los widgets chicos que se repiten (chip de estado, vacio, error, SnackBar). |
+| `lib/servicios/auth_servicio.dart` | Entrar (email o Google: hoja nativa en Android, **popup** en la web), registrarse, salir, el ID token, la traduccion de errores a castellano y **la vigilancia de `claimsActualizadoEn`** para refrescar el token cuando cambian los permisos. |
+| `lib/servicios/api.dart` | El **unico** lugar que habla con el backend. Manda el `Authorization: Bearer <idToken>` y traduce la forma unica de error a castellano. Los archivos viajan como **bytes** (`MultipartFile.fromBytes` con nombre y tipo), no como `File`: asi el mismo codigo anda en la web. |
 | `lib/pantallas/login.dart` | Entrar / crear cuenta / **Continuar con Google**, con los errores traducidos. |
-| `lib/pantallas/home.dart` | El muro de items en tiempo real: 2 pestanas (3 si sos admin), chips de estado y badge de sin-conexion. |
-| `lib/pantallas/captura.dart` | Cargar nota / foto / documento (PDF o Word `.docx`) / link. El boton *Documento* guarda el item como `pdf` o `word` segun la extension. **Crea el item en Firestore y recien despues llama al backend.** |
-| `lib/pantallas/chat.dart` | Preguntar y ver la respuesta con su progreso en vivo y sus fuentes citadas, con preguntas de seguimiento en la misma conversacion. |
-| `lib/pantallas/detalle_item.dart` | "Lo que leyó NeuroDesk": se abre al tocar una fuente o una fila del muro. Muestra como se leyo el item, de quien es y el texto que extrajo el backend (cortado por pagina donde hay marcas `<<<PAGINA:n>>>`), con la parte citada en cian. |
+| `lib/pantallas/home.dart` | El muro de items en tiempo real: 2 pestanas (3 si sos admin), chips de estado y badge de sin-conexion. La fila de un «Varios» dice cuantas partes tiene. |
+| `lib/pantallas/captura.dart` | **La carga universal:** titulo, un texto opcional y *Adjuntar* (camara o galeria, PDF o Word `.docx`, links), todo lo que quieras en una sola carga. La app decide el tipo (ver 3.5). **Crea el item en Firestore y recien despues llama al backend.** |
+| `lib/pantallas/chat.dart` | Preguntar y ver la respuesta con su progreso en vivo y sus fuentes citadas (con su parte, si salio de un «Varios»: "PDF «x.pdf» · pág. 3"), con preguntas de seguimiento en la misma conversacion. |
+| `lib/pantallas/detalle_item.dart` | "Lo que leyó NeuroDesk": se abre al tocar una fuente o una fila del muro. Muestra como se leyo el item, de quien es y el texto que extrajo el backend (cortado por pagina donde hay marcas `<<<PAGINA:n>>>` y, en un «Varios», separado por partes con las marcas `<<<PARTE:etiqueta>>>`), con la parte citada en cian **en su parte**. Una parte que fallo se avisa en su lugar. |
 | `lib/servicios/equipo.dart` | De quien es cada cosa: el nombre de cada autor (members, despues exMiembros con "(ya no está en el equipo)", y si no "Ex integrante") y la linea "de quien, de cuando y con que candado" de cada fuente y de cada fila del muro. |
 | `lib/pantallas/sin_workspace.dart` | "Todavia no perteneces a ningun equipo, pedile a tu admin que te invite". |
 | `test/widget_test.dart` | Las pruebas de `flutter test`: que la app no muestre la pantalla roja si Firebase falla, la regla del nombre para `/v1/auth/registro`, la traduccion de errores, que sin red y con el token vencido no se cierre la sesion, y que el boton *Documento* distinga PDF de Word. |
@@ -28,10 +30,12 @@ La app con la que el equipo **captura** conocimiento (notas, fotos, PDF, Word, l
 | `test/candado_y_rol_test.dart` | El candado en vivo (que opcion ofrece el menu de cada fila) y la key de la pantalla principal, que junta el espacio y el rol. |
 | `test/detalle_item_test.dart` | "Lo que leyó NeuroDesk": el corte por pagina y en bloques, encontrar la cita, y que la parte en cian quede a la vista en un celular chico. |
 | `test/dueno_test.dart` | "Cada dato con dueño": el nombre de cada autor, la linea de cada fuente, las fechas cortas y los textos de una respuesta (miembro, admin y sin fuentes). |
-
-Los 5 archivos de `test/` suman 142 pruebas (al 30/10) y corren sin celular, sin Firebase y sin internet.
+| `test/carga_test.dart` | La carga universal y los «Varios»: que tipo sale segun lo cargado, los topes, los campos exactos del documento, las partes del multipart, el texto separado por partes con la cita en su parte, la etiqueta de la fuente con su parte, la fila del muro, el registro con espacio de bienvenida, el popup de Google y el marco de la web. |
 | `analysis_options.yaml` | Activa las reglas de `flutter_lints` para `flutter analyze`. La meta es **0 issues** siempre. |
 | `android/` | El proyecto nativo de Android, **versionado a proposito** (ver 2.2): lleva el plugin de Google Services, el `google-services.json` y los permisos. |
+| `web/` | La version web (la agrego `flutter create --platforms=web .`). `index.html` con el titulo «NeuroDesk AI» y el fondo azul noche desde el primer cuadro; `favicon.png` es el isotipo oficial **con los mismos bytes** de `marca/png/isotipo-oscuro.png`, y `icons/Icon-*.png` (los del `manifest.json`) son ese mismo PNG achicado a 192 y 512 px, igual que los iconos de Android. |
+
+Los 6 archivos de `test/` suman 180 pruebas (al 12/11) y corren sin celular, sin Firebase y sin internet.
 
 ---
 
@@ -75,13 +79,8 @@ Lo que Flutter arma solo en cada maquina **sigue sin subirse** (lo ignora `andro
 `flutterfire configure` ya se corrio una vez y dejo estos archivos:
 
 - **`android/app/google-services.json` → SI va al repo, a proposito.** No es un secreto: viaja adentro de cada APK (cualquiera lo puede sacar de ahi), igual que la config web del panel que ya esta en `panel/js/firebase.js`. Lo que protege los datos no es esconder este archivo, sino las reglas de Firestore, el backend que verifica el ID token en cada pedido y, para Google, la SHA-1 registrada de cada PC (ver 2.4). Subiendolo, el companero clona y compila sin correr `flutterfire configure`.
-- **`lib/firebase_options.dart` → NO va al repo** (esta en el `.gitignore` de la raiz) **y no se usa**: en Android, `main.dart` llama a `Firebase.initializeApp()` sin opciones y Firebase lee el `google-services.json`. Solo haria falta para correr en **web o iOS**: ahi hay que correr `flutterfire configure --project=neurodesk-6to` y descomentar en `main.dart` las dos lineas marcadas con `[1]`:
-
-  ```dart
-  import 'firebase_options.dart';
-  // ...
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  ```
+- **`lib/firebase_options.dart` → NO va al repo** (esta en el `.gitignore` de la raiz) **y no se usa**: en Android, `main.dart` llama a `Firebase.initializeApp()` sin opciones y Firebase lee el `google-services.json`. Solo haria falta para iOS.
+- **`lib/firebase_web.dart` → SI va al repo.** En la **web** no hay ningun archivo que Firebase pueda leer solo, asi que `main.dart` (solo con `kIsWeb`) le pasa estas opciones a mano. Son las de la app web del proyecto, **las mismas del panel** (`panel/js/firebase.js`): un mismo proyecto, los mismos usuarios y las mismas reglas. Tampoco son un secreto: viajan adentro de cualquier pagina de Firebase.
 
 - `firebase.json` (en `app/`): el registro de que proyecto y que app eligio `flutterfire`. No es secreto y se versiona.
 
@@ -145,6 +144,29 @@ flutter build apk --release --dart-define=API_URL=https://neurodesk-api-u97j.onr
 
 Para iOS habria que agregar `NSCameraUsageDescription` y `NSPhotoLibraryUsageDescription` en el `Info.plist` (la entrega es Android, queda anotado).
 
+### 2.8 La version web
+
+Es **la misma app**, compilada para el navegador. No hace falta el Android SDK.
+
+```bash
+# --base-href /app/ porque se publica en https://neurodesk-6to.web.app/app/
+# (la raiz del sitio es la landing). Sin eso la pagina queda en blanco.
+flutter build web --release --base-href /app/ --dart-define=API_URL=https://neurodesk-api-u97j.onrender.com
+# -> queda en app/build/web (scripts/armar-sitio.mjs lo copia al sitio)
+```
+
+> En **Git Bash**, `/app/` se convierte solo en una ruta de Windows (`C:/Program Files/Git/app/`) y el build se queja. Ahi va `MSYS_NO_PATHCONV=1 flutter.bat build web ...`. En cmd o PowerShell no pasa.
+
+Lo que cambia en la web, y por que:
+
+- **Firebase** arranca con las opciones de `lib/firebase_web.dart` (ver 2.3). En Android sigue el `google-services.json`.
+- **Continuar con Google** abre la ventanita (popup) de Google de Firebase Auth (`signInWithPopup`), con el selector de cuentas siempre (`prompt: select_account`). En Android sigue la hoja nativa de `google_sign_in`. Para que el popup ande, el dominio de la pagina tiene que estar en Firebase Console → Authentication → Settings → **Dominios autorizados** (`neurodesk-6to.web.app` y `localhost` vienen de fabrica; cualquier otro hay que sumarlo).
+- **Los archivos viajan como bytes** (`XFile.readAsBytes()` y `PlatformFile.bytes`): en el navegador no existe `dart:io`. En Android es el mismo camino.
+- **Sin el boton Camara** en la web: en una compu no hay camara que abrir y en un celular el boton *Fotos* ya ofrece sacar una.
+- **Sin persistencia offline** de Firestore (ver 5).
+- **Una columna centrada de 720 px** en una pantalla ancha (`MarcoDeLaApp` en `tema.dart`); en un celular ocupa todo el ancho, como siempre.
+- **El backend tiene que aceptar el origen** `https://neurodesk-6to.web.app` (CORS): si no, el navegador corta cada pedido a Render aunque el servidor conteste bien.
+
 ---
 
 ## 3. Las cuatro cosas que hay que saber explicar en la defensa oral
@@ -205,6 +227,20 @@ Desde que Firebase acepta el token, **todo es igual al login con email**: ni `ma
 - **Por que el paquete `google_sign_in` y no `signInWithProvider(GoogleAuthProvider())`:** el segundo, en Android, abre un **navegador** (Custom Tab) y si el sistema cierra la app mientras el navegador esta abierto, el login se pierde. La documentacion de FlutterFire dice que en plataformas nativas hace falta una libreria aparte, y la que usa su propio ejemplo es esta.
 - **Cancelar no es un error:** si la persona cierra el selector, la app vuelve al login sin cartel.
 - **Cerrar sesion** hace `FirebaseAuth.signOut()` y despues `GoogleSignIn.signOut()`, que limpia el Credential Manager: asi la proxima vez aparece de nuevo el selector de cuentas en vez de entrar solo con la anterior.
+- **En la web** el primer paso es el popup de Google de Firebase (`signInWithPopup`); lo demas es igual. Cerrar el popup tampoco es un error.
+
+### 3.5 La carga universal: la app decide el tipo
+
+La persona ya no elige "Nota / Foto / Documento / Link": escribe un titulo, un texto si quiere, y adjunta lo que quiera (hasta **8 archivos** y **5 links**; **10 MB** por archivo y **25 MB** entre todos, controlado antes de mandar). Al guardar, la app decide el tipo:
+
+| Lo que se cargo | Tipo | Que viaja |
+|---|---|---|
+| Solo texto | `nota` | `textoOriginal` en el doc; POST sin cuerpo |
+| Un solo link y nada mas | `link` | `url` en el doc; POST sin cuerpo |
+| Un solo archivo y nada mas | `pdf` / `word` / `foto` | `nombreArchivo` en el doc; multipart con la parte `archivo` |
+| Cualquier mezcla, o mas de uno | `mixto` (en pantalla: **«Varios»**) | `textoOriginal` y `links` en el doc **solo si hay**; multipart con 0 a 8 partes `archivos` |
+
+**Por que asi:** lo de siempre sigue siendo lo de siempre (un PDF suelto es un `pdf` con su "pág. 3", y el backend, el panel y el reproceso no cambian para el). Y el `mixto` nunca lleva `url` ni `nombreArchivo`: las reglas lo rechazarian entero (`hasOnly`). El backend arma una **parte** por cada cosa (el texto, cada link, cada archivo), las guarda en `texto` separadas por las marcas `<<<PARTE:etiqueta>>>` y las describe en la lista `partes`, y cada fuente de una respuesta dice de que parte salio ("Foto 2", "PDF «x.pdf» · pág. 3").
 
 ---
 
@@ -231,6 +267,8 @@ Desde que Firebase acepta el token, **todo es igual al login con email**: ni `ma
 - **Google necesita Google Play services y la SHA-1 de cada PC registrada.** Un celular sin servicios de Google (algunos Huawei) o un emulador sin imagen "Google Play" muestra "El ingreso con Google no esta disponible en este celular. Entra con tu email."
 - **Una persona, una cuenta por email.** Si alguien creo la cuenta con email y contrasena usando un `@gmail.com` y despues entra con Google, Firebase la pasa a Google (es un proveedor de confianza para Gmail): **mantiene el mismo uid**, asi que no pierde nada, pero si el email no estaba verificado la contrasena deja de servir. Con otros dominios puede salir "Ya tenes una cuenta con ese email".
 - **El icono del boton no es el logo oficial de Google** (es `Icons.g_mobiledata` de Material). Para la entrega alcanza; las guias de marca de Google piden la "G" de colores.
+- **Un «Varios» con archivos que fallo ANTES de leerse no se puede reintentar**, por lo mismo que un PDF: los archivos no se guardan. Y como la app no anota en el item que archivos llevaba, el que decide es el backend (si no tiene texto guardado contesta `ESTADO_INVALIDO` y la app muestra su mensaje). Uno de solo texto y links si se puede reintentar.
+- **En la web no hay persistencia offline** de Firestore, A PROPOSITO: la copia quedaria en el navegador (IndexedDB) despues de cerrar sesion, y en una compu compartida (como las de la escuela) el siguiente tendria en el disco los items privados del anterior. Ademas esa persistencia es de una sola pestana. Sin red, lo que se guarda espera en la memoria de la pestana: la app avisa "No cierres esta pestaña".
 
 ---
 
@@ -238,7 +276,7 @@ Desde que Firebase acepta el token, **todo es igual al login con email**: ni `ma
 
 Antes de tocar el celular: `flutter analyze` tiene que decir **No issues found!** y `flutter test` **All tests passed!**.
 
-- [ ] Crear cuenta nueva → aparece **"Preparando tu cuenta..."** y despues **"Todavia no perteneces a ningun equipo"**.
+- [ ] Crear cuenta nueva → aparece **"Preparando tu cuenta..."** y despues, si el servidor la suma al **espacio de prueba** (`espacioDeBienvenida` en la respuesta de `/v1/auth/registro`), se abre directo el muro de ese espacio, sin ningun `permission-denied` (la app pide el token nuevo antes de abrirlo). Si el servidor no la suma a ninguno: **"Todavia no perteneces a ningun equipo"**.
 - [ ] **Continuar con Google** con una cuenta que nunca entro → **"Preparando tu cuenta..."** y despues **"Todavia no perteneces a ningun equipo"** con el nombre y el email de esa cuenta de Google.
 - [ ] Abrir el selector de Google y cerrarlo sin elegir → vuelve al login **sin cartel rojo** y los botones se pueden volver a tocar.
 - [ ] Cerrar sesion despues de entrar con Google y tocar otra vez **Continuar con Google** → aparece el selector de cuentas (no entra solo con la anterior).
@@ -250,6 +288,12 @@ Antes de tocar el celular: `flutter analyze` tiene que decir **No issues found!*
 - [ ] Modo avion → banda roja de sin conexion y banda amarilla de "lo ultimo guardado en el telefono".
 - [ ] Doble tap rapido en *Guardar* y en *Enviar* → **no** se crean dos items ni dos respuestas.
 - [ ] Subir un PDF de mas de 10 MB → lo frena la app, sin subir nada.
-- [ ] Subir un Word (`.docx`) con *Documento* → aparece con el icono de hoja en **Pendiente** y pasa solo a **Listo**. En el panel figura como tipo **Word**.
+- [ ] Subir un Word (`.docx`) solo con *Documento* → aparece con el icono de hoja en **Pendiente** y pasa solo a **Listo**. En el panel figura como tipo **Word**.
 - [ ] Elegir un Word viejo (`.doc`) → la app lo frena y pide guardarlo como `.docx`.
+- [ ] **Carga universal:** titulo + un texto + 2 fotos + un PDF + un link → la pantalla dice "Se guarda como «Varios»: 5 partes…", la fila aparece con el icono de capas y, al quedar **Listo**, dice "Varios · 5 partes". Al tocarla, "Lo que leyó NeuroDesk" muestra cada parte con su encabezado.
+- [ ] Sacar un adjunto con la cruz antes de guardar → desaparece de la lista y cambia el "Se guarda como…".
+- [ ] Sumar archivos hasta pasar los 25 MB entre todos → la app frena el que no entra, sin subir nada.
+- [ ] Preguntar algo que esta en la Foto 2 de un «Varios» → la fuente dice "Foto 2" y al tocarla el cian queda en esa parte.
+- [ ] Un texto solo, un link solo o un PDF solo → siguen guardandose como **nota**, **link** y **PDF**, como antes.
+- [ ] **Web** (`https://neurodesk-6to.web.app/app/`): entrar con email y con *Continuar con Google* (popup); en una compu la app se ve en una columna centrada; subir fotos y un PDF desde la compu.
 - [ ] **La prueba del requisito de roles:** A sube una nota **privada**, B pregunta exactamente por su contenido → la respuesta viene **sin fuentes**, con "Respondido solo con lo que vos podés ver" y sin ningun numero de fragmentos. Si el admin hace la misma pregunta, la respuesta la cita y la app le dice "Como sos admin, busqué en todo el espacio, incluido lo privado de cada uno." y "Miré los N fragmentos del espacio."

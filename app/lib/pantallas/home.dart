@@ -45,6 +45,7 @@ import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import '../servicios/api.dart';
@@ -120,6 +121,20 @@ class HomePantalla extends StatefulWidget {
       default:
         return null;
     }
+  }
+
+  /// Lo que dice la fila de un item 'mixto': "Varios · 3 partes". Las partes
+  /// se cuentan de la lista 'partes' que escribe el backend al leerlo; antes
+  /// de eso (pendiente, o un error antes de leer) dice solo "Varios", porque
+  /// la app no guarda en el item cuantos archivos llevaba.
+  /// null para los tipos de siempre: su fila no cambia.
+  static String? resumenDeVarios(Map<String, dynamic> item) {
+    if ((item['tipo'] ?? '') != 'mixto') return null;
+    // El mismo lector que usa "Lo que leyó NeuroDesk": asi la fila y el
+    // detalle cuentan las mismas partes (una entrada rota no cuenta).
+    final int n = TextoDelItem.partesDelItem(item).length;
+    if (n == 0) return nombreDeTipo('mixto');
+    return '${nombreDeTipo('mixto')} · ${n == 1 ? '1 parte' : '$n partes'}';
   }
 
   @override
@@ -281,6 +296,10 @@ class _HomePantallaState extends State<HomePantalla>
     // que reprocesar: hay que volver a elegir el archivo. Se lo decimos en
     // castellano en vez de mandar un pedido que el backend va a rechazar con
     // ESTADO_INVALIDO.
+    // Un «Varios» ('mixto') NO se frena aca: puede ser solo texto y links
+    // (eso si se puede volver a leer) y la app no guarda en el item si
+    // llevaba archivos. Lo decide el backend, y si no puede, su mensaje
+    // (ESTADO_INVALIDO) se muestra tal cual.
     if ((tipo == 'pdf' || tipo == 'word' || tipo == 'foto') &&
         textoExtraido.isEmpty) {
       mostrarAviso(
@@ -618,7 +637,7 @@ class _HomePantallaState extends State<HomePantalla>
                       stream: _misItems,
                       vacioTitulo: 'Todavía no subiste nada',
                       vacioDetalle:
-                          'Tocá Agregar para guardar tu primera nota, foto, PDF o Word.',
+                          'Tocá Agregar para guardar un texto, fotos, PDF, Word o links.',
                       constructorDeFila: fila,
                       alReintentar: () => _volverAEscuchar('mios'),
                     ),
@@ -672,6 +691,7 @@ class _HomePantallaState extends State<HomePantalla>
     final String visibilidad = (d['visibilidad'] ?? 'privado').toString();
     final String errorMsg = (d['errorMsg'] ?? '').toString();
     final int cantChunks = (d['cantChunks'] is int) ? d['cantChunks'] as int : 0;
+    final String? varios = HomePantalla.resumenDeVarios(d);
     final bool esMio = (d['creadoPor'] ?? '') == widget.miUid;
     final bool ocupado = _ocupados.contains(doc.id);
     final String? candado = HomePantalla.candadoQueSePuedeCambiar(
@@ -729,6 +749,17 @@ class _HomePantallaState extends State<HomePantalla>
                             crossAxisAlignment: WrapCrossAlignment.center,
                             children: <Widget>[
                               ChipDeEstado(estado: estado),
+                              // Un «Varios» dice que es y de cuantas partes:
+                              // el icono de capas solo no alcanza para saberlo.
+                              if (varios != null)
+                                Text(
+                                  varios,
+                                  style: const TextStyle(
+                                    color: azulRoyal,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
                               Icon(
                                 visibilidad == 'privado' ? Icons.lock : Icons.groups,
                                 size: 14,
@@ -955,7 +986,11 @@ class _BandaGuardadoLocal extends StatelessWidget {
           SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Estás viendo lo último guardado en el teléfono. Puede faltar algo nuevo.',
+              // En la web no se guarda nada en la compu (ver main.dart): lo
+              // que se ve es lo que esta pestana ya habia traido.
+              kIsWeb
+                  ? 'Estás viendo lo último que se cargó en esta pestaña. Puede faltar algo nuevo.'
+                  : 'Estás viendo lo último guardado en el teléfono. Puede faltar algo nuevo.',
               style: TextStyle(color: colorProcesando, fontSize: 12),
             ),
           ),

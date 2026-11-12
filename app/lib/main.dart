@@ -35,6 +35,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import 'firebase_web.dart';
 import 'pantallas/home.dart';
 import 'pantallas/login.dart';
 import 'pantallas/sin_workspace.dart';
@@ -53,12 +54,13 @@ import 'tema.dart';
 // cada PC nueva es registrar su SHA-1 en Firebase para que ande "Continuar
 // con Google" (README, seccion 2.4).
 //
-// firebase_options.dart, en cambio, NO esta en el repo (esta en el .gitignore)
-// y no se usa. Solo hace falta para correr en WEB o en iOS: ahi hay que
-// generarlo con `flutterfire configure --project=neurodesk-6to` y descomentar
-// estas dos lineas (la de abajo y la marcada con [1] adentro de main()):
+// En la WEB no hay ningun archivo que Firebase pueda leer solo: hay que pasarle
+// las opciones a mano. Son las de la app web del proyecto (las mismas del
+// panel) y viven en firebase_web.dart, que SI esta en el repo. Se usan SOLO
+// con kIsWeb: en Android sigue mandando el google-services.json.
 //
-// import 'firebase_options.dart';
+// firebase_options.dart (el que genera flutterfire) sigue sin usarse y en el
+// .gitignore. Solo haria falta para iOS.
 // ---------------------------------------------------------------------------
 
 Future<void> main() async {
@@ -92,18 +94,31 @@ Future<void> main() async {
   // ---- Firebase -------------------------------------------------------------
   bool firebaseListo = true;
   try {
-    // [1] Para web/iOS: await Firebase.initializeApp(
-    //         options: DefaultFirebaseOptions.currentPlatform);
-    await Firebase.initializeApp();
+    if (kIsWeb) {
+      // En el navegador, con las opciones de la app web (firebase_web.dart).
+      await Firebase.initializeApp(options: opcionesDeFirebaseWeb);
+    } else {
+      // En Android, sin opciones: las lee del google-services.json.
+      await Firebase.initializeApp();
+    }
 
     // Persistencia offline: los items que ya se vieron quedan en el telefono,
     // asi la lista abre al instante y se puede seguir usando en el patio de la
     // escuela sin senal. Firestore encola las escrituras y las manda solas
     // cuando vuelve la conexion.
-    FirebaseFirestore.instance.settings = const Settings(
-      persistenceEnabled: true,
-      cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
-    );
+    //
+    // EN LA WEB VA APAGADA A PROPOSITO: la copia se guardaria en el navegador
+    // (IndexedDB) y SE QUEDA ahi despues de cerrar sesion. En una compu
+    // compartida, como las de la escuela, el siguiente que se sienta tendria
+    // en el disco los items (privados incluidos) del anterior. Ademas esa
+    // persistencia es de UNA pestana: con la app abierta en dos, la segunda
+    // falla. En la web la copia queda en memoria y se va al cerrar la pestana.
+    FirebaseFirestore.instance.settings = kIsWeb
+        ? const Settings(persistenceEnabled: false)
+        : const Settings(
+            persistenceEnabled: true,
+            cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+          );
   } catch (e) {
     // Si Firebase no arranca no hay app posible, pero igual mostramos una
     // pantalla explicando por que, en vez de un crash al abrir.
@@ -145,6 +160,11 @@ class AppNeuroDesk extends StatelessWidget {
       title: 'NeuroDesk AI',
       debugShowCheckedModeBanner: false,
       theme: temaNeuroDesk(),
+      // En una pantalla ancha (la compu, en la web) la app va en una columna
+      // centrada en vez de estirarse a 1900 px: ver MarcoDeLaApp en tema.dart.
+      // Va en el builder, por encima del Navigator, para que TODAS las
+      // pantallas (y sus dialogos) queden adentro del marco.
+      builder: (BuildContext context, Widget? child) => MarcoDeLaApp(child: child),
       home: firebaseListo
           ? const Puerta()
           : const _PantallaAmigableDeError(
@@ -278,9 +298,25 @@ class _PuertaDelUsuarioState extends State<_PuertaDelUsuario> {
       if (!mounted) return; // la pantalla se pudo cerrar durante el await
       if (!r.ok) {
         setState(() => _errorDeFicha = r.mensaje);
+        return;
       }
-      // Si salio bien no hacemos nada: el StreamBuilder de abajo ve aparecer
-      // el documento y redibuja solo. La fuente de verdad es Firestore.
+      // EL ESPACIO DE BIENVENIDA: el servidor ahora suma solo al espacio de
+      // prueba a quien se registra, y avisa cual en 'espacioDeBienvenida'.
+      // Ese permiso es un claim NUEVO que el token de recien todavia no trae
+      // (dura 1 hora), y vigilarClaims no lo pide solo: la ficha nace con el
+      // claimsActualizadoEn ya puesto y el primer valor solo se anota. Sin
+      // este refresco, la pantalla principal abriria con el token viejo y
+      // Firestore contestaria permission-denied. Mientras dura, _creandoFicha
+      // sigue en true y la Puerta muestra "Preparando tu cuenta..." (ver
+      // build): el muro se abre recien con el token nuevo en la mano.
+      // debeRefrescarToken es el aviso general del contrato para lo mismo:
+      // si viene, tambien se respeta.
+      if (AuthServicio.espacioDeBienvenida(r.datos) != null ||
+          r.datos['debeRefrescarToken'] == true) {
+        await AuthServicio.refrescarToken();
+      }
+      // Lo demas lo hace el StreamBuilder de abajo: ve aparecer el documento
+      // y redibuja solo. La fuente de verdad es Firestore.
     } catch (e) {
       if (!mounted) return;
       setState(() => _errorDeFicha = 'No pudimos preparar tu cuenta. Probá de nuevo.');
@@ -326,6 +362,14 @@ class _PuertaDelUsuarioState extends State<_PuertaDelUsuario> {
         // un documento a medio escribir no puede tumbar la app entera.
         final Map<String, dynamic> workspaces =
             (datos['workspaces'] is Map) ? Map<String, dynamic>.from(datos['workspaces'] as Map) : <String, dynamic>{};
+
+        // Recien registrado y ya con equipo (el espacio de bienvenida): la
+        // ficha llega ANTES que el token con el claim nuevo. Hasta que
+        // _crearFicha termina de refrescarlo, se espera aca y no en un muro
+        // que fallaria con permission-denied.
+        if (_creandoFicha && workspaces.isNotEmpty) {
+          return const _PantallaCargando(texto: 'Preparando tu cuenta...');
+        }
 
         if (workspaces.isEmpty) {
           return SinWorkspacePantalla(

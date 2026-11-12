@@ -170,9 +170,14 @@ String textoDeEstado(String estado) {
   }
 }
 
-/// Icono segun el tipo de item: nota, pdf, word, link o foto.
+/// Icono segun el tipo de item: nota, pdf, word, link, foto o mixto.
 IconData iconoDeTipo(String tipo) {
   switch (tipo) {
+    case 'mixto':
+      // Las capas: una carga hecha de varias partes (texto, fotos,
+      // documentos, links). No es el clip a proposito: el clip es el del
+      // nombre de archivo en "Lo que leyó NeuroDesk" y el de "Adjuntar".
+      return Icons.layers;
     case 'pdf':
       return Icons.picture_as_pdf;
     case 'word':
@@ -187,6 +192,81 @@ IconData iconoDeTipo(String tipo) {
     case 'nota':
     default:
       return Icons.sticky_note_2;
+  }
+}
+
+/// El nombre del tipo para la persona. 'mixto' es el valor del modelo de
+/// datos, pero en pantalla se dice «Varios»: "mixto" suena a error de tipeo.
+String nombreDeTipo(String tipo) {
+  switch (tipo) {
+    case 'mixto':
+      return 'Varios';
+    case 'pdf':
+      return 'PDF';
+    case 'word':
+      return 'Word';
+    case 'foto':
+      return 'Foto';
+    case 'link':
+      return 'Link';
+    case 'nota':
+      return 'Nota';
+    default:
+      return 'Contenido';
+  }
+}
+
+// --- EL MARCO DE LA APP EN UNA PANTALLA ANCHA -------------------------------
+
+/// El ancho maximo de la app. En un celular no cambia nada (todos miden
+/// menos); en la compu la app queda en una columna de este ancho, centrada.
+const double anchoMaximoDeLaApp = 720;
+
+/// La app en una columna centrada cuando la ventana es mas ancha que
+/// [anchoMaximoDeLaApp] (la version web en una compu, o una tablet).
+///
+/// POR QUE: la app esta pensada para un celular. Estirada a 1900 px, el
+/// titulo de cada fila queda a un metro del menu de sus acciones y una
+/// respuesta del chat es un renglon de punta a punta, que no se lee.
+///
+/// Le corrige el ancho a la MediaQuery de adentro: si no, las pantallas
+/// seguirian creyendo que miden 1900 px y los dialogos se acomodarian mal.
+class MarcoDeLaApp extends StatelessWidget {
+  const MarcoDeLaApp({super.key, required this.child});
+
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) {
+    final Widget hijo = child ?? const SizedBox.shrink();
+    final MediaQueryData medidas = MediaQuery.of(context);
+    if (medidas.size.width <= anchoMaximoDeLaApp) return hijo;
+    return ColoredBox(
+      // El fondo de los costados es el del logo, un poco mas oscuro que el
+      // de la app: asi se ve donde termina la columna sin sumar un color.
+      color: fondoDelIsotipo,
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: SizedBox(
+          width: anchoMaximoDeLaApp,
+          height: double.infinity,
+          // El borde va ARRIBA (foreground) para no comerle ancho a la app:
+          // la MediaQuery dice 720 y la app mide 720 de verdad.
+          child: DecoratedBox(
+            position: DecorationPosition.foreground,
+            decoration: const BoxDecoration(
+              border: Border.symmetric(vertical: BorderSide(color: superficie)),
+            ),
+            child: MediaQuery(
+              data: medidas.copyWith(
+                size: Size(anchoMaximoDeLaApp, medidas.size.height),
+              ),
+              child: hijo,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

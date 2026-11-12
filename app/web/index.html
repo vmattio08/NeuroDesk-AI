@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <!--
+    NeuroDesk AI - la app en el navegador (la misma app Flutter del celular).
+
+    $FLUTTER_BASE_HREF lo reemplaza `flutter build web --base-href /app/`:
+    la app se publica en https://neurodesk-6to.web.app/app/ y sin el base
+    href el navegador buscaria main.dart.js en la raiz del sitio (donde esta
+    la landing) y la pagina quedaria en blanco.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="NeuroDesk AI: el segundo cerebro con IA de tu equipo. Guardá notas, fotos, documentos y links, y preguntale en castellano.">
+  <!-- El azul noche de la app: la barra del navegador del celular no queda blanca. -->
+  <meta name="theme-color" content="#0F172A">
+
+  <!-- iOS: nombre e icono si alguien la agrega a la pantalla de inicio -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="NeuroDesk AI">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon: el isotipo oficial, el PNG tal cual (mismos bytes que
+       marca/png/isotipo-oscuro.png; el navegador lo achica), igual que el panel. -->
+  <link rel="icon" type="image/png" href="favicon.png">
+
+  <title>NeuroDesk AI</title>
+  <link rel="manifest" href="manifest.json">
+
+  <!-- Fondo azul noche desde el primer cuadro: sin esto, mientras baja
+       Flutter se ve un fogonazo blanco antes de la app oscura. -->
+  <style>
+    html, body { margin: 0; height: 100%; background: #0F172A; }
+  </style>
+</head>
+<body>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>

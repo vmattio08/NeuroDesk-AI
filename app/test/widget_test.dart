@@ -15,8 +15,10 @@
 //    - la traduccion de errores de Firebase y de Google a castellano;
 //    - que un corte de red al renovar el token no se tome como sesion vencida;
 //    - el boton "Documento" de la captura: que decida 'pdf' o 'word' por la
-//      extension, que frene el .doc viejo, y que la pantalla se dibuje (la
-//      captura solo toca Firebase al guardar, no al dibujarse).
+//      extension, que frene el .doc viejo, y que la pantalla de carga
+//      universal se dibuje y sume y saque links (la captura solo toca
+//      Firebase al guardar, no al dibujarse). El resto de la carga universal
+//      esta en test/carga_test.dart.
 //  El login con Google de verdad (hoja de cuentas, SHA-1, token) solo se
 //  puede probar en un celular: esta en el checklist de QA del README.
 //
@@ -232,7 +234,9 @@ void main() {
     expect(iconoDeTipo('word'), isNot(iconoDeTipo('pdf')));
   });
 
-  testWidgets('Captura: el chip dice Documento y abre el selector de PDF o Word',
+  // La carga universal: ya no hay chips para elegir el tipo. Una sola
+  // pantalla con titulo, texto opcional y "Adjuntar".
+  testWidgets('Captura: una sola pantalla con Adjuntar (sin chips de tipo)',
       (WidgetTester tester) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -241,15 +245,65 @@ void main() {
       ),
     );
 
-    // Arranca en "Nota": el bloque del documento todavia no esta.
+    expect(find.text('Título'), findsOneWidget);
+    expect(find.text('Texto (opcional)'), findsOneWidget);
+    expect(find.text('Adjuntar'), findsOneWidget);
+    // Los cuatro botones de adjuntar (en la compu de los tests no es web:
+    // la camara se ve).
+    expect(find.text('Cámara'), findsOneWidget);
+    expect(find.text('Galería'), findsOneWidget);
     expect(find.text('Documento'), findsOneWidget);
-    expect(find.text('PDF'), findsNothing); // el chip viejo ya no existe
-    expect(find.text('Elegir un PDF o un Word'), findsNothing);
-
-    await tester.tap(find.text('Documento'));
-    await tester.pump();
-
-    expect(find.text('Elegir un PDF o un Word'), findsOneWidget);
+    expect(find.text('Link'), findsOneWidget);
     expect(find.textContaining('(.docx)'), findsOneWidget);
+    // Los chips viejos ya no existen.
+    expect(find.byType(ChoiceChip), findsNothing);
+    expect(find.text('¿Qué querés guardar?'), findsNothing);
+    // Sin nada cargado no dice como se va a guardar.
+    expect(find.textContaining('Se guarda como'), findsNothing);
+    expect(find.text('0/8 archivos · 0/5 links'), findsOneWidget);
+  });
+
+  testWidgets('Captura: sumar un link, ver que tipo queda y sacarlo',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: temaNeuroDesk(),
+        home: const CapturaPantalla(wsId: 'ws-prueba', miUid: 'uid-prueba'),
+      ),
+    );
+
+    // 1) Un link mal pegado: el dialogo no se cierra y dice por que.
+    await tester.ensureVisible(find.text('Link'));
+    await tester.tap(find.text('Link'));
+    await tester.pumpAndSettle();
+    expect(find.text('Agregar un link'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).last, 'www.sin-esquema.com');
+    await tester.tap(find.text('Agregar'));
+    await tester.pump();
+    expect(find.text('Tiene que empezar con http:// o https://'), findsOneWidget);
+
+    // 2) Bien pegado: entra a la lista y el item seria un 'link'.
+    await tester.enterText(find.byType(TextField).last, 'https://www.ejemplo.com/cronograma');
+    await tester.tap(find.text('Agregar'));
+    await tester.pumpAndSettle();
+    expect(find.text('Agregar un link'), findsNothing);
+    expect(find.text('https://www.ejemplo.com/cronograma'), findsOneWidget);
+    expect(find.text('0/8 archivos · 1/5 links'), findsOneWidget);
+    expect(find.text('Se guarda como link: la IA lee la página.'), findsOneWidget);
+
+    // 3) Con texto ademas del link pasa a «Varios», de 2 partes.
+    await tester.enterText(find.byType(TextField).at(1), 'La reunión es el jueves.');
+    await tester.pump();
+    expect(
+      find.text('Se guarda como «Varios»: 2 partes que la IA lee por separado.'),
+      findsOneWidget,
+    );
+
+    // 4) Sacando el link queda una nota.
+    await tester.ensureVisible(find.byTooltip('Sacar'));
+    await tester.tap(find.byTooltip('Sacar'));
+    await tester.pump();
+    expect(find.text('https://www.ejemplo.com/cronograma'), findsNothing);
+    expect(find.text('Se guarda como nota.'), findsOneWidget);
   });
 }
