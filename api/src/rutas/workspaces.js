@@ -31,6 +31,13 @@
 //  members/{uid}.nombre -> si no esta, exMiembros[uid].nombre + " (ya no está
 //  en el equipo)" -> si tampoco, "Ex integrante". Las reglas no cambian: el
 //  doc del espacio lo leen todos los miembros y solo lo escribe el backend.
+//
+//  EL OTRO CAMINO PARA ENTRAR (11/2026, espacio de bienvenida): con la
+//  variable ESPACIO_DE_BIENVENIDA, POST /v1/auth/registro suma solo a quien se
+//  registra y no esta en ningun espacio. Para que ese alta sea IDENTICA a la
+//  del POST de miembros, los pasos que tocan members, el claim y exMiembros
+//  viven en sumarMiembro() y el tope del plan en hayLugarEnElPlan(), los dos
+//  exportados al final de este archivo.
 // ============================================================================
 
 import express from 'express';
@@ -223,11 +230,8 @@ rutasDeWorkspaces.post('/:wsId/miembros', requireAuth, exigirMiembro, exigirAdmi
 
   // ---- 2. Limite del plan ----
   const refWorkspace = db.collection('workspaces').doc(wsId);
-  if ((req.workspace.plan || 'free') === 'free') {
-    const conteo = await refWorkspace.collection('members').count().get();
-    if (conteo.data().count >= MAX_MIEMBROS_PLAN_FREE) {
-      fallar('LIMITE_PLAN', `El plan gratuito permite ${MAX_MIEMBROS_PLAN_FREE} personas por espacio.`);
-    }
+  if (!(await hayLugarEnElPlan(refWorkspace, req.workspace))) {
+    fallar('LIMITE_PLAN', `El plan gratuito permite ${MAX_MIEMBROS_PLAN_FREE} personas por espacio.`);
   }
 
   // ---- 3. Buscar (o crear) la cuenta en Firebase Auth ----
@@ -276,58 +280,20 @@ rutasDeWorkspaces.post('/:wsId/miembros', requireAuth, exigirMiembro, exigirAdmi
     ? snapUsuarioInvitado.get('nombre') || nombrePresentable(usuarioInvitado)
     : nombrePresentable(usuarioInvitado);
 
-  // ---- 6. Escribir members ----
-  await refMiembro.create({
+  // ---- 6 a 8. members, claims y exMiembros ----
+  // Los tres pasos viven en sumarMiembro() (abajo, en los ayudantes) porque
+  // el registro con espacio de bienvenida (rutas/auth.js) suma gente
+  // EXACTAMENTE igual. Una sola copia: si manana cambia un campo de members,
+  // no puede quedar distinto en los dos caminos.
+  await sumarMiembro({
+    wsId,
+    workspace: req.workspace,
     uid: uidInvitado,
     email,
     nombre: nombreInvitado,
     rol,
     agregadoPor: admin.uid,
-    agregadoEn: FieldValue.serverTimestamp(),
   });
-
-  // ---- 7. Claims del INVITADO (no del admin) ----
-  // Esta llamada tambien CREA usuarios/{uidInvitado} si no existia: es el caso
-  // de la cuenta recien creada en el paso 3, que todavia no paso nunca por
-  // POST /v1/auth/registro.
-  try {
-    await sincronizarClaims(uidInvitado, {
-      tipo: 'alta',
-      wsId,
-      rol,
-      nombre: req.workspace.nombre || '',
-    });
-  } catch (err) {
-    // Si los claims fallan, sacamos el doc de members: si lo dejaramos, la
-    // persona figuraria en la lista del panel pero no podria leer nada, y el
-    // admin no tendria forma de entender por que.
-    console.error('[workspaces] Fallaron los claims al invitar a', uidInvitado, '- deshago:', err);
-    await refMiembro.delete().catch(() => {});
-    throw err;
-  }
-
-  // ---- 8. Si vuelve, deja de ser ex integrante ----
-  // Si esta persona ya habia estado en el equipo, su nombre quedo guardado en
-  // exMiembros cuando la sacaron. Ahora vuelve a tener ficha en members, asi
-  // que esa clave sobra y se borra.
-  //  - Va DESPUES de los claims a proposito: si fallan, el alta se deshace (la
-  //    persona sigue afuera) y su nombre tiene que seguir guardado.
-  //  - req.workspace ya trae el doc del espacio (lo leyo exigirMiembro): si no
-  //    figura en exMiembros, no gastamos una escritura.
-  //  - Si este paso fallara, no rompemos el alta, que ya esta hecha: la ficha
-  //    de members manda sobre exMiembros a la hora de mostrar el nombre, asi
-  //    que la clave vieja no se ve. Queda en el log.
-  const exMiembros = req.workspace?.exMiembros;
-  if (exMiembros && typeof exMiembros === 'object' && Object.hasOwn(exMiembros, uidInvitado)) {
-    try {
-      await refWorkspace.update(
-        new FieldPath('exMiembros', uidInvitado), FieldValue.delete(),
-        'actualizadoEn', FieldValue.serverTimestamp(),
-      );
-    } catch (err) {
-      console.error(`[workspaces] No pude borrar a ${uidInvitado} de exMiembros de ${wsId}:`, err);
-    }
-  }
 
   // El resumen va con NOMBRES, como el resto del feed ("Martín compartió...").
   // El email no hace falta: el panel lo muestra en la lista de miembros.
@@ -727,6 +693,117 @@ function nombreParaRecordar(datosMiembro) {
  */
 function emailValido(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && email.length <= 254;
+}
+
+/**
+ * ¿Entra una persona mas en este espacio? Solo el plan 'free' tiene tope
+ * (MAX_MIEMBROS_PLAN_FREE); un doc sin 'plan' cuenta como 'free', que es el
+ * default que mas limita. count() es una agregacion: Firestore devuelve el
+ * numero sin bajar los documentos.
+ * La usan el POST de miembros (que corta con LIMITE_PLAN) y el registro con
+ * espacio de bienvenida (que, si no entra, deja a la persona sin espacio).
+ *
+ * @param {FirebaseFirestore.DocumentReference} refWorkspace
+ * @param {object} workspace  el doc del espacio ya leido (plan, ...)
+ * @returns {Promise<boolean>}
+ */
+export async function hayLugarEnElPlan(refWorkspace, workspace) {
+  if ((workspace?.plan || 'free') !== 'free') return true;
+  const conteo = await refWorkspace.collection('members').count().get();
+  return conteo.data().count < MAX_MIEMBROS_PLAN_FREE;
+}
+
+/**
+ * Suma a una persona a un espacio. Son tres pasos, en este orden:
+ *   1. crear workspaces/{wsId}/members/{uid};
+ *   2. la rutina unica de claims (usuarios/{uid}.workspaces, el claim y
+ *      claimsActualizadoEn; si usuarios/{uid} no existe, lo crea);
+ *   3. si la persona habia salido, borrarle la clave de exMiembros.
+ * NO escribe el evento: cada camino lo cuenta distinto ("Valentino agrego a
+ * Lucas como miembro" / "Lucas se sumo al equipo").
+ *
+ * La usan DOS caminos: el POST de miembros (lo invita un admin) y el registro
+ * con espacio de bienvenida (rutas/auth.js). Por eso esta aca y exportada: el
+ * alta tiene que quedar identica en los dos (mismos campos en members, mismo
+ * claim, misma limpieza de exMiembros).
+ *
+ * @param {object} p
+ * @param {string} p.wsId
+ * @param {object} p.workspace   el doc del espacio ya leido (nombre, exMiembros)
+ * @param {string} p.uid         a quien se suma
+ * @param {string} p.email
+ * @param {string} p.nombre      nombre visible (2 a 60), copia de usuarios/{uid}.nombre
+ * @param {'admin'|'miembro'} p.rol
+ * @param {string} p.agregadoPor uid de quien lo sumo (en la bienvenida, la propia persona)
+ * @param {boolean} [p.abrirElEspacio] dejarlo como workspaceActual si no tenia uno abierto
+ * Tira MIEMBRO_DUPLICADO si ya tiene ficha, y deja todo como estaba si fallan los claims.
+ */
+export async function sumarMiembro({ wsId, workspace, uid, email, nombre, rol, agregadoPor, abrirElEspacio = false }) {
+  const refWorkspace = db.collection('workspaces').doc(wsId);
+  const refMiembro = refWorkspace.collection('members').doc(uid);
+
+  // ---- 1. members ----
+  // .create() y no .set(): si dos pedidos llegan juntos (dos admins invitando
+  // a la misma persona, o el registro reintentado), el segundo falla aca en
+  // vez de pisar la ficha del primero.
+  try {
+    await refMiembro.create({
+      uid,
+      email,
+      nombre,
+      rol,
+      agregadoPor,
+      agregadoEn: FieldValue.serverTimestamp(),
+    });
+  } catch (err) {
+    // 6 = ALREADY_EXISTS en gRPC.
+    if (err?.code === 6 || err?.code === 'already-exists') fallar('MIEMBRO_DUPLICADO');
+    throw err;
+  }
+
+  // ---- 2. Claims de la persona que entra (no de quien la suma) ----
+  // Esta llamada tambien CREA usuarios/{uid} si no existia: es el caso de la
+  // cuenta recien creada por la invitacion, que todavia no paso nunca por
+  // POST /v1/auth/registro.
+  try {
+    await sincronizarClaims(uid, {
+      tipo: 'alta',
+      wsId,
+      rol,
+      nombre: workspace?.nombre || '',
+      abrir: abrirElEspacio,
+    });
+  } catch (err) {
+    // Si los claims fallan, sacamos el doc de members: si lo dejaramos, la
+    // persona figuraria en la lista del panel pero no podria leer nada, y el
+    // admin no tendria forma de entender por que.
+    console.error('[workspaces] Fallaron los claims al sumar a', uid, 'a', wsId, '- deshago:', err);
+    await refMiembro.delete().catch(() => {});
+    throw err;
+  }
+
+  // ---- 3. Si vuelve, deja de ser ex integrante ----
+  // Si esta persona ya habia estado en el equipo, su nombre quedo guardado en
+  // exMiembros cuando la sacaron. Ahora vuelve a tener ficha en members, asi
+  // que esa clave sobra y se borra.
+  //  - Va DESPUES de los claims a proposito: si fallan, el alta se deshace (la
+  //    persona sigue afuera) y su nombre tiene que seguir guardado.
+  //  - El doc del espacio ya viene leido: si no figura en exMiembros, no
+  //    gastamos una escritura.
+  //  - Si este paso fallara, no rompemos el alta, que ya esta hecha: la ficha
+  //    de members manda sobre exMiembros a la hora de mostrar el nombre, asi
+  //    que la clave vieja no se ve. Queda en el log.
+  const exMiembros = workspace?.exMiembros;
+  if (exMiembros && typeof exMiembros === 'object' && Object.hasOwn(exMiembros, uid)) {
+    try {
+      await refWorkspace.update(
+        new FieldPath('exMiembros', uid), FieldValue.delete(),
+        'actualizadoEn', FieldValue.serverTimestamp(),
+      );
+    } catch (err) {
+      console.error(`[workspaces] No pude borrar a ${uid} de exMiembros de ${wsId}:`, err);
+    }
+  }
 }
 
 /**

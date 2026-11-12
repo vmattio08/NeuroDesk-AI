@@ -38,6 +38,11 @@
 //           puede (compartir es solo del autor), deja el evento y copia el
 //           cambio a los chunks. Antes un admin podia publicar desde la app
 //           lo privado de otra persona sin dejar rastro.
+//   R7      (11/2026) El ITEM UNIVERSAL: tipo 'mixto' (la app lo muestra como
+//           «Varios»). Junta un texto, links y archivos en un solo item. Al
+//           crearlo, el cliente puede mandar 'textoOriginal' (opcional) y la
+//           lista 'links' (opcional, de 1 a 5, solo en el mixto); nunca 'url'
+//           ni 'nombreArchivo'. Las partes las arma el backend.
 //
 //  IDEA CENTRAL (esto es lo que hay que saber decir en la defensa oral):
 //
@@ -64,10 +69,12 @@
 //
 //  5) QUIEN ESCRIBE QUE — la regla de oro que se habia roto en la version 1:
 //     el CLIENTE crea el item con los campos que carga la persona
-//     (titulo, tipo, visibilidad, url, nombreArchivo, textoOriginal) y el
-//     BACKEND escribe todo lo derivado (texto, cantChunks, paginas, origen,
-//     caracteres, errorMsg, y el estado despues de 'pendiente').
-//       textoOriginal = lo que ESCRIBIO LA PERSONA. Solo en las notas.
+//     (titulo, tipo, visibilidad, url, nombreArchivo, textoOriginal, links) y
+//     el BACKEND escribe todo lo derivado (texto, partes, cantChunks,
+//     paginas, origen, caracteres, errorMsg, y el estado despues de
+//     'pendiente').
+//       textoOriginal = lo que ESCRIBIO LA PERSONA. Solo en las notas y en
+//                       los mixtos.
 //       texto         = lo que EXTRAJO EL BACKEND. El cliente nunca lo toca.
 //     Son dos campos distintos a proposito: asi el tipo 'nota' funciona sin
 //     abrirle al cliente el campo que alimenta a la IA.
@@ -237,13 +244,13 @@ service cloud.firestore {
         // -------- validaciones de creacion --------
 
         // Campos que el CLIENTE tiene permitido escribir al crear.
-        // Todo lo que NO este aca queda prohibido: 'texto', 'cantChunks',
-        // 'paginas', 'origen', 'caracteres', 'recortado', 'errorMsg' y
-        // 'actualizadoEn' los escribe SOLO el backend.
+        // Todo lo que NO este aca queda prohibido: 'texto', 'partes',
+        // 'cantChunks', 'paginas', 'origen', 'caracteres', 'recortado',
+        // 'errorMsg' y 'actualizadoEn' los escribe SOLO el backend.
         function camposQuePuedeCrearElCliente() {
           return ['titulo', 'tipo', 'visibilidad', 'workspaceId',
                   'creadoPor', 'creadoEn', 'estado',
-                  'url', 'nombreArchivo', 'textoOriginal'];
+                  'url', 'nombreArchivo', 'textoOriginal', 'links'];
         }
 
         function camposObligatorios() {
@@ -260,6 +267,28 @@ service cloud.firestore {
         // dos veces y no se puede desincronizar.
         function textoOriginalValido(t) {
           return t is string && t.size() >= 1 && t.size() <= 50000;
+        }
+
+        // Un link de un mixto: la MISMA forma que 'url' en un item 'link'
+        // (string, http o https, hasta 2000 caracteres). Igual que con 'url',
+        // es un filtro barato: la defensa contra SSRF la hace el backend.
+        function linkValido(l) {
+          return l is string && l.size() <= 2000 && l.matches('https?://.+');
+        }
+
+        // La lista 'links' de un mixto: de 1 a 5, y cada uno valido. Las
+        // reglas no tienen bucles, asi que se mira posicion por posicion; el
+        // `size() < n ||` hace que una posicion que no existe no se toque
+        // (tocarla haria explotar la regla). Lista vacia: no se manda el
+        // campo, no se manda [].
+        function linksValidos(ls) {
+          return ls is list
+            && ls.size() >= 1 && ls.size() <= 5
+            && linkValido(ls[0])
+            && (ls.size() < 2 || linkValido(ls[1]))
+            && (ls.size() < 3 || linkValido(ls[2]))
+            && (ls.size() < 4 || linkValido(ls[3]))
+            && (ls.size() < 5 || linkValido(ls[4]));
         }
 
         function creacionDeItemValida() {
@@ -290,8 +319,9 @@ service cloud.firestore {
             //    textoOriginal, y el texto lo saca el backend del archivo con
             //    origen 'docx'. Ojo: 'docx' es el ORIGEN del texto, no un tipo,
             //    y como tipo se rechaza.
+            //    'mixto' (R7) es el item que junta varias cosas: ver 8, 9 y 10.
             && tituloValido(d.titulo)
-            && d.tipo in ['nota', 'pdf', 'word', 'link', 'foto']
+            && d.tipo in ['nota', 'pdf', 'word', 'link', 'foto', 'mixto']
             && d.visibilidad in ['equipo', 'privado']
             // 7) 'url' SOLO en los links, y obligatoria ahi.
             //    El campo se llama 'url' en las TRES piezas del proyecto (en
@@ -306,21 +336,34 @@ service cloud.firestore {
                     && d.url.size() <= 2000
                     && d.url.matches('https?://.+')))
             && (d.tipo != 'link' || 'url' in d)
-            // 8) 'textoOriginal' SOLO en las notas: es el contenido que
-            //    escribio la persona con el teclado. Es lo que hace que el
-            //    tipo 'nota' exista (en la v1 no habia por donde entrar el
-            //    texto de una nota y el tipo estaba muerto por construccion).
+            // 8) 'textoOriginal' SOLO en las notas (obligatorio) y en los
+            //    mixtos (opcional): es el contenido que escribio la persona
+            //    con el teclado. Es lo que hace que el tipo 'nota' exista (en
+            //    la v1 no habia por donde entrar el texto de una nota y el
+            //    tipo estaba muerto por construccion).
             //    El backend lo lee del documento, lo limpia y recien ahi
             //    escribe 'texto', que el cliente no puede tocar nunca.
             //    R3: el segundo chequeo lee con .get('textoOriginal', '')
             //    para no depender del orden de evaluacion del && de arriba.
             && (!('textoOriginal' in d)
-                || (d.tipo == 'nota' && textoOriginalValido(d.textoOriginal)))
+                || ((d.tipo == 'nota' || d.tipo == 'mixto')
+                    && textoOriginalValido(d.textoOriginal)))
             && (d.tipo != 'nota'
                 || textoOriginalValido(d.get('textoOriginal', '')))
-            // 9) opcional, con tope de largo
+            // 9) opcional, con tope de largo. Nunca en un mixto: sus archivos
+            //    pueden ser varios, y el nombre de cada uno lo guarda el
+            //    backend en la etiqueta de su parte ("PDF «acta.pdf»").
             && (!('nombreArchivo' in d)
-                || (d.nombreArchivo is string && d.nombreArchivo.size() <= 200));
+                || (d.tipo != 'mixto'
+                    && d.nombreArchivo is string && d.nombreArchivo.size() <= 200))
+            // 10) 'links' SOLO en un mixto, y opcional (R7). 'url' sigue
+            //     siendo solo del item 'link' (punto 7), asi que un mixto
+            //     con 'url' se rechaza ahi.
+            //     OJO: un mixto sin texto ni links es VALIDO para estas
+            //     reglas, porque no pueden saber si despues llegan archivos
+            //     al POST. Si no llega nada, el backend lo pasa a 'error'.
+            && (!('links' in d)
+                || (d.tipo == 'mixto' && linksValidos(d.links)));
         }
 
         // -------- validaciones de edicion --------
@@ -328,6 +371,12 @@ service cloud.firestore {
         // Lo unico que el cliente puede tocar despues: titulo, el
         // textoOriginal de una nota, y actualizadoEn.
         // Nunca estado, ni texto, ni cantChunks.
+        // En un MIXTO, igual que en los demas: solo el titulo. Ni 'links' ni
+        // 'partes' (no estan en la lista), ni su textoOriginal (la condicion
+        // de abajo pide tipo 'nota'): su texto ya quedo partido en partes
+        // adentro de 'texto', y /reprocesar de un mixto usa ese texto
+        // guardado, asi que editar el original no cambiaria nada de lo que
+        // lee la IA. Para cambiar el contenido, se carga otro item.
         // Si edita el textoOriginal, el indice queda viejo hasta que toque
         // "Reprocesar": el panel muestra el aviso (ver limitaciones).
         // OJO: actualizadoEn tiene que ser SIEMPRE la hora del servidor, o

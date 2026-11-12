@@ -111,15 +111,19 @@ async function escribirClaim(uid, workspaces) {
  * sincronizarClaims(uid, cambio)
  *
  * Es la UNICA funcion que toca los claims en todo el backend. La llaman los
- * cuatro endpoints que cambian membresias: crear workspace, invitar, quitar y
- * cambiar rol.
+ * cuatro endpoints que cambian membresias (crear workspace, invitar, quitar y
+ * cambiar rol) y el registro cuando suma a alguien al espacio de bienvenida
+ * (rutas/auth.js, a traves de sumarMiembro de rutas/workspaces.js).
  *
  * @param {string} uid  el usuario cuyos claims hay que dejar al dia.
  * @param {object|null} cambio  que hacerle al mapa ANTES de reconstruir:
  *        null                                        -> solo resincronizar
- *        { tipo:'alta',  wsId, rol, nombre }         -> entra a un workspace
+ *        { tipo:'alta',  wsId, rol, nombre, abrir? } -> entra a un workspace
  *        { tipo:'rol',   wsId, rol }                 -> le cambian el rol
  *        { tipo:'baja',  wsId }                      -> lo sacan del workspace
+ *        abrir: true deja ese workspace como 'workspaceActual' si la persona
+ *        no tenia ninguno abierto (lo usa el espacio de bienvenida: entra
+ *        alguien que no tenia ningun espacio y la app tiene que arrancar ahi).
  * @returns {Promise<object>} el mapa flaco que quedo en el token: { wsId: rol }
  *
  * OJO CON EL ORDEN: primero la transaccion sobre el DOCUMENTO, despues el
@@ -200,6 +204,15 @@ export async function sincronizarClaims(uid, cambio = null) {
     // workspaceActual como `string | null` justamente por esto).
     if (cambio && cambio.tipo === 'baja' && datos.workspaceActual === cambio.wsId) {
       parche.workspaceActual = primerWorkspace(mapa);
+    }
+
+    // El alta con abrir:true (el espacio de bienvenida): si no tenia ningun
+    // workspace abierto (null, o uno viejo que ya no esta en su mapa), le
+    // abrimos este. 'workspaceActual' es del cliente y en cualquier otro caso
+    // no se toca: si ya tiene uno abierto y valido, se queda ahi.
+    if (cambio && cambio.tipo === 'alta' && cambio.abrir) {
+      const abierto = datos.workspaceActual;
+      if (typeof abierto !== 'string' || !mapa[abierto]) parche.workspaceActual = cambio.wsId;
     }
 
     tx.update(refUsuario, parche);

@@ -8,6 +8,7 @@
 //
 //  Endpoints (las rutas de acá adentro son relativas a ese montaje):
 //    POST   /:itemId/procesar     multipart, el archivo viene en la parte 'archivo'
+//                                 (o de 0 a 8 en la parte 'archivos', si el item es 'mixto')
 //    POST   /:itemId/reprocesar   sin archivo, usa lo que ya está guardado en el doc
 //    DELETE /:itemId              borra los chunks y después el item
 //    DELETE /?estado=pendiente&antesDe=<ISO>   limpieza masiva, solo admin
@@ -26,22 +27,37 @@
 //  igual acá —Express no frena el handler porque el cliente se haya ido— y la
 //  pantalla se entera por el listener del documento, que es la fuente de verdad
 //  de la UI. La respuesta HTTP es una confirmación, no la verdad.
+//
+//  EL ITEM UNIVERSAL: tipo 'mixto' (la app lo muestra como «Varios»). Junta en
+//  UN item lo que la persona cargó de una: un texto, hasta 5 links y hasta 8
+//  archivos. El backend arma una PARTE por cada cosa, en este orden: el texto,
+//  los links, los archivos (en el orden en que llegaron). Cada parte se
+//  extrae con lo mismo de siempre (textoDeNota, traerTextoDeUrl con toda su
+//  aduana anti-SSRF, extraerDeArchivo), se guarda en item.texto detrás de su
+//  marca <<<PARTE:etiqueta>>> y se trocea POR SEPARADO: un chunk nunca mezcla
+//  dos partes. Si una parte falla por su contenido (un link caído, una foto
+//  sin letras), se saltea y queda anotada en item.partes; si fallan todas, o
+//  no llegó nada, el item va a 'error' como cualquier otro. Ver "EL MIXTO",
+//  más abajo.
 // ============================================================================
 
 import { Router } from 'express';
 import multer from 'multer';
 
 import { db, FieldValue, Timestamp } from '../firebase.js';
-import { ErrorApi, esErrorApi } from '../errores.js';
+import { ErrorApi, esErrorApi, CATALOGO_DE_ERRORES } from '../errores.js';
 import { requireAuth, exigirMiembro, exigirAdmin } from '../middleware/auth.js';
 import { extraerDeArchivo, MIME_DOCX } from '../servicios/extraer.js';
-import { traerTextoDeUrl } from '../servicios/link.js';
+import { traerTextoDeUrl, idDeVideoDeYoutube } from '../servicios/link.js';
 import {
   limpiarTexto,
   recortarTexto,
   trocear,
   caracteresUtiles,
   quitarMarcasDePagina,
+  marcaDeParte,
+  separarEnPartes,
+  neutralizarMarcas,
   TOPE_TEXTO_ITEM,
 } from '../servicios/texto.js';
 import { pedirEmbeddings } from '../servicios/ia.js';
@@ -91,6 +107,59 @@ const NOMBRE_DEL_ARCHIVO = {
 // reconoce SOLO para poder decirle a la persona qué hacer con él.
 const MIME_DOC_VIEJO = 'application/msword';
 
+// ---- El item 'mixto' ------------------------------------------------------
+// Los topes son los del contrato y los mismos que valida la app antes de
+// subir. Cada archivo sigue con su tope de 10 MB (lo aplica multer); el total
+// existe por la memoria de Render free (512 MB): 8 archivos de 10 MB serían
+// 80 MB en RAM por pedido, y dos pedidos así juntos ya molestan.
+const MAX_ARCHIVOS_MIXTO = 8;
+const MAX_LINKS_MIXTO = 5; // el mismo tope de la regla de Firestore
+const TOPE_TOTAL_MB = 25;
+const TOPE_TOTAL_BYTES = TOPE_TOTAL_MB * 1024 * 1024;
+// Lo que el multipart le suma a los archivos (los encabezados de cada parte):
+// unos cientos de bytes por archivo. 64 KB sobran.
+const MARGEN_MULTIPART_BYTES = 64 * 1024;
+
+// Qué TIPO de parte es cada archivo, según lo que el archivo ES (no lo que
+// declara el cliente): es lo que dice la etiqueta ("Foto 1", "PDF «x.pdf»").
+const TIPO_DE_PARTE_SEGUN_MIME = {
+  'application/pdf': 'pdf',
+  [MIME_DOCX]: 'word',
+  'image/jpeg': 'foto',
+  'image/png': 'foto',
+  'image/webp': 'foto',
+};
+
+// El 'origen' de cada parte, cuando hay que deducirlo (reprocesar un doc al
+// que le falta la lista de partes). Son valores del enum CERRADO de chunks.
+const ORIGEN_POR_TIPO_DE_PARTE = {
+  texto: 'nota',
+  link: 'link',
+  foto: 'ocr-space',
+  pdf: 'pdf-texto',
+  word: 'docx',
+};
+const TIPOS_DE_PARTE = new Set(Object.keys(ORIGEN_POR_TIPO_DE_PARTE));
+
+// Una parte que falla por SU CONTENIDO se saltea y queda anotada: el link
+// está caído o no es público, la foto no tiene letras, el PDF tiene clave.
+// Cualquier otra falla (nos quedamos sin cupo de IA, falta una dependencia,
+// un bug) hace fallar el item ENTERO, como en los otros tipos: si la
+// salteáramos, el item quedaría 'listo' sin esa parte y "Reintentar" no la
+// podría recuperar nunca, porque el archivo no se guarda en ningún lado.
+const FALLAS_DE_UNA_PARTE = new Set([
+  'NO_SE_PUDO_EXTRAER_TEXTO',
+  'URL_NO_PERMITIDA',
+  'TIPO_NO_SOPORTADO',
+  'ARCHIVO_FALTANTE',
+]);
+
+// Tope del nombre de archivo (o del título de un video) adentro de una
+// etiqueta: alcanza para reconocerlo y no infla cada chunk ni el prompt.
+const LARGO_MAX_NOMBRE_EN_ETIQUETA = 60;
+
+const esMixto = (tipo) => tipo === 'mixto';
+
 // Un item en 'procesando' con más de 5 minutos sin cambios está COLGADO
 // (se reinició Render en el medio). Lo dejamos volver a procesar, si no
 // quedaría muerto para siempre y el botón "Reintentar" no serviría de nada.
@@ -139,7 +208,9 @@ const DETALLE_URL_NO_PERMITIDA = 'la dirección no es pública';
 
 // El enum CERRADO de 'origen' del modelo de datos. Un valor fuera de esta lista
 // rompe el switch del cliente, así que nunca se escribe otro. 'docx' = el
-// texto salió de un Word con mammoth.
+// texto salió de un Word con mammoth. Es el origen de cada CHUNK y de cada
+// parte de un 'mixto'; el item 'mixto' en sí lleva origen 'mixto' (cada
+// parte tiene el suyo), y ese valor no aparece nunca en un chunk.
 const ORIGENES_DEL_MODELO = new Set(['nota', 'pdf-texto', 'docx', 'ocr-space', 'link']);
 
 // Cuántas veces reintenta la limpieza masiva un lote que chocó con alguien que
@@ -154,34 +225,92 @@ const MAX_CHOQUES_EN_PURGA = 3;
 // ============================================================================
 const subidor = multer({
   storage: multer.memoryStorage(),
+  // Los nombres de archivo llegan en UTF-8 (la app y el navegador los mandan
+  // así). Con el default de multer ('latin1'), "Organización.pdf" llegaba
+  // como "OrganizaciÃ³n.pdf" y así quedaba en la etiqueta de la parte.
+  defParamCharset: 'utf8',
   limits: {
     fileSize: TOPE_ARCHIVO_BYTES,
-    files: 1,       // el contrato: 'archivo' es la ÚNICA parte con binario
+    // El contrato: 'archivo' (uno, en pdf/word/foto) o 'archivos' (hasta 8,
+    // en un mixto) son las ÚNICAS partes con binario. El tope por nombre de
+    // parte lo pone fields() (maxCount); este es el total.
+    files: 1 + MAX_ARCHIVOS_MIXTO,
     fields: 5,      // campos de texto sueltos se ignoran, pero no infinitos
     fieldSize: 1024,
-    parts: 6,
+    parts: 6 + MAX_ARCHIVOS_MIXTO,
   },
 });
+const recibirLasPartes = subidor.fields([
+  { name: 'archivo', maxCount: 1 },
+  { name: 'archivos', maxCount: MAX_ARCHIVOS_MIXTO },
+]);
+
+// Lee el cuerpo del pedido hasta el final, sin guardarlo, y recién ahí sigue.
+// Es lo mismo que hace multer cuando corta con un error: si respondiéramos
+// sin leer, el cliente que todavía está mandando el archivo recibe un EPIPE
+// (conexión cerrada) en vez del JSON con el error.
+function descartarElCuerpo(req, despues) {
+  if (req.readableEnded || req.destroyed) return despues();
+  let listo = false;
+  const fin = () => {
+    if (listo) return;
+    listo = true;
+    despues();
+  };
+  req.once('end', fin);
+  req.once('error', fin);
+  req.once('close', fin);
+  req.resume();
+}
 
 // Envolvemos multer a mano para traducir SUS errores a NUESTRA forma de error.
 // Si no, un archivo grande devolvía un HTML de Express y el cliente mostraba
 // una pantalla roja en vez de "El archivo no puede pesar más de 10 MB".
-// Cualquier otro problema del multipart (parte con otro nombre, dos archivos,
-// subida cortada a la mitad) se responde ARCHIVO_FALTANTE: en todos esos casos
-// lo que pasó, visto desde la persona, es que el archivo no llegó bien. Y es un
-// código de la lista del endpoint 7; DATOS_INVALIDOS no lo es.
+// Cualquier otro problema del multipart (parte con otro nombre, dos archivos
+// en 'archivo', subida cortada a la mitad) se responde ARCHIVO_FALTANTE: en
+// todos esos casos lo que pasó, visto desde la persona, es que el archivo no
+// llegó bien. La excepción son los archivos DE MÁS en un mixto: ahí el
+// archivo llegó, lo que está mal es la cantidad (DATOS_INVALIDOS).
 //
 // Va DESPUÉS de requireAuth y exigirMiembro a propósito: alguien sin token o de
-// otro equipo no llega a ocuparnos 10 MB de memoria con su subida.
-function recibirArchivo(req, res, next) {
-  subidor.single('archivo')(req, res, (err) => {
-    if (!err) return next();
+// otro equipo no llega a ocuparnos memoria con su subida.
+//
+// EL TOPE TOTAL DE 25 MB se mira dos veces:
+//  - ANTES de leer nada, con el Content-Length que declara el pedido (la app y
+//    el navegador lo mandan siempre). Así un pedido de 80 MB no llega a
+//    ocupar 80 MB de RAM: se descarta sin guardarlo.
+//  - DESPUÉS, sumando lo que llegó, por si el pedido no declaró su largo
+//    (subida "chunked"). Ahí el peor caso son 8 x 10 MB en memoria, que es lo
+//    que ya limita multer por archivo.
+function recibirArchivos(req, res, next) {
+  const declarado = Number.parseInt(req.headers['content-length'] ?? '', 10);
+  if (Number.isFinite(declarado) && declarado > TOPE_TOTAL_BYTES + MARGEN_MULTIPART_BYTES) {
+    return descartarElCuerpo(req, () =>
+      next(new ErrorApi('ARCHIVO_MUY_GRANDE', `lo que se subió pesa más de ${TOPE_TOTAL_MB} MB`)));
+  }
+
+  recibirLasPartes(req, res, (err) => {
+    if (!err) {
+      const total = (req.files?.archivos ?? []).reduce((suma, a) => suma + (a.size ?? a.buffer?.length ?? 0), 0);
+      if (total > TOPE_TOTAL_BYTES) {
+        return next(new ErrorApi('ARCHIVO_MUY_GRANDE', `entre todos los archivos pasan los ${TOPE_TOTAL_MB} MB`));
+      }
+      return next();
+    }
 
     if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
-      return next(new ErrorApi('ARCHIVO_MUY_GRANDE', `el archivo supera los ${TOPE_ARCHIVO_MB} MB`));
+      return next(new ErrorApi('ARCHIVO_MUY_GRANDE', err.field === 'archivos'
+        ? `uno de los archivos supera los ${TOPE_ARCHIVO_MB} MB`
+        : `el archivo supera los ${TOPE_ARCHIVO_MB} MB`));
+    }
+    const deMasEnElMixto = err instanceof multer.MulterError &&
+      ((err.code === 'LIMIT_UNEXPECTED_FILE' && err.field === 'archivos') || err.code === 'LIMIT_FILE_COUNT');
+    if (deMasEnElMixto) {
+      return next(new ErrorApi('DATOS_INVALIDOS', `se pueden mandar hasta ${MAX_ARCHIVOS_MIXTO} archivos`));
     }
     console.warn('[items] multipart rechazado:', err.code || err.message);
-    return next(new ErrorApi('ARCHIVO_FALTANTE', "el multipart tiene que traer una sola parte, llamada 'archivo'"));
+    return next(new ErrorApi('ARCHIVO_FALTANTE',
+      `el multipart tiene que traer una sola parte 'archivo' o, en un item mixto, hasta ${MAX_ARCHIVOS_MIXTO} partes 'archivos'`));
   });
 }
 
@@ -351,6 +480,45 @@ function tipoRealDelArchivo(buffer) {
   return null;
 }
 
+// Valida UN archivo contra la lista de tipos (PDF, Word .docx, JPG, PNG,
+// WEBP) mirando su firma real, y devuelve ese tipo real.
+// 'numero' es la posición del archivo en un mixto (1, 2, ...): solo cambia el
+// detalle ("el archivo 3 no es PDF..."), para que la persona sepa CUÁL fue.
+// Sin número, los detalles son los de siempre de un pdf/word/foto.
+function tipoRealValidado(archivo, numero = null) {
+  if (!archivo || !archivo.buffer || archivo.buffer.length === 0) {
+    throw new ErrorApi('ARCHIVO_FALTANTE', numero ? `el archivo ${numero} llegó vacío` : null);
+  }
+
+  let declarado = String(archivo.mimetype || '').toLowerCase();
+  if (declarado === 'image/jpg') declarado = 'image/jpeg'; // el alias que mandan algunos celulares
+  const generico = declarado === '' || declarado === 'application/octet-stream';
+  const real = tipoRealDelArchivo(archivo.buffer);
+  const cual = numero ? `el archivo ${numero}` : 'el archivo';
+
+  // El .doc viejo va PRIMERO y con su propio detalle: es el error más común
+  // con Word, y "no es PDF ni Word" confundiría a alguien que sí subió un Word.
+  if (real === MIME_DOC_VIEJO) {
+    throw new ErrorApi('TIPO_NO_SOPORTADO',
+      `${numero ? `${cual} ` : ''}es un .doc de Word 97-2003: abrilo en Word y guardalo como .docx`);
+  }
+
+  // Las dos condiciones del contrato: lo declarado (si declara algo concreto)
+  // y lo que el archivo ES tienen que estar en la lista. Si declara png y en
+  // realidad es un jpg, los dos están permitidos y se extrae según lo REAL.
+  // El detalle NO repite lo que declaró el cliente (ni el nombre del archivo):
+  // es texto que no escribimos nosotros, y el contrato no deja eco de datos
+  // ajenos en 'detalle'.
+  if (!generico && !TIPOS_MIME_OK.includes(declarado)) {
+    throw new ErrorApi('TIPO_NO_SOPORTADO', `${cual} no es PDF, Word (.docx), JPG, PNG ni WEBP`);
+  }
+  if (!real) {
+    throw new ErrorApi('TIPO_NO_SOPORTADO',
+      `el contenido del archivo${numero ? ` ${numero}` : ''} no es PDF, Word (.docx), JPG, PNG ni WEBP`);
+  }
+  return real;
+}
+
 // Valida el archivo contra el TIPO del item y devuelve el mimetype con el que
 // hay que extraerlo (o null si el item no lleva archivo).
 // Corre ADENTRO de la transacción, después del chequeo de autoría: así un
@@ -361,32 +529,7 @@ function validarArchivoDelItem(item, archivo) {
   // se ignora (el contrato no tiene un error para eso).
   if (!llevaArchivo(item.tipo)) return null;
 
-  if (!archivo || !archivo.buffer || archivo.buffer.length === 0) {
-    throw new ErrorApi('ARCHIVO_FALTANTE');
-  }
-
-  let declarado = String(archivo.mimetype || '').toLowerCase();
-  if (declarado === 'image/jpg') declarado = 'image/jpeg'; // el alias que mandan algunos celulares
-  const generico = declarado === '' || declarado === 'application/octet-stream';
-  const real = tipoRealDelArchivo(archivo.buffer);
-
-  // El .doc viejo va PRIMERO y con su propio detalle: es el error más común
-  // con Word, y "no es PDF ni Word" confundiría a alguien que sí subió un Word.
-  if (real === MIME_DOC_VIEJO) {
-    throw new ErrorApi('TIPO_NO_SOPORTADO', 'es un .doc de Word 97-2003: abrilo en Word y guardalo como .docx');
-  }
-
-  // Las dos condiciones del contrato: lo declarado (si declara algo concreto)
-  // y lo que el archivo ES tienen que estar en la lista. Si declara png y en
-  // realidad es un jpg, los dos están permitidos y se extrae según lo REAL.
-  // El detalle NO repite lo que declaró el cliente: es texto que no escribimos
-  // nosotros, y el contrato no deja eco de datos ajenos en 'detalle'.
-  if (!generico && !TIPOS_MIME_OK.includes(declarado)) {
-    throw new ErrorApi('TIPO_NO_SOPORTADO', 'el archivo no es PDF, Word (.docx), JPG, PNG ni WEBP');
-  }
-  if (!real) {
-    throw new ErrorApi('TIPO_NO_SOPORTADO', 'el contenido del archivo no es PDF, Word (.docx), JPG, PNG ni WEBP');
-  }
+  const real = tipoRealValidado(archivo);
 
   // Que el archivo case con el tipo declarado en el item: un item 'pdf' con
   // un JPG adentro (o un 'word' con un PDF) dejaría el doc mintiendo sobre su
@@ -395,6 +538,17 @@ function validarArchivoDelItem(item, archivo) {
     throw new ErrorApi('TIPO_NO_SOPORTADO', `el item es ${NOMBRE_DEL_TIPO[item.tipo]} pero llegó ${NOMBRE_DEL_ARCHIVO[real]}`);
   }
   return real;
+}
+
+// Los archivos de un MIXTO: cada uno con la misma lista y la misma firma
+// real que un archivo suelto, pero sin "tiene que ser un PDF": en un mixto
+// entra cualquiera de la lista. Uno solo que no sirve rechaza el pedido
+// entero, igual que hoy con un archivo equivocado, y el item queda como
+// estaba (corre adentro de la transacción, antes de marcar 'procesando').
+// La cantidad y el total de 25 MB ya los frenó recibirArchivos.
+// Devuelve el tipo real de cada uno, en el mismo orden.
+function validarArchivosDelMixto(archivos) {
+  return archivos.map((archivo, i) => tipoRealValidado(archivo, i + 1));
 }
 
 // ============================================================================
@@ -432,7 +586,18 @@ function exigirCupoDelPlan(workspace, item, listos) {
 // /reprocesar de un pdf, un word o una foto necesita el texto ya extraído: el
 // archivo no se guarda en ningún lado (Storage está descartado porque pide
 // tarjeta). Ese, y solo ese, es el caso de ESTADO_INVALIDO.
+// Un MIXTO también: /reprocesar usa SOLO el texto guardado, separado por las
+// marcas de parte (no vuelve a bajar los links ni pide los archivos). Si no
+// quedó ninguna parte con texto, hay que volver a mandarlo con /procesar.
 function exigirTextoGuardadoSiEsArchivo(item) {
+  if (esMixto(item.tipo)) {
+    const conTexto = separarEnPartes(item.texto ?? '')
+      .some((p) => caracteresUtiles(quitarMarcasDePagina(p.texto)) > 0);
+    if (!conTexto) {
+      throw new ErrorApi('ESTADO_INVALIDO', 'no hay texto guardado y los archivos no se conservan en el servidor: hay que volver a mandar el contenido');
+    }
+    return;
+  }
   if (llevaArchivo(item.tipo) && caracteresUtiles(quitarMarcasDePagina(item.texto ?? '')) === 0) {
     throw new ErrorApi('ESTADO_INVALIDO', 'no hay texto guardado y el archivo no se conserva en el servidor: hay que volver a elegirlo');
   }
@@ -504,6 +669,7 @@ async function tomarElItem({ wsId, itemId, uid, esAdmin, validar }) {
 //  Todas las funciones de abajo devuelven la misma forma, que es exactamente
 //  lo que después se escribe en el item:
 //    { texto, paginas, origen, caracteres, recortado }
+//  (las del mixto suman 'partes': ver "EL MIXTO", más abajo)
 //
 //  SOBRE LAS MARCAS <<<PAGINA:n>>> (decisión a propósito, hay que saber
 //  defenderla): extraer.js pega las páginas del PDF con esas marcas, y
@@ -572,8 +738,14 @@ function textoDeNota(item) {
 // cada reproceso, porque la página (y adónde apunta) pudo cambiar.
 async function textoDeLink(item) {
   const r = await traerTextoDeUrl(item.url ?? '');
-  const texto = quitarMarcasDePagina(limpiarTexto(r.texto));
-  return armarTextoParaGuardar(texto, { paginas: null, origen: 'link' });
+  return armarTextoParaGuardar(textoLimpioDeLaPagina(r), { paginas: null, origen: 'link' });
+}
+
+// Lo que se guarda de una página: limpio y sin marcas de página escritas a
+// mano (una página web no tiene "pág. 3"). Lo comparten el link suelto y los
+// links de un mixto.
+function textoLimpioDeLaPagina(r) {
+  return quitarMarcasDePagina(limpiarTexto(r.texto));
 }
 
 // --- PDF, WORD y FOTO con archivo: extraer.js --------------------------------
@@ -617,26 +789,320 @@ function tipoDesconocido(item) {
   return new ErrorApi('ERROR_INTERNO');
 }
 
-function textoParaProcesar(item, archivo, tipoMime) {
+// 'mixto' recibe sus archivos aparte (la parte 'archivos' del multipart) y el
+// tipo real de cada uno, ya validado en la transacción.
+function textoParaProcesar(item, { itemId, archivo, tipoMime, archivos, tiposDeArchivos }) {
   switch (item.tipo) {
     case 'nota': return textoDeNota(item);
     case 'link': return textoDeLink(item);
     case 'pdf':
     case 'word':
     case 'foto': return textoDeArchivo(item, archivo, tipoMime);
+    case 'mixto': return textoDelMixto({ item, itemId, archivos, tipos: tiposDeArchivos });
     default: throw tipoDesconocido(item);
   }
 }
 
-function textoParaReprocesar(item) {
+function textoParaReprocesar(item, itemId) {
   switch (item.tipo) {
     case 'nota': return textoDeNota(item);
     case 'link': return textoDeLink(item);
     case 'pdf':
     case 'word':
     case 'foto': return textoYaExtraido(item);
+    case 'mixto': return textoYaExtraidoDelMixto(item, itemId);
     default: throw tipoDesconocido(item);
   }
+}
+
+// ============================================================================
+//  EL MIXTO («Varios»): una parte por cada cosa que cargó la persona.
+//
+//  QUÉ SE GUARDA EN EL ITEM (además de lo de siempre):
+//    texto  = las partes una tras otra, cada una precedida por
+//             <<<PARTE:etiqueta>>> en su propio renglón. Adentro de la parte
+//             de un PDF siguen sus <<<PAGINA:n>>>, igual que en un item 'pdf'.
+//    partes = [{ etiqueta, tipo, origen, paginas, caracteres, error }], una
+//             por cosa, en el mismo orden, INCLUIDAS las que fallaron (con
+//             'error' = por qué, y sin texto). La escribe SOLO el backend.
+//    origen = 'mixto' y paginas = null: cada parte tiene los suyos.
+//
+//  LAS ETIQUETAS las arma el backend, nunca el cliente: "Texto", "Link:
+//  dominio.com" (o "Video: <título>" si es un video de YouTube y su oEmbed
+//  contestó), "Foto 1", "Foto 2"..., "PDF «nombre.pdf»", "Word «nombre.docx»".
+//  El nombre del archivo y el título del video vienen de afuera: entran
+//  limpios (sin < > « » [ ], sin saltos de línea, con tope de largo), así
+//  nunca arman una marca ni imitan el encabezado de un fragmento en el
+//  prompt. Si dos se repiten, la segunda lleva " (2)": cada etiqueta es
+//  única, y es la llave entre el texto guardado, la lista de partes y los
+//  chunks.
+//
+//  EL TEXTO DE CADA PARTE VA NEUTRALIZADO (neutralizarMarcas, en texto.js):
+//  nadie puede meter un "<<<PARTE:Foto 9>>>" en su nota o en su página web y
+//  hacer aparecer una parte que no existe. El del PDF y el del Word ya lo
+//  neutraliza extraer.js, hoja por hoja (ahí sí hay marcas de página nuestras
+//  que respetar).
+// ============================================================================
+
+// Los links del doc, como los escribió el cliente. La regla ya exige de 1 a 5
+// strings http(s); esto es por si alguien cargó el doc con el Admin SDK.
+function linksDelItem(item, itemId) {
+  if (!Array.isArray(item.links)) return [];
+  const validos = item.links.filter((l) => typeof l === 'string' && l.trim()).map((l) => l.trim());
+  if (validos.length > MAX_LINKS_MIXTO) {
+    console.warn(`[items] ${itemId}: trae ${validos.length} links y el tope es ${MAX_LINKS_MIXTO}: se leen los primeros`);
+  }
+  return validos.slice(0, MAX_LINKS_MIXTO);
+}
+
+// Un pedazo de texto de AFUERA (nombre de archivo, título de un video, un
+// dominio) listo para ir adentro de una etiqueta: sin caracteres de control
+// ni saltos de línea, sin < > (arman las marcas), sin « » [ ] (arman el
+// encabezado del fragmento en el prompt) y con tope de largo.
+function limpiarParaEtiqueta(texto, tope = LARGO_MAX_NOMBRE_EN_ETIQUETA) {
+  const limpio = String(texto ?? '')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, ' ')
+    .replace(/[<>«»[\]]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return limpio.length <= tope ? limpio : `${limpio.slice(0, tope).trimEnd()}…`;
+}
+
+function etiquetaDeLink(url, titulo) {
+  // Un video de YouTube con título: "Video: <título>" (sin el " - YouTube"
+  // que trae el <title> de la página cuando el oEmbed no contestó).
+  if (idDeVideoDeYoutube(url) && typeof titulo === 'string') {
+    const limpio = limpiarParaEtiqueta(titulo.replace(/\s*-\s*YouTube\s*$/i, ''));
+    if (limpio) return `Video: ${limpio}`;
+  }
+  let dominio = '';
+  try {
+    dominio = new URL(url).hostname.replace(/^www\./i, '');
+  } catch {
+    // una dirección mal escrita: la parte va a fallar igual en traerTextoDeUrl
+  }
+  return `Link: ${limpiarParaEtiqueta(dominio) || 'dirección mal escrita'}`;
+}
+
+// Le pone la etiqueta a cada parte, ya extraída (la del link necesita el
+// título que trajo la página). Los contadores son por tipo: "Foto 1, Foto 2"
+// aunque haya un PDF en el medio. Un PDF o un Word sin nombre van numerados.
+function ponerEtiquetas(partes) {
+  const contadores = { foto: 0, pdf: 0, word: 0 };
+  const vistas = new Map();
+  for (const p of partes) {
+    let base;
+    if (p.tipo === 'texto') {
+      base = 'Texto';
+    } else if (p.tipo === 'link') {
+      base = etiquetaDeLink(p.url, p.titulo);
+    } else {
+      contadores[p.tipo] += 1;
+      const nombre = limpiarParaEtiqueta(p.nombre);
+      if (p.tipo === 'foto') base = `Foto ${contadores.foto}`;
+      else if (p.tipo === 'pdf') base = nombre ? `PDF «${nombre}»` : `PDF ${contadores.pdf}`;
+      else base = nombre ? `Word «${nombre}»` : `Word ${contadores.word}`;
+    }
+    const veces = (vistas.get(base) ?? 0) + 1;
+    vistas.set(base, veces);
+    p.etiqueta = veces === 1 ? base : `${base} (${veces})`;
+  }
+}
+
+// El texto que se le muestra a la persona cuando una parte se salteó. Los
+// servicios ya traen uno escrito por nosotros para ESE caso ("Ese PDF está
+// protegido con contraseña..."); si no, el del catálogo. Nunca err.message.
+function motivoDeLaFalla(err) {
+  if (typeof err?.mensaje === 'string' && err.mensaje) return err.mensaje;
+  return err?.mensajeParaLaPersona ?? CATALOGO_DE_ERRORES[err?.codigo]?.mensaje ?? CATALOGO_DE_ERRORES.NO_SE_PUDO_EXTRAER_TEXTO.mensaje;
+}
+
+// Extrae UNA parte. Si falla por su contenido, la devuelve anotada con su
+// error; si falla por otra cosa (ver FALLAS_DE_UNA_PARTE), tira y falla el
+// item entero. 'extraer' devuelve { texto, origen, paginas, titulo? }.
+async function leerParte(itemId, numero, base, extraer) {
+  try {
+    const r = await extraer();
+    if (caracteresUtiles(quitarMarcasDePagina(r.texto)) === 0) throw new ErrorApi('NO_SE_PUDO_EXTRAER_TEXTO');
+    return { ...base, ...r, error: null };
+  } catch (err) {
+    if (!FALLAS_DE_UNA_PARTE.has(err?.codigo)) throw err;
+    // Al log, el número y el tipo de la parte y el código: nunca la URL, el
+    // nombre del archivo ni el texto (pueden ser de un item privado).
+    console.warn(`[items] ${itemId}: la parte ${numero} (${base.tipo}) se saltea: ${err.codigo}`);
+    return { ...base, texto: null, origen: null, paginas: null, error: motivoDeLaFalla(err) };
+  }
+}
+
+// /procesar de un mixto: saca el texto de cada parte, en el orden del
+// contrato, y arma el texto y la lista de partes.
+async function textoDelMixto({ item, itemId, archivos, tipos }) {
+  const leidas = [];
+
+  // ---- 1) el texto que escribió la persona -------------------------------
+  // Con lo mismo que una nota. Un texto que es todo espacios no es una parte.
+  if (typeof item.textoOriginal === 'string' && caracteresUtiles(item.textoOriginal) > 0) {
+    leidas.push(await leerParte(itemId, leidas.length + 1, { tipo: 'texto' }, () => {
+      const r = textoDeNota(item);
+      return { texto: neutralizarMarcas(r.texto), origen: 'nota', paginas: null };
+    }));
+  }
+
+  // ---- 2) los links, EN PARALELO -----------------------------------------
+  // Cada uno pasa por la aduana anti-SSRF completa de traerTextoDeUrl. Van
+  // juntos porque cada uno puede tardar hasta 10 s y la persona espera.
+  const links = linksDelItem(item, itemId);
+  const desde = leidas.length;
+  leidas.push(...await Promise.all(links.map((url, i) =>
+    leerParte(itemId, desde + i + 1, { tipo: 'link', url }, async () => {
+      const r = await traerTextoDeUrl(url);
+      return { texto: neutralizarMarcas(textoLimpioDeLaPagina(r)), origen: 'link', paginas: null, titulo: r.titulo };
+    }))));
+
+  // ---- 3) los archivos, DE A UNO y en el orden en que llegaron ------------
+  // De a uno a propósito: dos fotos juntas pueden caer las dos en el OCR
+  // local (tesseract), que se come la memoria de Render, y OCR.space limita
+  // los pedidos por minuto.
+  for (let i = 0; i < archivos.length; i++) {
+    const archivo = archivos[i];
+    const tipoMime = tipos[i];
+    const tipo = TIPO_DE_PARTE_SEGUN_MIME[tipoMime];
+    leidas.push(await leerParte(itemId, leidas.length + 1, { tipo, nombre: archivo.originalname }, async () => {
+      const r = await extraerDeArchivo({
+        buffer: archivo.buffer,
+        tipoMime,
+        nombreArchivo: archivo.originalname || undefined,
+      });
+      const limpio = limpiarTexto(r.texto);
+      return {
+        // El PDF conserva sus marcas de página (ya neutralizado en extraer.js,
+        // hoja por hoja). La foto y el Word, no: su "pág. 1" no le sirve a
+        // nadie, y así el texto de la parte es texto y nada más.
+        texto: tipo === 'pdf' ? limpio : neutralizarMarcas(quitarMarcasDePagina(limpio)),
+        origen: origenDelModelo(r.origen, tipo),
+        paginas: tipo === 'pdf' ? (r.paginas ?? null) : null,
+      };
+    }));
+  }
+
+  // No llegó nada: ni texto, ni links, ni archivos. Las reglas no lo pueden
+  // frenar (no saben si van a llegar archivos), así que se frena acá.
+  if (leidas.length === 0) {
+    throw new ErrorApi('DATOS_INVALIDOS', 'el item no trae texto, links ni archivos');
+  }
+
+  ponerEtiquetas(leidas);
+  return armarElMixto(leidas, itemId);
+}
+
+// Junta las partes leídas en el texto del item, con el tope de 300.000
+// caracteres de TODO el item (un doc de Firestore no pasa de 1 MiB). Si no
+// entra todo, se recorta la parte donde cae el tope y las que siguen quedan
+// anotadas como "no entró" (recortado: true, como cualquier otro item).
+// 'caracteres' es el largo REAL de lo que se leyó, sin marcas.
+function armarElMixto(leidas, itemId) {
+  const bloques = [];
+  const partes = [];
+  let largo = 0;
+  let caracteres = 0;
+  let recortado = false;
+
+  for (const l of leidas) {
+    const parte = { etiqueta: l.etiqueta, tipo: l.tipo, origen: null, paginas: null, caracteres: 0, error: l.error };
+    partes.push(parte);
+    if (l.error) continue;
+
+    const marca = marcaDeParte(l.etiqueta);
+    const separador = bloques.length > 0 ? 2 : 0; // el '\n\n' entre partes
+    const lugar = TOPE_TEXTO_ITEM - largo - separador - marca.length - 1;
+    let cuerpo = l.texto;
+    if (cuerpo.length > lugar) {
+      recortado = true;
+      // Si el corte cayó en el medio de una marca de página ("<<<PAGI"),
+      // afuera: si no, queda como basura al final del último chunk.
+      cuerpo = lugar > 0 ? cuerpo.slice(0, lugar).replace(/\n?<<<[PAGINA:\d>]*$/, '').trimEnd() : '';
+      if (caracteresUtiles(quitarMarcasDePagina(cuerpo)) === 0) {
+        parte.error = `No entró: el item llegó al máximo de ${TOPE_TEXTO_ITEM.toLocaleString('es-AR')} caracteres.`;
+        continue;
+      }
+    }
+
+    const reales = quitarMarcasDePagina(l.texto).length;
+    Object.assign(parte, { origen: l.origen, paginas: l.paginas ?? null, caracteres: reales });
+    caracteres += reales;
+    bloques.push(`${marca}\n${cuerpo}`);
+    largo += separador + marca.length + 1 + cuerpo.length;
+  }
+
+  // Si fallaron TODAS, el item va a 'error' como cualquier otro.
+  if (bloques.length === 0) {
+    throw new ErrorApi('NO_SE_PUDO_EXTRAER_TEXTO', 'no se pudo leer ninguna de las partes del item');
+  }
+
+  const salteadas = partes.filter((p) => p.error).length;
+  console.log(`[items] ${itemId}: mixto con ${partes.length} parte(s), ${salteadas} salteada(s)${recortado ? ', recortado' : ''}`);
+
+  return { texto: bloques.join('\n\n'), paginas: null, origen: 'mixto', caracteres, recortado, partes };
+}
+
+// /reprocesar de un mixto: el texto guardado, separado por sus marcas. No se
+// vuelve a bajar ningún link ni se pide ningún archivo.
+// La lista de partes se reusa tal cual si coincide con el texto (las que se
+// leyeron, en el mismo orden): así las que habían fallado siguen anotadas.
+// Si no coincide (un doc tocado a mano), se arma de nuevo desde el texto y
+// las que habían fallado se pierden: la etiqueta dice qué es cada una.
+function textoYaExtraidoDelMixto(item, itemId) {
+  const texto = String(item.texto ?? '');
+  const segmentos = separarEnPartes(texto);
+  const guardadas = Array.isArray(item.partes) ? item.partes : [];
+  const leidas = guardadas.filter((p) => p && !p.error).map((p) => p.etiqueta);
+  const coinciden = leidas.length === segmentos.length &&
+    leidas.every((etiqueta, i) => etiqueta === segmentos[i].etiqueta) &&
+    guardadas.every(parteBienArmada);
+
+  let partes;
+  if (coinciden) {
+    partes = guardadas.map((p) => ({ ...p }));
+  } else {
+    console.warn(`[items] ${itemId}: la lista de partes no coincide con el texto guardado: la armo de nuevo desde el texto`);
+    partes = segmentos.map(parteDeducida);
+  }
+  if (!partes.some((p) => !p.error)) throw new ErrorApi('NO_SE_PUDO_EXTRAER_TEXTO');
+
+  return {
+    texto,
+    paginas: null,
+    origen: 'mixto',
+    // Como textoYaExtraido: el dato real del procesamiento original se
+    // conserva (recalcularlo sobre lo guardado perdería lo que se recortó).
+    caracteres: Number.isFinite(item.caracteres) ? item.caracteres : partes.reduce((s, p) => s + (p.caracteres || 0), 0),
+    recortado: typeof item.recortado === 'boolean' ? item.recortado : false,
+    partes,
+  };
+}
+
+function parteBienArmada(p) {
+  return p && typeof p.etiqueta === 'string' && TIPOS_DE_PARTE.has(p.tipo) &&
+    (p.error === null || typeof p.error === 'string') &&
+    (p.error !== null || ORIGENES_DEL_MODELO.has(p.origen));
+}
+
+// Una parte armada solo con lo que dice su etiqueta (ver arriba).
+function parteDeducida({ etiqueta, texto }) {
+  let tipo = 'texto';
+  if (/^(Link|Video):/.test(etiqueta)) tipo = 'link';
+  else if (/^Foto\b/.test(etiqueta)) tipo = 'foto';
+  else if (/^PDF\b/.test(etiqueta)) tipo = 'pdf';
+  else if (/^Word\b/.test(etiqueta)) tipo = 'word';
+  const paginas = tipo === 'pdf' ? (texto.match(/<<<PAGINA:\d+>>>/g)?.length || null) : null;
+  return {
+    etiqueta,
+    tipo,
+    origen: ORIGEN_POR_TIPO_DE_PARTE[tipo],
+    paginas,
+    caracteres: quitarMarcasDePagina(texto).length,
+    error: null,
+  };
 }
 
 // ============================================================================
@@ -698,11 +1164,58 @@ function borrarChunksDelItem(wsId, itemId) {
 }
 
 // ============================================================================
+//  LOS TROZOS DE UN ITEM: { idx, texto, pagina, origen, parte }
+//
+//  Tipos de siempre: trocear() el texto entero, con el origen del item y
+//  parte null. La página solo en los PDF (una foto es "una página" para
+//  trocear, pero no tiene pág.; un Word no tiene páginas fijas).
+//
+//  Mixto: CADA PARTE POR SEPARADO, así un chunk nunca mezcla dos partes (el
+//  final de una foto con el principio de un PDF sería un pedazo que no es de
+//  ningún lado y que no se puede citar). El idx sigue corrido de 0 a N-1, sin
+//  huecos, a lo largo de todas las partes: el id del chunk es itemId_idx igual
+//  que siempre. Cada trozo lleva la etiqueta de su parte, el origen de ESA
+//  parte, y la página solo si la parte es un PDF.
+//  Una parte del texto que no está en la lista de partes (no debería pasar:
+//  las escribe el backend juntas) NO se indexa: fail-closed, igual que el RAG.
+// ============================================================================
+function armarTrozos(item, extraido) {
+  const opciones = { tamano: TAM_CHUNK, solape: SOLAPE_CHUNK };
+
+  if (!esMixto(item.tipo)) {
+    return trocear(extraido.texto, opciones).map((t) => ({
+      idx: t.idx,
+      texto: t.texto,
+      pagina: item.tipo === 'pdf' ? (t.pagina ?? null) : null,
+      origen: extraido.origen,
+      parte: null,
+    }));
+  }
+
+  const leidas = new Map((extraido.partes ?? []).filter((p) => !p.error).map((p) => [p.etiqueta, p]));
+  const trozos = [];
+  for (const segmento of separarEnPartes(extraido.texto)) {
+    const parte = leidas.get(segmento.etiqueta);
+    if (!parte) continue;
+    for (const t of trocear(segmento.texto, opciones)) {
+      trozos.push({
+        idx: trozos.length,
+        texto: t.texto,
+        pagina: parte.tipo === 'pdf' ? (t.pagina ?? null) : null,
+        origen: parte.origen,
+        parte: parte.etiqueta,
+      });
+    }
+  }
+  return trozos;
+}
+
+// ============================================================================
 //  indexar() — LA MISMA FUNCIÓN PARA /procesar Y /reprocesar
 //  Pasos del contrato, en este orden: borrar los viejos -> trocear ->
 //  embeber ('passage') -> escribir chunks/{itemId_idx}.
 // ============================================================================
-async function indexar({ wsId, itemId, item, texto, origen }) {
+async function indexar({ wsId, itemId, item, extraido }) {
   // ---- 1. PRIMERO borrar los chunks viejos (invariante 5) -------------------
   const { borrados, ajenos } = await borrarChunksDelItem(wsId, itemId);
   if (ajenos > 0) {
@@ -714,7 +1227,8 @@ async function indexar({ wsId, itemId, item, texto, origen }) {
 
   // ---- 2. Trocear -------------------------------------------------------------
   // trocear() respeta las marcas de página: cada chunk sabe de qué hoja salió.
-  const trozos = trocear(texto, { tamano: TAM_CHUNK, solape: SOLAPE_CHUNK });
+  // En un mixto, además, cada parte va por separado (ver armarTrozos).
+  const trozos = armarTrozos(item, extraido);
   if (trozos.length === 0) throw new ErrorApi('NO_SE_PUDO_EXTRAER_TEXTO', 'el texto extraído quedó vacío');
 
   // ---- 3. Embeddings ----------------------------------------------------------
@@ -755,10 +1269,13 @@ async function indexar({ wsId, itemId, item, texto, origen }) {
         titulo: tituloDe(item),
         idx: trozo.idx,
         // El modelo: página del PDF para citar "pág. 3"; null en notas, links,
-        // Words y fotos (una foto es "una página" para trocear, pero no tiene
-        // pág.; un Word no tiene páginas fijas).
-        pagina: item.tipo === 'pdf' ? (trozo.pagina ?? null) : null,
-        origen,
+        // Words y fotos. En un mixto, la página DENTRO del PDF de esa parte.
+        pagina: trozo.pagina,
+        // El origen de ESTE trozo: el del item, o en un mixto el de su parte
+        // ('nota', 'link', 'pdf-texto', 'docx', 'ocr-space'; nunca 'mixto').
+        origen: trozo.origen,
+        // La etiqueta de su parte en un mixto ("Foto 2"); null en los demás.
+        parte: trozo.parte,
         texto: trozo.texto,
         embedding: vectores[trozo.idx],
         // COPIA de los permisos del item. Es la SEGUNDA cerradura del
@@ -800,9 +1317,7 @@ async function procesarYDejarListo({ wsId, itemId, uid, quien, item, sacarTexto,
 
     // ---- PASO 2: borrar viejos, trocear, embeber, escribir ----------------
     paso = 'indexar';
-    const { cantChunks, chunksBorrados } = await indexar({
-      wsId, itemId, item, texto: extraido.texto, origen: extraido.origen,
-    });
+    const { cantChunks, chunksBorrados } = await indexar({ wsId, itemId, item, extraido });
 
     // ---- PASO 3: el item queda 'listo' ------------------------------------
     paso = 'guardar';
@@ -817,6 +1332,8 @@ async function procesarYDejarListo({ wsId, itemId, uid, quien, item, sacarTexto,
       errorMsg: null,
       actualizadoEn: FieldValue.serverTimestamp(),
     };
+    // 'partes' SOLO en el mixto: los tipos de siempre no cambian en nada.
+    if (extraido.partes) campos.partes = extraido.partes;
     try {
       await ref.update(campos);
     } catch (err) {
@@ -827,28 +1344,36 @@ async function procesarYDejarListo({ wsId, itemId, uid, quien, item, sacarTexto,
     }
 
     // "1 fragmento" y no "1 fragmentos": el feed "En vivo" se proyecta en la
-    // demo y tiene que hablar como una persona, no como una maquina.
+    // demo y tiene que hablar como una persona, no como una maquina. En un
+    // mixto con partes salteadas se dice cuántas, así el admin lo ve sin
+    // abrir el item.
+    const salteadas = (extraido.partes ?? []).filter((p) => p.error).length;
+    const deMas = salteadas === 0 ? ''
+      : `; ${salteadas} ${salteadas === 1 ? 'parte no se pudo leer' : 'partes no se pudieron leer'}`;
     await anotarEvento(wsId, {
       tipo: 'item.listo',
       actorUid: uid,
       itemId,
-      resumen: `${quien} ${verbo} "${tituloDe(item)}" (${cantChunks} ${cantChunks === 1 ? 'fragmento' : 'fragmentos'})`,
+      resumen: `${quien} ${verbo} "${tituloDe(item)}" (${cantChunks} ${cantChunks === 1 ? 'fragmento' : 'fragmentos'}${deMas})`,
     });
 
     console.log(`[items] ${itemId} listo en ${Date.now() - arranque} ms · ${cantChunks} chunks · borrados ${chunksBorrados}`);
 
-    return {
-      item: {
-        itemId,
-        estado: 'listo',
-        cantChunks,
-        origen: extraido.origen,
-        paginas: extraido.paginas,
-        caracteres: extraido.caracteres,
-        recortado: extraido.recortado,
-      },
-      chunksBorrados,
+    const respuesta = {
+      itemId,
+      estado: 'listo',
+      cantChunks,
+      origen: extraido.origen,
+      paginas: extraido.paginas,
+      caracteres: extraido.caracteres,
+      recortado: extraido.recortado,
     };
+    // En un mixto, la lista de partes también viaja (está en el doc, así que
+    // el invariante 20 se cumple): la app puede decir "1 parte no se pudo
+    // leer" sin esperar al listener.
+    if (extraido.partes) respuesta.partes = extraido.partes;
+
+    return { item: respuesta, chunksBorrados };
   } catch (err) {
     // El motivo COMPLETO (el detalle del servicio, el stack) va al log de
     // Render, NUNCA al documento ni al cliente: trae rutas del servidor y a
@@ -891,6 +1416,9 @@ async function dejarEnError({ ref, wsId, itemId, uid, quien, item, errorApi, ext
       caracteres: extraido.caracteres,
       recortado: extraido.recortado,
     });
+    // En un mixto, también la lista de partes: /reprocesar la necesita para
+    // separar el texto guardado sin volver a bajar ni pedir nada.
+    if (extraido.partes) campos.partes = extraido.partes;
   }
 
   try {
@@ -913,11 +1441,13 @@ async function dejarEnError({ ref, wsId, itemId, uid, quien, item, errorApi, ext
 // ============================================================================
 //  POST /:itemId/procesar   (multipart)   — endpoint 7 del contrato
 // ============================================================================
-rutasDeItems.post('/:itemId/procesar', requireAuth, exigirMiembroSegunContrato, recibirArchivo, async (req, res) => {
+rutasDeItems.post('/:itemId/procesar', requireAuth, exigirMiembroSegunContrato, recibirArchivos, async (req, res) => {
   const arranque = Date.now();
   const { wsId, itemId } = req.params;
   const { uid } = req.usuario;
-  const archivo = req.file ?? null;
+  // 'archivo' (uno) es de pdf/word/foto; 'archivos' (de 0 a 8), del mixto.
+  const archivo = req.files?.archivo?.[0] ?? null;
+  const archivos = req.files?.archivos ?? [];
 
   // Antes de la transacción solo lo que no se puede leer adentro (la agregación).
   const listos = await contarItemsListos(wsId, req.workspace);
@@ -925,20 +1455,28 @@ rutasDeItems.post('/:itemId/procesar', requireAuth, exigirMiembroSegunContrato, 
   // --- LA TRANSACCIÓN: acá se corta el doble tap, y adentro de ella (con el
   //     item ya autorizado) se valida el archivo y el cupo del plan. Si algo de
   //     eso falla, el item queda como estaba: no se gastó nada.
-  const { item, validado: tipoMime } = await tomarElItem({
+  //     El cupo cuenta un mixto como UN item, sin importar cuántas partes traiga.
+  const { item, validado } = await tomarElItem({
     wsId,
     itemId,
     uid,
     esAdmin: req.esAdmin,
     validar: (it) => {
-      const tipo = validarArchivoDelItem(it, archivo);
+      const tipos = esMixto(it.tipo) ? validarArchivosDelMixto(archivos) : validarArchivoDelItem(it, archivo);
       exigirCupoDelPlan(req.workspace, it, listos);
-      return tipo;
+      return tipos;
     },
   });
 
+  // Lo que vino en la parte que no le corresponde a este tipo se ignora (el
+  // contrato no tiene un error para eso), y queda en el log.
+  const mixto = esMixto(item.tipo);
+  const tipoMime = mixto ? null : validado;
   if (archivo && !tipoMime) {
-    console.warn(`[items] ${itemId} es '${item.tipo}': se ignora el archivo que vino en el multipart`);
+    console.warn(`[items] ${itemId} es '${item.tipo}': se ignora la parte 'archivo' que vino en el multipart`);
+  }
+  if (archivos.length > 0 && !mixto) {
+    console.warn(`[items] ${itemId} es '${item.tipo}': se ignoran ${archivos.length} parte(s) 'archivos' (son solo del mixto)`);
   }
 
   // --- Recién ahora se gasta plata en IA. --------------------------------
@@ -949,7 +1487,13 @@ rutasDeItems.post('/:itemId/procesar', requireAuth, exigirMiembroSegunContrato, 
     quien: quienHizo(req),
     item,
     verbo: 'subió',
-    sacarTexto: () => textoParaProcesar(item, archivo, tipoMime),
+    sacarTexto: () => textoParaProcesar(item, {
+      itemId,
+      archivo,
+      tipoMime,
+      archivos,
+      tiposDeArchivos: mixto ? validado : [],
+    }),
   }));
 
   return res.status(200).json({
@@ -991,7 +1535,7 @@ rutasDeItems.post('/:itemId/reprocesar', requireAuth, exigirMiembroSegunContrato
     quien: quienHizo(req),
     item,
     verbo: 'volvió a indexar',
-    sacarTexto: () => textoParaReprocesar(item),
+    sacarTexto: () => textoParaReprocesar(item, itemId),
   }));
 
   return res.status(200).json({

@@ -23,7 +23,8 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
     ├── members/{uid}                   quién está en el equipo y con qué rol.
     │                                   El backend lo lee en CADA request.
     │
-    ├── items/{itemId}                  el conocimiento: notas, pdf, Word, links, fotos.
+    ├── items/{itemId}                  el conocimiento: notas, pdf, Word, links, fotos,
+    │                                   y el «Varios» (tipo 'mixto': todo junto).
     │                                   LO CREA EL CLIENTE en estado 'pendiente'.
     │
     ├── respuestas/{respId}             preguntas a la IA + respuesta con citas.
@@ -42,13 +43,14 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 
 **Quién escribe:** lo **CREA el backend** (`POST /v1/auth/registro`), nunca el cliente (en las reglas: `allow create: if false`). El cliente solo puede **editar dos campos** de su propio doc: `nombre` y `workspaceActual`.
 **Quién lee:** solo el propio uid (y el backend). Nadie lee el doc de otro, ni el admin: para ver gente está `members`.
+**Espacio de bienvenida (11/2026):** si el backend corre con la variable `ESPACIO_DE_BIENVENIDA` (un wsId; en `render.yaml` es el espacio de la demo, para la prueba cruzada entre equipos), ese mismo `POST /v1/auth/registro`, después de dejar listo este doc, suma a la persona como `'miembro'` a ese espacio **si no está en ninguno**, si no figura en su `exMiembros` y si el plan tiene lugar. Es la misma alta que hace un admin (ver `members`), y además deja `workspaceActual` en ese espacio. Si falla, el registro igual sale bien y la persona queda sin espacio, como antes. Sin la variable, nada cambia. Para un producto real se borra.
 
 | Campo | Tipo | Quién lo escribe | Para qué |
 |---|---|---|---|
 | `email` | string | **BACKEND** | Email de la cuenta. Sale del token verificado, nunca del body. Se muestra en listas y sirve para invitar. |
 | `nombre` | string (**2 a 60** caracteres) | **BACKEND** lo crea / **CLIENTE** lo puede editar | Nombre visible del usuario. El rango 2–60 es idéntico en el modelo, en el contrato y en la regla (`size() >= 2 && size() <= 60`). |
 | `workspaces` | map (wsId → `{rol, nombre}`) | **BACKEND** | Espejo local de a qué workspaces pertenece, para dibujar el selector sin queries. Es la FUENTE DE VERDAD desde la que el backend reconstruye el custom claim completo. |
-| `workspaceActual` | string \| null | **CLIENTE** | wsId del workspace abierto, para que la app arranque donde quedó. Queda en null cuando lo sacan del último workspace. |
+| `workspaceActual` | string \| null | **CLIENTE** (y el **BACKEND** en dos casos) | wsId del workspace abierto, para que la app arranque donde quedó. El backend lo toca solo para no dejarlo apuntando a la nada: lo mueve (o lo deja en null) cuando sacan a la persona del workspace que tenía abierto, y lo pone en el espacio de bienvenida cuando el registro la suma ahí sin que tuviera ninguno abierto. |
 | `claimsActualizadoEn` | timestamp | **BACKEND** | Marca que el backend cambió los custom claims. El cliente escucha su propio doc y, cuando cambia, llama a `getIdToken(true)` para refrescar el token de 1 hora. |
 | `creadoEn` | timestamp | **BACKEND** | Alta de la cuenta (serverTimestamp). Informativo y de orden. |
 
@@ -73,7 +75,7 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 
 ## `workspaces/{wsId}/members/{uid}`
 
-**Quién escribe:** solo el **BACKEND** (POST, DELETE y PATCH de miembros). El alta, la baja y el cambio de rol los pide un admin, pero el que escribe es el backend, porque también tiene que tocar los claims y `usuarios/{uid}`.
+**Quién escribe:** solo el **BACKEND** (POST, DELETE y PATCH de miembros, y el registro cuando suma a alguien al espacio de bienvenida). El alta, la baja y el cambio de rol los pide un admin, pero el que escribe es el backend, porque también tiene que tocar los claims y `usuarios/{uid}`. Las dos altas (la del admin y la de la bienvenida) son **la misma función** del backend (`sumarMiembro`, en `rutas/workspaces.js`): mismos campos, mismo claim, misma limpieza de `exMiembros`.
 **Quién lee:** cualquier miembro del workspace, para mostrar "quién subió esto". Además **es el documento que el BACKEND lee en CADA request** para saber si la persona todavía está en el equipo: el claim del token puede estar hasta 1 hora atrasado, este doc nunca.
 
 | Campo | Tipo | Quién lo escribe | Para qué |
@@ -82,7 +84,7 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 | `email` | string | **BACKEND** | Email del miembro, desnormalizado para la lista del panel sin leer `usuarios/{uid}`. |
 | `nombre` | string (2 a 60) | **BACKEND** | Nombre visible en la lista de miembros y en los items. Copia de `usuarios/{uid}.nombre`, mismo rango. |
 | `rol` | string (`'admin'` \| `'miembro'`) | **BACKEND** | Rol en ESTE workspace. Es el rol que manda **para el backend** (el claim manda para las reglas de Firestore). Si no coinciden, para el backend gana este. |
-| `agregadoPor` | string (uid) | **BACKEND** | Quién lo invitó. Rastro para el feed de auditoría. |
+| `agregadoPor` | string (uid) | **BACKEND** | Quién lo invitó. Rastro para el feed de auditoría. Si entró solo por el espacio de bienvenida, es su propio uid (como el owner, que "se invitó solo" al crear el espacio). |
 | `agregadoEn` | timestamp | **BACKEND** | Cuándo entró al equipo (serverTimestamp). |
 
 ---
@@ -98,21 +100,23 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 | Campo | Tipo | Quién lo escribe | Para qué |
 |---|---|---|---|
 | `titulo` | string (1 a 140) | **CLIENTE** | Título que ve el usuario y que aparece en la cita de la respuesta. El autor o el admin lo pueden editar después. |
-| `tipo` | string (`'nota'` \| `'pdf'` \| `'word'` \| `'link'` \| `'foto'`) | **CLIENTE** | De dónde salió el contenido. Define qué pipeline usa el backend y qué otros campos son obligatorios. No se puede cambiar después. `'word'` es un documento de Word (solo `.docx`) y tiene el mismo trato que `'pdf'`. |
+| `tipo` | string (`'nota'` \| `'pdf'` \| `'word'` \| `'link'` \| `'foto'` \| `'mixto'`) | **CLIENTE** | De dónde salió el contenido. Define qué pipeline usa el backend y qué otros campos son obligatorios. No se puede cambiar después. `'word'` es un documento de Word (solo `.docx`) y tiene el mismo trato que `'pdf'`. **`'mixto'`** (la app lo muestra como **«Varios»**) es el item universal: junta en uno lo que la persona cargó de una vez —un texto, hasta 5 links y hasta 8 archivos— y el backend lo arma en **partes** (ver `partes`). Lo decide la app: solo texto → `'nota'`; un solo link → `'link'`; un solo archivo → `'pdf'`/`'word'`/`'foto'`; cualquier combinación, o más de un link o de un archivo → `'mixto'`. Los cinco tipos de antes no cambian en nada. |
 | `visibilidad` | string (`'equipo'` \| `'privado'`) | **CLIENTE** al crear / **BACKEND** después | Quién lo puede leer. Es el campo que hace la diferencia de rol del requisito 2. El cliente la elige **solo al crear**: después la cambia únicamente el backend, con el candado en vivo (`PATCH /v1/workspaces/:wsId/items/:itemId/visibilidad`). Compartir con el equipo es **solo del autor**; pasar a privado, del autor o del admin. El PATCH cambia el item y la copia de **todos** sus chunks ("primero cerrar, último abrir") y deja el evento `item.visibilidad`. Las reglas **no dejan cambiarla desde la app** (ni al autor ni al admin): si se pudiera, el admin publicaría lo privado de otra persona y el cambio no quedaría en el feed ni en los chunks. |
 | `workspaceId` | string | **CLIENTE** | Mismo wsId que el del path; la regla exige que coincidan. Se guarda como campo para que el backend valide pertenencia sin parsear rutas. |
 | `creadoPor` | string (uid) | **CLIENTE** | Autor. La regla exige que sea igual a `request.auth.uid`: nadie firma un item con el uid de otro. Lo usa la regla de 'privado' y el feed de eventos. |
 | `creadoEn` | timestamp (obligatoriamente `FieldValue.serverTimestamp()`) | **CLIENTE** | Alta del item. La regla exige `request.time`, así que el reloj del celular no sirve. Orden por defecto de la lista: `creadoEn desc`. |
 | `estado` | string (`'pendiente'` \| `'procesando'` \| `'listo'` \| `'error'`) | **CLIENTE solo al crear** (siempre `'pendiente'`) → después **BACKEND** | Ciclo de vida del procesamiento. Es lo que pinta el chip de color. El cliente nunca lo vuelve a tocar: `edicionDeItemValida()` no lo incluye. |
 | `url` | string (≤ 2000) — solo si `tipo == 'link'` | **CLIENTE** | La dirección original del link. **Se llama `url` en las tres piezas** (en la v1 las reglas lo llamaban `fuenteUrl` y no se podía crear ni un link). El backend la valida contra SSRF antes de hacer fetch y la vuelve a leer del doc en cada reproceso. |
-| `nombreArchivo` | string (≤ 200) \| ausente | **CLIENTE** | Nombre del archivo subido (pdf, Word o foto), para que el usuario reconozca de dónde vino. El archivo NO se guarda en ningún lado: Storage está descartado. |
-| `textoOriginal` | string (1 a 50.000) — solo si `tipo == 'nota'` | **CLIENTE** | **El contenido que escribió la persona.** Es el campo que hace que el tipo 'nota' exista. El autor lo puede editar y después tocar Reprocesar. |
-| `texto` | string (≤ 300.000) | **BACKEND** | El texto **extraído** y normalizado: lo que se trocea en chunks y lo que se le manda a la IA. Para una nota sale de `textoOriginal`; para pdf/foto del OCR; para Word, del texto del `.docx`; para link del fetch. El cliente NUNCA lo escribe: si pudiera, plantaría fuentes falsas en el índice. En los PDF se guarda **con las marcas `<<<PAGINA:n>>>`** entre una página y otra (la foto lleva una sola, como pág. 1): con ellas el troceo sabe de qué página sale cada chunk ("pág. 3"), reprocesar da siempre lo mismo y la pantalla «Lo que leyó NeuroDesk» de la app muestra el texto separado por páginas. `caracteres` se cuenta sin las marcas. |
+| `nombreArchivo` | string (≤ 200) \| ausente — **nunca en un `'mixto'`** | **CLIENTE** | Nombre del archivo subido (pdf, Word o foto), para que el usuario reconozca de dónde vino. El archivo NO se guarda en ningún lado: Storage está descartado. Un mixto no lo lleva (puede traer varios archivos): el nombre de cada uno queda en la etiqueta de su parte ("PDF «acta.pdf»"). |
+| `textoOriginal` | string (1 a 50.000) — obligatorio si `tipo == 'nota'`, opcional si `tipo == 'mixto'`, prohibido en los demás | **CLIENTE** | **El contenido que escribió la persona.** Es el campo que hace que el tipo 'nota' exista. En una nota, el autor lo puede editar y después tocar Reprocesar; en un mixto **no se edita** (su texto ya quedó partido en `texto`, que es lo que usa el reproceso). |
+| `links` | array de 1 a 5 strings (cada uno `http(s)://…`, ≤ 2000) \| ausente — **solo si `tipo == 'mixto'`** | **CLIENTE** | Los links de un mixto, en el orden en que los cargó la persona. Misma forma que `url` (la regla lo valida posición por posición) y la misma validación anti-SSRF en el backend, link por link. Sin links el campo se **omite**: una lista vacía se rechaza. No se edita después. Un mixto **no** lleva `url`. |
+| `texto` | string (≤ 300.000) | **BACKEND** | El texto **extraído** y normalizado: lo que se trocea en chunks y lo que se le manda a la IA. Para una nota sale de `textoOriginal`; para pdf/foto del OCR; para Word, del texto del `.docx`; para link del fetch. El cliente NUNCA lo escribe: si pudiera, plantaría fuentes falsas en el índice. En los PDF se guarda **con las marcas `<<<PAGINA:n>>>`** entre una página y otra (la foto lleva una sola, como pág. 1): con ellas el troceo sabe de qué página sale cada chunk ("pág. 3"), reprocesar da siempre lo mismo y la pantalla «Lo que leyó NeuroDesk» de la app muestra el texto separado por páginas. **En un mixto**, es cada parte leída una tras otra, cada una precedida por la marca **`<<<PARTE:etiqueta>>>` en su propio renglón** (adentro de la parte de un PDF siguen sus `<<<PAGINA:n>>>`); así el reproceso las vuelve a separar sin bajar ni pedir nada. Lo que viene de afuera (lo que escribió la persona, una página web, un PDF, un Word, el OCR) entra **neutralizado**: un `<<<` escrito pasa a `< <<`, así nadie puede fingir una marca y hacer aparecer una parte o una página que no existe. `caracteres` se cuenta sin las marcas. |
+| `partes` | array de map `{etiqueta, tipo, origen, paginas, caracteres, error}` — **solo en un `'mixto'`** | **BACKEND** | Una entrada por cada cosa que cargó la persona, **en este orden**: el texto, cada link, cada archivo (en el orden en que llegó). `etiqueta`: "Texto", "Link: diario.com" (o "Video: <título>" en YouTube, si su oEmbed contestó), "Foto 1", "Foto 2"…, "PDF «nombre.pdf»", "Word «nombre.docx»"; la arma el backend, es **única** dentro del item (si se repite, la segunda lleva " (2)") y es la llave entre `texto`, esta lista y los chunks. `tipo`: `'texto'` \| `'link'` \| `'foto'` \| `'pdf'` \| `'word'`. `origen`: el de esa parte (`'nota'`, `'link'`, `'ocr-space'`, `'pdf-texto'`, `'docx'`). `paginas`: las del PDF, null en el resto. `caracteres`: el largo de esa parte, sin marcas. `error`: null si se leyó; si una parte **falla por su contenido** (un link caído o que no es público, una foto sin letras, un PDF con clave) **se saltea y queda anotada** acá con el motivo en castellano, sin texto, con `origen` y `paginas` en null y `caracteres` en 0. Si fallan todas (o no llegó nada), el item va a `'error'` como cualquier otro. El cliente NUNCA la escribe. |
 | `cantChunks` | number | **BACKEND** | Cuántos chunks generó. 0 mientras no está listo. Permite verificar que el indexado no quedó a medias. |
-| `paginas` | number \| null | **BACKEND** | Cantidad de páginas del PDF. null para nota, link y foto. |
-| `origen` | string (`'nota'` \| `'pdf-texto'` \| `'docx'` \| `'ocr-space'` \| `'link'`) | **BACKEND** | Cómo se extrajo el texto. El panel muestra "extraído por OCR" y ayuda a explicar respuestas malas. Se guarda en el item Y en cada chunk. |
+| `paginas` | number \| null | **BACKEND** | Cantidad de páginas del PDF. null para nota, link, foto y mixto (en el mixto, cada parte tiene sus `paginas`). |
+| `origen` | string (`'nota'` \| `'pdf-texto'` \| `'docx'` \| `'ocr-space'` \| `'link'` \| `'mixto'`) | **BACKEND** | Cómo se extrajo el texto. El panel muestra "extraído por OCR" y ayuda a explicar respuestas malas. Se guarda en el item Y en cada chunk. `'mixto'` va **solo en el item** de tipo mixto: sus chunks llevan el origen de su parte, y `'mixto'` no aparece nunca en un chunk. |
 | `caracteres` | number | **BACKEND** | Largo REAL del texto extraído, antes de cualquier recorte. Sirve para explicar por qué un PDF escaneado dio 40 caracteres de basura. |
-| `recortado` | boolean | **BACKEND** | true si el texto superaba los 300.000 caracteres y hubo que recortarlo para no chocar con el límite de 1 MiB por documento. El panel avisa "documento muy largo, se indexó la primera parte". |
+| `recortado` | boolean | **BACKEND** | true si el texto superaba los 300.000 caracteres y hubo que recortarlo para no chocar con el límite de 1 MiB por documento. El panel avisa "documento muy largo, se indexó la primera parte". En un mixto el tope es del item entero: la parte donde cae se recorta y las que siguen quedan en `partes` con el error "No entró…". |
 | `errorMsg` | string \| null | **BACKEND** | Mensaje legible del fallo cuando `estado == 'error'` (ej: "El PDF está protegido con clave"). Es el MISMO texto que devolvió el HTTP, escrito a mano por nosotros: nunca un `err.message` crudo. |
 | `actualizadoEn` | timestamp | **BACKEND** en cada cambio de estado y al cambiar el candado / **CLIENTE** al editar (serverTimestamp obligatorio) | Último cambio. Es lo que usa el barrido para detectar items colgados en 'procesando' hace más de 10 minutos (`/procesar` y `/reprocesar` los aceptan desde los 5). Como la regla exige `request.time`, el cliente solo puede escribir AHORA, nunca una hora vieja. |
 
@@ -130,9 +134,10 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 | `visibilidad` | string (`'equipo'` \| `'privado'`) | **BACKEND** | **COPIA de la visibilidad del item al momento de indexar**, que el candado en vivo (`PATCH .../visibilidad`) vuelve a escribir en todos los chunks del item. Es la SEGUNDA cerradura del RAG (defensa en profundidad), nunca la principal: **puede quedar vieja** si alguien cambia el item a mano desde la consola de Firebase (desde la app no se puede: las reglas no dejan editar la visibilidad). Como se aplica con AND junto al conjunto leído en vivo, una copia vieja solo puede esconder de más, nunca mostrar de más. |
 | `creadoPor` | string (uid) | **BACKEND** | **COPIA del autor del item**, misma lógica que `visibilidad`: defensa en profundidad, puede quedar vieja hasta el próximo reproceso. Permite descartar un chunk sin ir a buscar el item, y deja el filtro escrito también en el dato, no solo en un `if`. |
 | `titulo` | string | **BACKEND** | Título del item, desnormalizado, para citar la fuente sin leer el item. |
-| `idx` | number (0..n-1) | **BACKEND** | Posición del trozo dentro del item. Junto al `itemId` forma el id del documento, y por eso reindexar pisa los mismos docs. |
-| `pagina` | number \| null | **BACKEND** | Página del PDF de la que salió, para citar "pág. 3". null en notas y links. |
-| `origen` | string (`'nota'` \| `'pdf-texto'` \| `'docx'` \| `'ocr-space'` \| `'link'`) | **BACKEND** | Cómo se extrajo ese trozo. Ayuda a explicar respuestas malas (el OCR ensucia). |
+| `idx` | number (0..n-1) | **BACKEND** | Posición del trozo dentro del item. Junto al `itemId` forma el id del documento, y por eso reindexar pisa los mismos docs. En un mixto sigue **corrido de 0 a n-1, sin huecos**, a lo largo de todas sus partes. |
+| `pagina` | number \| null | **BACKEND** | Página del PDF de la que salió, para citar "pág. 3". null en notas, links, Words y fotos. En un mixto, la página **dentro del PDF de esa parte** (null si la parte no es un PDF). |
+| `origen` | string (`'nota'` \| `'pdf-texto'` \| `'docx'` \| `'ocr-space'` \| `'link'`) | **BACKEND** | Cómo se extrajo ese trozo. Ayuda a explicar respuestas malas (el OCR ensucia). En un mixto, el de **esa parte** (nunca `'mixto'`). |
+| `parte` | string \| null | **BACKEND** | **Nuevo (11/2026).** La etiqueta de la parte de un mixto de la que salió el trozo ("Foto 2", "PDF «acta.pdf»"). null en los demás tipos; los chunks de antes no tienen el campo y cuentan como null. **Cada parte se trocea por separado: un chunk nunca mezcla dos partes.** Viaja a la cita (`fuentes[].parte`) y al encabezado del fragmento que ve la IA. |
 | `texto` | string (~1500 caracteres) | **BACKEND** | El trozo que se le manda a la IA como contexto y del que sale el fragmento citado. |
 | `embedding` | array de 1024 number (floats) | **BACKEND** | Vector del trozo. Se compara por similitud coseno contra el vector de la pregunta. Tiene `fieldOverride` con `indexes: []` o cada chunk generaría 1024 entradas de índice. |
 | `creadoEn` | timestamp | **BACKEND** | Cuándo se indexó. Sirve para limpiar huérfanos viejos si alguna vez quedan. |
@@ -157,7 +162,7 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 | `anteriorRespId` | string (1 a 64), distinto del propio `respId` — **solo en las preguntas de seguimiento** | **CLIENTE** | La vuelta de la que se cuelga esta pregunta: desde acá el backend arma el historial para atrás, hasta 3 vueltas. **La app pone la última vuelta `'listo'`** de la conversación, no la última a secas: una vuelta que terminó en `'error'` no tiene respuesta, el backend la rechaza como anterior (`DATOS_INVALIDOS`) y colgarse de ella dejaría la conversación trabada para siempre. En el caso normal la última `'listo'` es la inmediatamente anterior (en la segunda pregunta vale lo mismo que `conversacionId`). |
 | `preguntaBuscada` | string \| null | **BACKEND** | La pregunta de un seguimiento reescrita para que se entienda sola ("¿Y en qué aula?" → "¿En qué aula es la reunión de padres de sexto año?"): es con la que el backend buscó de verdad. Se escribe en el update `'buscando' → 'redactando'`. Queda en `null` en una primera pregunta y cuando la reformulación falló y se buscó con el respaldo (la pregunta anterior y la nueva pegadas; ese texto no se guarda). La app la muestra como "La entendí como: …" y el Radar del panel la usa para agrupar. El cliente **no** la puede escribir: no está en el `hasOnly` de la regla. |
 | `respuesta` | string (aparece recién cuando el backend la escribe) | **BACKEND** | Texto final redactado por la IA, con marcas `[1] [2]` que apuntan a `fuentes[].n`. Mientras el campo no exista, la pantalla muestra el spinner. |
-| `fuentes` | array de map `{n, itemId, titulo, pagina, fragmento, similitud}` | **BACKEND** | Las citas. Es el corazón del producto: cada afirmación se puede abrir y verificar en el item original. Solo entran items que el que preguntó puede ver. En un seguimiento, solo los fragmentos de **esa** vuelta: un `[1]` de una respuesta vieja no vale como fuente. |
+| `fuentes` | array de map `{n, itemId, titulo, pagina, parte, fragmento, similitud}` | **BACKEND** | Las citas. Es el corazón del producto: cada afirmación se puede abrir y verificar en el item original. Solo entran items que el que preguntó puede ver. En un seguimiento, solo los fragmentos de **esa** vuelta: un `[1]` de una respuesta vieja no vale como fuente. `parte` (**nuevo, 11/2026**): de qué parte de un mixto sale la cita ("Foto 2"), copiada del chunk real; `null` en los demás tipos (las respuestas de antes no traen el campo: también cuenta como null). |
 | `confianza` | string (`'alta'` \| `'media'` \| `'baja'`) | **BACKEND** | Qué tan parecido a la pregunta era el mejor chunk que encontró la búsqueda (el [1] que recibe el modelo). **No dice si la respuesta está bien:** una cita exacta puede salir 'media' (en la calibración, 4 de las 11 preguntas bien contestadas). Es STRING en las tres piezas. El número crudo vive en `fuentes[].similitud` (≥ 0.72 alta, ≥ 0.64 media; umbral de descarte 0.62; calibrados con datos reales y gemini-embedding-001 el 29/10/2026). |
 | `chunksMirados` | number \| null | **BACKEND** | Cuántos chunks tenía el workspace. **`null` cuando quien preguntó no es admin**: decirle a un miembro cuántos hay en total le revela cuánto contenido privado ajeno existe. |
 | `chunksVisibles` | number | **BACKEND** | Cuántos de esos chunks quedaron después de filtrar por lo que ESE uid puede ver. Si el admin pregunta lo mismo, este número es más grande: eso es el requisito 2 mostrado con un número. |
@@ -175,7 +180,7 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 |---|---|---|---|
 | `tipo` | string: `'workspace.creado'` \| `'item.listo'` \| `'item.error'` \| `'item.eliminado'` \| `'item.visibilidad'` \| `'miembro.agregado'` \| `'miembro.eliminado'` \| `'rol.cambiado'` \| `'pregunta.hecha'` \| `'plan.cambiado'` \| `'items.purgados'` | **BACKEND** | Qué pasó. Define el ícono y el filtro del feed. TODOS con punto, y la lista es idéntica en el contrato. `'item.visibilidad'` es el candado en vivo ("Martín compartió «…» con el equipo" / "… pasó «…» a privado"). El panel muestra igual un tipo que no conoce, con un ícono genérico, y el resumen siempre escapado. |
 | `actorUid` | string (uid) | **BACKEND** | Quién lo hizo. Sale siempre del token verificado, nunca del body. |
-| `resumen` | string | **BACKEND** | Frase corta ya armada para mostrar (ej: "Martín subió Cronograma de mesas de examen"). Va con **nombres**: el de la ficha de `members` de quien lo hizo y, en los de miembros y roles, el de la persona afectada ("Valentino Mattio sacó a Lucas del equipo"). El email queda solo de respaldo, si una ficha no tiene nombre: el feed se proyecta en la demo («En vivo»), y por eso el panel además tapa todo lo que tenga forma de email. |
+| `resumen` | string | **BACKEND** | Frase corta ya armada para mostrar (ej: "Martín subió Cronograma de mesas de examen"). Va con **nombres**: el de la ficha de `members` de quien lo hizo y, en los de miembros y roles, el de la persona afectada ("Valentino Mattio sacó a Lucas del equipo"). El email queda solo de respaldo, si una ficha no tiene nombre: el feed se proyecta en la demo («En vivo»), y por eso el panel además tapa todo lo que tenga forma de email. Quien entra solo por el espacio de bienvenida deja un `'miembro.agregado'` con `actorUid` = su propio uid y el resumen "Lucía Pérez se sumó al equipo" (nunca un email: si el nombre trae una `@`, dice "Una persona nueva se sumó al equipo"). Un `'item.listo'` de un mixto con partes salteadas lo dice: "… (5 fragmentos; 1 parte no se pudo leer)". |
 | `itemId` | string \| null | **BACKEND** | Item afectado, si aplica, para que el feed linkee al item. |
 | `creadoEn` | timestamp | **BACKEND** | Cuándo pasó (serverTimestamp). El feed ordena por `creadoEn desc`. |
 
@@ -202,9 +207,9 @@ Si el modelo, las reglas y el contrato no dicen exactamente lo mismo, hay un bug
 
 Reglas que siempre se cumplen. Si alguna se rompe, no es un detalle: es un bug.
 
-1. **QUIÉN ESCRIBE QUÉ (la invariante madre).** El CLIENTE escribe `titulo`, `tipo`, `visibilidad`, `workspaceId`, `creadoPor`, `creadoEn`, `estado: 'pendiente'`, `url` (links), `nombreArchivo` (pdf/Word/foto) y `textoOriginal` (notas). TODO lo demás —`texto`, `cantChunks`, `paginas`, `origen`, `caracteres`, `recortado`, `errorMsg` y los estados que siguen a 'pendiente'— lo escribe el BACKEND. Después de crear, el cliente solo puede editar `titulo`, el `textoOriginal` de una nota y `actualizadoEn`: la `visibilidad` la cambia solo el BACKEND (candado en vivo). Si el modelo y las reglas no dicen exactamente esto, hay un bug.
+1. **QUIÉN ESCRIBE QUÉ (la invariante madre).** El CLIENTE escribe `titulo`, `tipo`, `visibilidad`, `workspaceId`, `creadoPor`, `creadoEn`, `estado: 'pendiente'`, `url` (links), `nombreArchivo` (pdf/Word/foto), `textoOriginal` (notas y mixtos) y `links` (mixtos). TODO lo demás —`texto`, `partes`, `cantChunks`, `paginas`, `origen`, `caracteres`, `recortado`, `errorMsg` y los estados que siguen a 'pendiente'— lo escribe el BACKEND. Después de crear, el cliente solo puede editar `titulo`, el `textoOriginal` de una nota y `actualizadoEn`: la `visibilidad` la cambia solo el BACKEND (candado en vivo). Si el modelo y las reglas no dicen exactamente esto, hay un bug.
 
-2. **`textoOriginal` y `texto` son DOS CAMPOS DISTINTOS a propósito y nunca se mezclan.** `textoOriginal` lo escribe la persona y solo existe en las notas; `texto` lo escribe el backend en los cinco tipos y es lo único que se trocea en chunks. Para una nota, `texto` sale de normalizar `textoOriginal`.
+2. **`textoOriginal` y `texto` son DOS CAMPOS DISTINTOS a propósito y nunca se mezclan.** `textoOriginal` lo escribe la persona y solo existe en las notas y en los mixtos; `texto` lo escribe el backend en los seis tipos y es lo único que se trocea en chunks. Para una nota, `texto` sale de normalizar `textoOriginal`; en un mixto, `textoOriginal` es la parte "Texto".
 
 3. **El campo del link se llama `url`** en las reglas, en el modelo, en el ejemplo y en el contrato. No existe `fuenteUrl` en ningún lado.
 
@@ -212,7 +217,7 @@ Reglas que siempre se cumplen. Si alguna se rompe, no es un detalle: es un bug.
    **En `workspaces/{wsId}/respuestas` el wsId va ÚNICAMENTE en el path: esa colección NO tiene campo `workspaceId` y no hay que agregárselo.**
    Si en un item o en un chunk el path y el campo no coinciden, es un bug de seguridad.
 
-5. **El id de un chunk es SIEMPRE `itemId_idx`** (idx desde 0, sin huecos). Aun así, reindexar SIEMPRE borra primero todos los chunks de ese `itemId` y después escribe: si el intento anterior generó 9 chunks y el nuevo genera 7, no pueden sobrevivir el 8 y el 9 con texto viejo.
+5. **El id de un chunk es SIEMPRE `itemId_idx`** (idx desde 0, sin huecos; en un mixto, corrido a lo largo de todas sus partes). Aun así, reindexar SIEMPRE borra primero todos los chunks de ese `itemId` y después escribe: si el intento anterior generó 9 chunks y el nuevo genera 7, no pueden sobrevivir el 8 y el 9 con texto viejo.
 
 6. **Un item `'listo'` cumple `cantChunks >= 1`** y existen exactamente esa cantidad de chunks con ese `itemId`. **Un item `'error'` cumple `errorMsg` no vacío y `cantChunks == 0`.**
 
@@ -254,6 +259,10 @@ Reglas que siempre se cumplen. Si alguna se rompe, no es un detalle: es un bug.
 
 23. **Una respuesta nace con 4 campos o con 6, nunca con 5.** Primera pregunta: `pregunta`, `autorUid`, `estado: 'buscando'` y `creadoEn`. Pregunta de seguimiento: esos cuatro + `conversacionId` + `anteriorRespId`, **los dos o ninguno**, strings de 1 a 64, y `anteriorRespId` distinto del propio `respId`. Los campos que no van **se omiten**: un `null` se rechaza. La regla lo dice con dos listas: `hasOnly` con los seis (el máximo), `hasAll` con los cuatro (el mínimo) y `cadenaDeSeguimientoValida()` para los dos opcionales. El backend repite la misma validación en `preguntar.js` (`leerCadena`), porque el Admin SDK no pasa por las reglas, y además chequea lo que la regla no puede ver sin `get()`: que cada vuelta anterior exista, sea de quien pregunta, sea de esta conversación y esté `'listo'` (fail-closed). `preguntaBuscada` no está en ninguna de las dos listas: la escribe solo el backend.
 
+24. **Un mixto es UN item con PARTES, y las partes nunca se mezclan.** Las arma solo el backend, en orden (texto → links → archivos), cada una con una etiqueta única. En `texto`, cada parte leída va detrás de su `<<<PARTE:etiqueta>>>`; en `partes`, están todas, también las salteadas (con su `error`); y cada chunk lleva la etiqueta de su parte en `parte` y sale de **una sola** parte. Las marcas `<<<PARTE:…>>>` y `<<<PAGINA:n>>>` las escribe **solo** el backend: todo texto que viene de afuera entra neutralizado. El plan gratis cuenta un mixto como **1** item, tenga las partes que tenga. Las reglas no saben si van a llegar archivos, así que un mixto sin texto ni links es válido al crearlo: si al procesarlo no llega nada, el backend lo pasa a `'error'` (`DATOS_INVALIDOS`).
+
+25. **El espacio de bienvenida nunca pasa por encima de un admin.** Con `ESPACIO_DE_BIENVENIDA`, el registro suma a alguien **solo** si no está en ningún espacio, no figura en `exMiembros` de ese espacio (si un admin lo sacó, no vuelve solo) y el plan tiene lugar. El alta es la misma que la del admin (members + `usuarios.workspaces` + claim + `claimsActualizadoEn`), y si falla, el registro igual sale bien.
+
 ---
 
 # CICLO DE VIDA
@@ -272,9 +281,9 @@ Reglas que siempre se cumplen. Si alguna se rompe, no es un detalle: es un bug.
 
 **Detalles de cada paso**
 
-- **(1)** El cliente escribe SOLO sus campos: `titulo`, `tipo`, `visibilidad`, `workspaceId`, `creadoPor`, `creadoEn`, `estado`, y según el tipo `url` (link), `nombreArchivo` (pdf/Word/foto) o `textoOriginal` (nota). Es lo primero que pasa, antes de hablar con el backend.
+- **(1)** El cliente escribe SOLO sus campos: `titulo`, `tipo`, `visibilidad`, `workspaceId`, `creadoPor`, `creadoEn`, `estado`, y según el tipo `url` (link), `nombreArchivo` (pdf/Word/foto), `textoOriginal` (nota) o `textoOriginal` y/o `links` (mixto; los archivos del mixto no van al doc: van en el POST). Es lo primero que pasa, antes de hablar con el backend.
 - **(2)** El backend lee el item, chequea que el estado sea procesable y escribe `procesando` + `actualizadoEn` **en el mismo paso atómico**. Si entran dos taps a la vez, el segundo lee un 'procesando' reciente y se va con **`PROCESO_EN_CURSO` 409** ("Ya lo estamos procesando, esperá unos segundos"): no se procesa dos veces ni se gastan dos veces los créditos de IA.
-- **(3a)** En el mismo update setea `texto`, `cantChunks`, `paginas`, `origen`, `caracteres`, `recortado` y `actualizadoEn`.
+- **(3a)** En el mismo update setea `texto`, `cantChunks`, `paginas`, `origen`, `caracteres`, `recortado` y `actualizadoEn` (y `partes`, si es un mixto). Un mixto llega a `'listo'` aunque alguna de sus partes se haya salteado, siempre que al menos una se haya leído.
 - **(3b)** Escribe `errorMsg` legible (el mismo texto que devolvió por HTTP, escrito a mano por nosotros) y deja `cantChunks` en 0.
 - **(3c)** Render se reinicia o se corta la conexión a mitad del procesamiento y el item queda en 'procesando' para siempre. Al arrancar el servidor y después **cada 10 minutos**, el backend hace `collectionGroup('items').where('estado','==','procesando').where('actualizadoEn','<', ahora - 10 min)` y los pasa a 'error' (los 10 minutos son `MINUTOS_ITEM_COLGADO`, que `render.yaml` fija en 10). Además `/procesar` y `/reprocesar` aceptan como procesable un item en 'procesando' con más de 5 minutos de quietud, así el botón Reintentar funciona incluso antes del barrido.
 - **(4)** Por ejemplo, después de editar el `textoOriginal` de una nota. La app avisa: "editaste la nota: tocá Reprocesar para que la IA la vuelva a leer".
@@ -285,7 +294,7 @@ Reglas que siempre se cumplen. Si alguna se rompe, no es un detalle: es un bug.
 
 **Qué estados acepta cada endpoint**
 - `/procesar`: `'pendiente'`, `'error'`, o `'procesando'` con más de 5 minutos. También acepta `'listo'`: volver a subir el archivo de un item ya procesado es legítimo y lo reindexa (los chunks se pisan solos porque su id es determinístico `itemId_idx`).
-- `/reprocesar`: `'pendiente'`, `'error'`, `'listo'`, o `'procesando'` con más de 5 minutos, **y además** necesita una fuente de texto en el documento: `textoOriginal` si es nota, `url` si es link, `texto` ya extraído si es pdf, Word o foto. Un pdf/Word/foto sin texto extraíble no se puede reprocesar porque el archivo no se guarda en ningún lado: hay que volver a elegirlo y llamar a `/procesar`. **Ese, y solo ese, es el caso de `ESTADO_INVALIDO`**; el doble tap ya tiene su propio código (`PROCESO_EN_CURSO`).
+- `/reprocesar`: `'pendiente'`, `'error'`, `'listo'`, o `'procesando'` con más de 5 minutos, **y además** necesita una fuente de texto en el documento: `textoOriginal` si es nota, `url` si es link, `texto` ya extraído si es pdf, Word, foto o **mixto** (en el mixto, separado por sus marcas de parte: no vuelve a bajar los links ni pide los archivos, y las partes salteadas siguen anotadas). Un pdf/Word/foto/mixto sin texto extraíble no se puede reprocesar porque los archivos no se guardan en ningún lado: hay que volver a mandarlo con `/procesar`. **Ese, y solo ese, es el caso de `ESTADO_INVALIDO`**; el doble tap ya tiene su propio código (`PROCESO_EN_CURSO`).
 - Si el que pide no es el autor ni admin: **`NO_SOS_EL_AUTOR` (HTTP 403)** — "Solo el autor o un administrador pueden hacer esto."
 
 ## De la RESPUESTA — campo `estado` en `workspaces/{wsId}/respuestas/{respId}`
@@ -395,4 +404,53 @@ Reglas que siempre se cumplen. Si alguna se rompe, no es un detalle: es un bug.
   "embedding": [0.0142, -0.0871, 0.0339, 0.1104, "... (1024 floats en total)"],
   "creadoEn": "2026-09-14T14:05:25.115Z"
 }
+
+
+// ============================================================
+// (5) UN ITEM 'mixto' («Varios») — lo que escribe el CLIENTE
+//     Texto y links opcionales; los dos archivos (una foto y
+//     un PDF) NO van al doc: van en el POST /procesar, en la
+//     parte 'archivos' del multipart.
+// ============================================================
+{
+  "titulo": "Viaje a Córdoba",
+  "tipo": "mixto",
+  "textoOriginal": "Llevar DNI, la autorización firmada y 20 mil pesos para la excursión.",
+  "links": ["https://www.hostellassierras.com.ar/", "http://10.0.0.5/"],
+  "visibilidad": "equipo",
+  "workspaceId": "ws_est5_berazategui",
+  "creadoPor": "uid_martin_sosa",
+  "creadoEn": "<FieldValue.serverTimestamp()>",
+  "estado": "pendiente"
+}
+// Ni 'url' ni 'nombreArchivo': en un mixto, la regla los rechaza.
+
+
+// ============================================================
+// (6) EL MISMO MIXTO, YA PROCESADO (lo nuevo lo escribio el
+//     backend). El segundo link no es publico: esa parte se
+//     salteo y quedo anotada, y el item igual quedo 'listo'.
+// ============================================================
+{
+  "...": "(los campos del cliente, iguales)",
+  "estado": "listo",
+  "texto": "<<<PARTE:Texto>>>\nLlevar DNI, la autorización firmada y 20 mil pesos para la excursión.\n\n<<<PARTE:Link: hostellassierras.com.ar>>>\nHostel Las Sierras ...\n\n<<<PARTE:Foto 1>>>\nMICRO 7 HS PUERTA NORTE\n\n<<<PARTE:PDF «itinerario.pdf»>>>\n<<<PAGINA:1>>>\nItinerario ...\n\n<<<PAGINA:2>>>\nAlojamiento ...",
+  "partes": [
+    { "etiqueta": "Texto", "tipo": "texto", "origen": "nota", "paginas": null, "caracteres": 69, "error": null },
+    { "etiqueta": "Link: hostellassierras.com.ar", "tipo": "link", "origen": "link", "paginas": null, "caracteres": 2310, "error": null },
+    { "etiqueta": "Link: 10.0.0.5", "tipo": "link", "origen": null, "paginas": null, "caracteres": 0, "error": "Esa dirección no se puede leer. Probá con un enlace público que empiece con https://" },
+    { "etiqueta": "Foto 1", "tipo": "foto", "origen": "ocr-space", "paginas": null, "caracteres": 23, "error": null },
+    { "etiqueta": "PDF «itinerario.pdf»", "tipo": "pdf", "origen": "pdf-texto", "paginas": 2, "caracteres": 1840, "error": null }
+  ],
+  "cantChunks": 6,
+  "paginas": null,
+  "origen": "mixto",
+  "caracteres": 4242,
+  "recortado": false,
+  "errorMsg": null,
+  "actualizadoEn": "2026-11-12T15:20:41.007Z"
+}
+// Y un chunk de la parte del PDF -> chunks/<itemId>_5:
+//   "idx": 5, "parte": "PDF «itinerario.pdf»", "pagina": 2, "origen": "pdf-texto"
+// (un chunk del texto lleva "parte": "Texto", "pagina": null, "origen": "nota").
 ```

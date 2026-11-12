@@ -9,6 +9,8 @@
 //    marcaDePagina(n) / unirPaginas() -> como viaja el numero de pagina
 //    quitarMarcasDePagina(texto)      -> sin marcas: para contar caracteres y en notas/links
 //    recortarTexto(texto, tope)       -> {texto, recortado} para el limite de Firestore
+//    marcaDeParte(e) / separarEnPartes() -> las partes del item 'mixto' ("Varios")
+//    neutralizarMarcas(texto)         -> que un texto de AFUERA no pueda fingir una marca
 // ============================================================
 
 // Un documento de Firestore no puede pasar de 1 MiB. El campo `texto` del item
@@ -58,6 +60,68 @@ export function quitarMarcasDePagina(texto) {
     .replace(MARCA, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+}
+
+// ============================================================
+//  MARCAS DE PARTE (el item 'mixto', que la app muestra como "Varios")
+//
+//  PROBLEMA: un item 'mixto' junta varias cosas (un texto, links, fotos,
+//  PDFs, Words) y su `texto` es UNO solo. Al trocear hay que saber de que
+//  parte sale cada pedazo (para que un chunk nunca mezcle dos partes y para
+//  citar "Foto 2"), y /reprocesar tiene que poder volver a separarlas sin
+//  bajar los links ni pedir los archivos otra vez.
+//  SOLUCION: la misma idea que las paginas. Cada parte va precedida por
+//  <<<PARTE:etiqueta>>> en su PROPIO renglon. Adentro de la parte de un PDF
+//  siguen sus <<<PAGINA:n>>>.
+//
+//  LA ETIQUETA LA ARMA EL BACKEND ("Texto", "Link: diario.com", "Foto 1",
+//  "PDF «acta.pdf»") y nunca trae saltos de linea ni los signos < >: por eso
+//  un renglon que empieza con <<<PARTE: y termina con >>> es siempre una marca.
+// ============================================================
+
+/** El renglon que abre una parte. Sin los \n: el que arma el texto los pone. */
+export function marcaDeParte(etiqueta) {
+  return `<<<PARTE:${etiqueta}>>>`;
+}
+
+/**
+ * Parte el texto de un 'mixto' en {etiqueta, texto}, en el orden en que esta
+ * guardado. Lo que haya antes de la primera marca se ignora: el backend no lo
+ * escribe nunca, y no hay de que parte decir que es.
+ * La regex es local (y no una constante con /g): una /g compartida guarda
+ * lastIndex entre llamadas y es el bug clasico de "a veces no encuentra nada".
+ */
+export function separarEnPartes(texto) {
+  const t = String(texto ?? '');
+  const marca = /^<<<PARTE:([^\n]*)>>>[ \t]*$/gm;
+  const partes = [];
+  let actual = null;
+  let desde = 0;
+  let m;
+  while ((m = marca.exec(t)) !== null) {
+    if (actual !== null) partes.push({ etiqueta: actual, texto: t.slice(desde, m.index).trim() });
+    actual = m[1].trim();
+    desde = m.index + m[0].length;
+  }
+  if (actual !== null) partes.push({ etiqueta: actual, texto: t.slice(desde).trim() });
+  return partes;
+}
+
+/**
+ * Rompe cualquier "<<<" de un texto que viene de AFUERA (lo que escribio una
+ * persona, una pagina web, el texto de un PDF, lo que leyo el OCR).
+ *
+ * POR QUE: las marcas <<<PARTE:...>>> y <<<PAGINA:n>>> las pone SOLO el
+ * backend. Si una nota trae un renglon "<<<PARTE:Foto 9>>>", sin esto el
+ * troceo inventaria una "Foto 9" y la IA citaria una parte que no existe (o
+ * una pagina que no existe, con la otra marca). Un "<<<" de verdad en un
+ * texto es rarisimo (algun codigo de programacion): pasa a "< <<", que se lee
+ * igual y ya no arma ninguna marca.
+ * Con lookahead y no con un replace de "<<<" a "<< <": ese deja "<<<" de
+ * nuevo cuando hay seis seguidos ("<< <" + "<< <" = "<< <<< <").
+ */
+export function neutralizarMarcas(texto) {
+  return String(texto ?? '').replace(/<(?=<<)/g, '< ');
 }
 
 // ============================================================

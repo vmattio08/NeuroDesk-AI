@@ -37,7 +37,7 @@
 //  Devuelve siempre: { texto, paginas, origen }
 // ============================================================
 
-import { limpiarTexto, caracteresUtiles, unirPaginas, marcaDePagina } from './texto.js';
+import { limpiarTexto, caracteresUtiles, unirPaginas, marcaDePagina, neutralizarMarcas } from './texto.js';
 import { htmlATexto } from './link.js';
 
 // --- Numeros con su por que -----------------------------------------------
@@ -382,7 +382,11 @@ export async function extraerDePdf(buffer, opciones = {}) {
 
   // ---- NIVEL 1 ----
   const { paginas: crudas, total } = await leerPdfPorPaginas(buffer);
-  const paginas = crudas.map(limpiarTexto);
+  // neutralizarMarcas HOJA POR HOJA, antes de pegarlas: un PDF que trae
+  // escrito "<<<PAGINA:9>>>" (o "<<<PARTE:...>>>", en un item 'mixto') haria
+  // citar una pagina o una parte que no existe. Despues de unirPaginas ya no
+  // se podria distinguir la marca nuestra de la escrita en el PDF.
+  const paginas = crudas.map((p) => neutralizarMarcas(limpiarTexto(p)));
 
   // Que hojas quedaron practicamente vacias: esas son las escaneadas.
   const flojas = [];
@@ -407,7 +411,7 @@ export async function extraerDePdf(buffer, opciones = {}) {
       const textosOcr = await ocrSpace(buffer, { tipoMime: 'application/pdf', nombre });
 
       for (const i of flojas) {
-        const delOcr = limpiarTexto(textosOcr[i] ?? '');
+        const delOcr = neutralizarMarcas(limpiarTexto(textosOcr[i] ?? ''));
         if (caracteresUtiles(delOcr) > caracteresUtiles(paginas[i])) {
           paginas[i] = delOcr;
           paginasOcr.push(i + 1);
@@ -497,7 +501,14 @@ export async function extraerDeImagen(buffer, tipoMime, opciones = {}) {
 
   // Una foto es "una pagina": le ponemos la marca para que trocear() no la
   // trate distinto que a un PDF, pero `paginas` va null como dice el modelo.
-  return { texto: marcaDePagina(1) + texto, paginas: null, origen, paginasOcr: origen === 'ocr-space' ? [1] : [] };
+  // Lo que leyo el OCR va neutralizado (ver extraerDePdf): la foto de una
+  // pantalla puede traer un "<<<" escrito.
+  return {
+    texto: marcaDePagina(1) + neutralizarMarcas(texto),
+    paginas: null,
+    origen,
+    paginasOcr: origen === 'ocr-space' ? [1] : [],
+  };
 }
 
 // ============================================================
@@ -590,7 +601,8 @@ export async function extraerDeWord(buffer) {
     );
   }
 
-  const texto = limpiarTexto(crudo);
+  // Neutralizado por lo mismo que las hojas de un PDF (ver extraerDePdf).
+  const texto = neutralizarMarcas(limpiarTexto(crudo));
   if (caracteresUtiles(texto) < MINIMO_CARACTERES_UTILES_TOTAL) {
     // Un Word que es todo imagenes (fotos de hojas pegadas) no trae letras.
     // Aca NO hay OCR de rescate: habria que sacar cada imagen del ZIP y

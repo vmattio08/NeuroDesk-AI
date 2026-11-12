@@ -57,7 +57,7 @@ REGLAS QUE NO SE NEGOCIAN:
 
 5. Si los fragmentos se contradicen entre sí, mostrá las dos versiones con sus citas en vez de elegir una. Ejemplo: "Una nota dice $12.000 [1] y otra $15.000 [3]."
 
-6. Cada fragmento arranca con su número, el tipo y el título del item del que sale, por ejemplo: [1] PDF «Lista de precios agosto». Usá el título para saber de qué habla el fragmento: muchas veces la pregunta nombra al item por su título aunque el texto no lo repita. Pero para citar poné SOLO el número: no escribas vos títulos, nombres de archivo, páginas ni fechas como fuente, eso lo arma el sistema con los datos reales.
+6. Cada fragmento arranca con su número, el tipo y el título del item del que sale, por ejemplo: [1] PDF «Lista de precios agosto». Si el item junta varias cosas, el encabezado dice además de cuál sale, por ejemplo: [2] Varios «Viaje a Córdoba» · Foto 1. Usá el título para saber de qué habla el fragmento: muchas veces la pregunta nombra al item por su título aunque el texto no lo repita. Pero para citar poné SOLO el número: no escribas vos títulos, nombres de archivo, páginas ni fechas como fuente, eso lo arma el sistema con los datos reales.
 
 7. Contestá en castellano rioplatense, natural y corto: 2 a 5 oraciones. Nada de "según el contexto proporcionado" ni de repetir la pregunta. Andá al grano, como si le contestaras a un compañero.
 
@@ -127,10 +127,22 @@ REGLAS QUE NO SE NEGOCIAN:
 //    item no puede imitar el encabezado de otro fragmento.
 //  - La página NO va: no ayuda a entender la pregunta y el modelo la podría
 //    copiar mal. También la pone el backend en la cita.
+//  - EXCEPCIÓN, EL ITEM 'mixto' («Varios», 11/2026): junta varias cosas en un
+//    item (un texto, links, fotos, PDFs), y el título solo no dice de cuál
+//    sale el fragmento. Entonces el encabezado suma la PARTE (la etiqueta que
+//    guarda el chunk) y, si es un PDF, la página adentro de ese PDF:
+//        [2] Varios «Viaje a Córdoba» · Foto 1
+//        [3] Varios «Viaje a Córdoba» · PDF «itinerario.pdf» · pág. 2
+//    Así "¿qué dice la foto del pizarrón?" tiene de dónde agarrarse. La
+//    etiqueta la arma el backend, pero adentro lleva un nombre de archivo o
+//    el título de un video, que vienen de afuera: entra limpia igual que el
+//    título (parteParaElPrompt). El modelo sigue citando SOLO con el número.
 //
 //  @param {string} pregunta      la pregunta tal cual la escribió la persona
-//  @param {Array}  candidatos    [{ texto, titulo, origen }] ya ordenados de
-//                                mejor a peor (las fuentes de buscarChunks)
+//  @param {Array}  candidatos    [{ texto, titulo, origen, parte, pagina }] ya
+//                                ordenados de mejor a peor (las fuentes de
+//                                buscarChunks; parte y pagina solo pesan en
+//                                los fragmentos de un 'mixto')
 //  @returns {string}             el mensaje listo para role:'user'
 // ----------------------------------------------------------------------------
 
@@ -199,9 +211,39 @@ function textoParaElPrompt(texto) {
     .trim();
 }
 
+// Tope de la etiqueta de la parte adentro del encabezado. La arma el backend
+// ("PDF «nombre.pdf»", "Video: <título>") con el nombre ya recortado a 60;
+// esto es la segunda red.
+const LARGO_MAX_PARTE_EN_EL_PROMPT = 80;
+
+// La etiqueta de la parte, limpia como el título: sin caracteres de control
+// ni saltos de línea y sin [ ] (con eso nadie arma un "[2]" adentro del
+// encabezado). Las « » se quedan: son las del "PDF «nombre.pdf»" que puso el
+// backend, y el nombre que va adentro ya entró sin « » (items.js).
+function parteParaElPrompt(parte) {
+  if (typeof parte !== 'string') return '';
+  const limpia = parte
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
+    .replace(/[[\]]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (limpia.length <= LARGO_MAX_PARTE_EN_EL_PROMPT) return limpia;
+  return limpia.slice(0, LARGO_MAX_PARTE_EN_EL_PROMPT).trimEnd() + '…';
+}
+
 function encabezadoDelFragmento(numero, candidato) {
-  const tipo = TIPO_SEGUN_ORIGEN.get(candidato?.origen) ?? null;
   const titulo = tituloParaElPrompt(candidato?.titulo);
+  const parte = parteParaElPrompt(candidato?.parte);
+
+  // Un fragmento de un item 'mixto' (su chunk tiene 'parte'): el tipo es
+  // "Varios" y se suma de qué parte sale (y la página, si es de un PDF).
+  if (parte) {
+    const pagina = Number.isInteger(candidato?.pagina) ? `pág. ${candidato.pagina}` : null;
+    const cabeza = [`[${numero}]`, 'Varios', titulo ? `«${titulo}»` : null].filter(Boolean).join(' ');
+    return [cabeza, parte, pagina].filter(Boolean).join(' · ');
+  }
+
+  const tipo = TIPO_SEGUN_ORIGEN.get(candidato?.origen) ?? null;
   return [`[${numero}]`, tipo, titulo ? `«${titulo}»` : null].filter(Boolean).join(' ');
 }
 

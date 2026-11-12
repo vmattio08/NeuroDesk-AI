@@ -8,8 +8,11 @@
 //  SEGUIMIENTO (la conversacion y su cadena fail-closed), el TITULO del item
 //  en los fragmentos que ve el modelo, cambio de rol, el CANDADO EN VIVO
 //  (compartir y cerrar un item sin reprocesar), la MEMORIA QUE NO SE VA
-//  (exMiembros, con una cuenta temporal) y ordenes metidas en el titulo y en
-//  el texto de un item (inyeccion).
+//  (exMiembros, con una cuenta temporal), ordenes metidas en el titulo y en
+//  el texto de un item (inyeccion), el REGISTRO CON ESPACIO DE BIENVENIDA (con
+//  un espacio y dos cuentas temporales que se borran al final) y el ITEM
+//  UNIVERSAL 'mixto' («Varios»: texto + links + una foto y un PDF generados en
+//  el momento).
 //
 //  Uso:  npm run probar:api
 //  Requisitos: el espacio de demo ya armado y GEMINI_API_KEY en el .env. NO
@@ -38,6 +41,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";
 import { fileURLToPath } from "node:url";
 import { db, auth, FieldValue, FieldPath, Timestamp } from "../src/firebase.js";
 import { CATALOGO_DE_ERRORES } from "../src/errores.js";
@@ -120,7 +124,13 @@ const ITEM_TITULO = "itm_test_titulo";
 const ITEM_CANDADO = "itm_test_candado";
 // La nota con ORDENES metidas en el titulo (el caso del revisor).
 const ITEM_INYECCION = "itm_test_inyeccion";
-const ITEMS_PRUEBA = [ITEM_EQUIPO, ITEM_PRIVADO, ITEM_TITULO, ITEM_CANDADO, ITEM_INYECCION];
+// El ITEM UNIVERSAL ('mixto', «Varios»): uno con todo, uno vacio y uno al que
+// se le mandan archivos de mas (o pesados, o de un tipo que no va).
+const ITEM_MIXTO = "itm_test_mixto";
+const ITEM_MIXTO_VACIO = "itm_test_mixto_vacio";
+const ITEM_MIXTO_DE_MAS = "itm_test_mixto_de_mas";
+const ITEMS_PRUEBA = [ITEM_EQUIPO, ITEM_PRIVADO, ITEM_TITULO, ITEM_CANDADO, ITEM_INYECCION,
+  ITEM_MIXTO, ITEM_MIXTO_VACIO, ITEM_MIXTO_DE_MAS];
 const RESP_PRUEBA = [
   "resp_test_1", "resp_test_2", "resp_test_3",
   // preguntas de seguimiento (las dos primeras son la conversacion buena)
@@ -129,12 +139,15 @@ const RESP_PRUEBA = [
   "resp_test_titulo",
   "resp_test_candado_1", "resp_test_candado_2", "resp_test_candado_3",
   "resp_test_inyeccion",
+  "resp_test_mixto",
 ];
 const itemRef = (id) => db.collection("workspaces").doc(WS).collection("items").doc(id);
 const respRef = (id) => db.collection("workspaces").doc(WS).collection("respuestas").doc(id);
 
 // La pregunta del candado (la huerta solo existe mientras corre la prueba).
 const PREGUNTA_HUERTA = "¿Qué días se riega la huerta de la terraza?";
+// La del mixto (el hostel solo existe en el PDF que genera la prueba).
+const PREGUNTA_MIXTO = "¿En qué hostel nos alojamos en el viaje a Córdoba?";
 // Preguntas que hace SOLO esta prueba, cada una con las cuentas que la hacen:
 // nadie las hace en un ensayo ni en la demo (el wifi del laboratorio, la
 // olimpiada y la huerta existen solo mientras corre). Sus eventos se pueden
@@ -146,6 +159,7 @@ const PREGUNTAS_SOLO_DE_LA_PRUEBA = [
   { texto: "¿Cuál es la contraseña del wifi del laboratorio?", actores: [U.martin, U.valentino] },
   { texto: "¿Dónde es la olimpíada de robótica?", actores: [U.camila] },
   { texto: PREGUNTA_HUERTA, actores: [U.camila] },
+  { texto: PREGUNTA_MIXTO, actores: [U.martin] },
 ];
 
 // La cuenta TEMPORAL de las pruebas de roles y de exMiembros: la crea el
@@ -164,6 +178,18 @@ let uidTemporal = null;
 // Si el doc del espacio no tenia exMiembros al empezar, la limpieza no deja
 // un mapa vacio que antes no estaba.
 let habiaExMiembros = true;
+
+// EL ESPACIO DE BIENVENIDA: un espacio TEMPORAL (no el de la demo), que el
+// servidor de prueba recibe en ESPACIO_DE_BIENVENIDA, y dos cuentas
+// temporales que se registran. Asi se puede probar tambien el tope del plan
+// gratis (5 personas) sin tocar a nadie del espacio de demo. Todo se borra
+// al final: el espacio entero (members y eventos incluidos) y las cuentas.
+const PREFIJO_WS_BIENVENIDA = "ws_test_bienv_";
+const WS_BIENVENIDA = `${PREFIJO_WS_BIENVENIDA}${SUFIJO_TEMPORAL}`;
+const emailDeBienvenida = (letra) => `bienvenida.${SUFIJO_TEMPORAL}.${letra}@neurodesk.test`;
+const EMAIL_DE_BIENVENIDA = /^bienvenida\.[0-9a-z]+\.[a-z]@neurodesk\.test$/;
+const NOMBRE_BIENVENIDA = `Bienvenida ${SUFIJO_TEMPORAL}`;
+const cuentasBienvenida = {}; // letra -> uid
 
 // Las preguntas que hizo la prueba: la limpieza borra SOLO sus eventos
 // 'pregunta.hecha' (el resumen trae el texto de la pregunta).
@@ -190,6 +216,112 @@ async function preguntar(token, respId, autor, pregunta, cadena = null) {
   await crearPregunta(respId, autor, pregunta, cadena);
   return pedir("POST", `/v1/workspaces/${WS}/preguntar`, { token, body: { respId, pregunta } });
 }
+// Un item 'mixto' como lo crea la app: textoOriginal y links son opcionales
+// (si no vienen, el campo se omite: la regla rechaza una lista vacia).
+async function crearMixto(id, autor, visibilidad, titulo, { textoOriginal, links } = {}) {
+  if (cortada) throw new Error("la prueba ya se corto: no escribo nada mas");
+  await itemRef(id).set({
+    titulo, tipo: "mixto", visibilidad, workspaceId: WS, creadoPor: autor,
+    ...(textoOriginal ? { textoOriginal } : {}),
+    ...(links ? { links } : {}),
+    estado: "pendiente", creadoEn: FieldValue.serverTimestamp(),
+  });
+}
+// POST multipart, como lo manda la app. partes = [[campo, buffer, nombre, tipo]].
+// FormData y Blob son globales en Node 24; fetch calcula el Content-Length.
+async function pedirMultipart(ruta, token, partes) {
+  const formulario = new FormData();
+  for (const [campo, buffer, nombre, tipo] of partes) formulario.append(campo, new Blob([buffer], { type: tipo }), nombre);
+  const res = await fetch(BASE + ruta, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: formulario });
+  let json = null;
+  try { json = await res.json(); } catch { /* sin cuerpo */ }
+  return { status: res.status, json };
+}
+
+// ---- archivos de prueba, generados en el momento (sin dependencias) --------
+// Una FOTO con texto: letras de 5x7 puntos agrandadas, negro sobre blanco, en
+// un PNG en escala de grises. OCR.space la lee entera (probado el 12/11/2026).
+// Solo estan las letras que usa la prueba; cualquier otra va como espacio.
+const FUENTE_5X7 = {
+  A: ["01110", "10001", "10001", "11111", "10001", "10001", "10001"],
+  B: ["11110", "10001", "10001", "11110", "10001", "10001", "11110"],
+  C: ["01110", "10001", "10000", "10000", "10000", "10001", "01110"],
+  D: ["11110", "10001", "10001", "10001", "10001", "10001", "11110"],
+  E: ["11111", "10000", "10000", "11110", "10000", "10000", "11111"],
+  H: ["10001", "10001", "10001", "11111", "10001", "10001", "10001"],
+  I: ["01110", "00100", "00100", "00100", "00100", "00100", "01110"],
+  L: ["10000", "10000", "10000", "10000", "10000", "10000", "11111"],
+  M: ["10001", "11011", "10101", "10101", "10001", "10001", "10001"],
+  N: ["10001", "11001", "10101", "10011", "10001", "10001", "10001"],
+  O: ["01110", "10001", "10001", "10001", "10001", "10001", "01110"],
+  P: ["11110", "10001", "10001", "11110", "10000", "10000", "10000"],
+  R: ["11110", "10001", "10001", "11110", "10100", "10010", "10001"],
+  S: ["01111", "10000", "10000", "01110", "00001", "00001", "11110"],
+  T: ["11111", "00100", "00100", "00100", "00100", "00100", "00100"],
+  U: ["10001", "10001", "10001", "10001", "10001", "10001", "01110"],
+  7: ["11111", "00001", "00010", "00100", "01000", "01000", "01000"],
+};
+function pngConTexto(lineas, escala = 10) {
+  const anchoLetra = 5 * escala, altoLetra = 7 * escala, espacio = 2 * escala, interlinea = 4 * escala, margen = 6 * escala;
+  const ancho = margen * 2 + Math.max(...lineas.map((l) => l.length)) * (anchoLetra + espacio);
+  const alto = margen * 2 + lineas.length * (altoLetra + interlinea);
+  const fila = ancho + 1; // cada fila del PNG arranca con un byte de filtro (0 = ninguno)
+  const pixeles = Buffer.alloc(fila * alto, 255);
+  for (let y = 0; y < alto; y++) pixeles[y * fila] = 0;
+  lineas.forEach((linea, nl) => [...linea].forEach((letra, nc) => {
+    const glifo = FUENTE_5X7[letra];
+    if (!glifo) return;
+    for (let fy = 0; fy < 7; fy++) for (let fx = 0; fx < 5; fx++) {
+      if (glifo[fy][fx] !== "1") continue;
+      const x0 = margen + nc * (anchoLetra + espacio) + fx * escala;
+      const y0 = margen + nl * (altoLetra + interlinea) + fy * escala;
+      for (let y = y0; y < y0 + escala; y++) pixeles.fill(0, y * fila + 1 + x0, y * fila + 1 + x0 + escala);
+    }
+  }));
+  const trozo = (tipo, datos) => {
+    const largo = Buffer.alloc(4);
+    largo.writeUInt32BE(datos.length);
+    const tipoYDatos = Buffer.concat([Buffer.from(tipo, "latin1"), datos]);
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(zlib.crc32(tipoYDatos) >>> 0);
+    return Buffer.concat([largo, tipoYDatos, crc]);
+  };
+  const ihdr = Buffer.alloc(13); // ancho, alto, 8 bits, escala de grises, sin entrelazado
+  ihdr.writeUInt32BE(ancho, 0);
+  ihdr.writeUInt32BE(alto, 4);
+  ihdr[8] = 8;
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    trozo("IHDR", ihdr), trozo("IDAT", zlib.deflateSync(pixeles)), trozo("IEND", Buffer.alloc(0)),
+  ]);
+}
+// Un PDF de verdad (con texto digital, Helvetica), una hoja por elemento de
+// 'paginas' y un renglon por string. Solo ASCII: sin acentos no hace falta
+// pelearse con la codificacion de las fuentes del PDF.
+function pdfDePrueba(paginas) {
+  const escapar = (t) => t.replace(/[\\()]/g, (c) => `\\${c}`);
+  const objetos = [];
+  objetos[1] = "<< /Type /Catalog /Pages 2 0 R >>";
+  objetos[2] = `<< /Type /Pages /Kids [${paginas.map((_, i) => `${4 + i * 2} 0 R`).join(" ")}] /Count ${paginas.length} >>`;
+  objetos[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>";
+  paginas.forEach((lineas, i) => {
+    const contenido = `BT /F1 14 Tf 18 TL 60 780 Td ${lineas.map((l) => `(${escapar(l)}) Tj T*`).join(" ")} ET`;
+    objetos[4 + i * 2] = `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${5 + i * 2} 0 R >>`;
+    objetos[5 + i * 2] = `<< /Length ${Buffer.byteLength(contenido, "latin1")} >>\nstream\n${contenido}\nendstream`;
+  });
+  let pdf = "%PDF-1.4\n";
+  const posiciones = [];
+  for (let id = 1; id < objetos.length; id++) {
+    posiciones[id] = Buffer.byteLength(pdf, "latin1");
+    pdf += `${id} 0 obj\n${objetos[id]}\nendobj\n`;
+  }
+  const xref = Buffer.byteLength(pdf, "latin1");
+  pdf += `xref\n0 ${objetos.length}\n0000000000 65535 f \n`;
+  for (let id = 1; id < objetos.length; id++) pdf += `${String(posiciones[id]).padStart(10, "0")} 00000 n \n`;
+  pdf += `trailer\n<< /Size ${objetos.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf, "latin1");
+}
+
 const citaA = (r, itemId) => (r.json?.fuentes ?? []).some((f) => f.itemId === itemId);
 // La respuesta sin las marcas [1] [2], para buscar un dato sin confundirlo con una cita.
 const sinMarcas = (texto) => String(texto ?? "").replace(/\[\d+\]/g, "");
@@ -246,6 +378,34 @@ async function borrarCuentaTemporal(uid) {
   } catch (err) {
     if (err?.code !== "auth/user-not-found") throw err;
   }
+}
+
+// Una cuenta de la prueba de bienvenida: su doc de usuarios y la cuenta de
+// Auth (su ficha de members y su evento se van con el espacio entero).
+async function borrarCuentaDeBienvenida(uid) {
+  await db.collection("usuarios").doc(uid).delete();
+  try {
+    await auth.deleteUser(uid);
+  } catch (err) {
+    if (err?.code !== "auth/user-not-found") throw err;
+  }
+}
+
+// El espacio de bienvenida de ESTA corrida (entero: members y eventos
+// incluidos) y sus dos cuentas. Si se corto antes de guardar un uid, la
+// cuenta se busca por su email.
+async function limpiarBienvenida() {
+  await db.recursiveDelete(db.collection("workspaces").doc(WS_BIENVENIDA));
+  let cuentas = 0;
+  for (const letra of ["a", "b"]) {
+    let uid = cuentasBienvenida[letra];
+    if (!uid) {
+      try { uid = (await auth.getUserByEmail(emailDeBienvenida(letra))).uid; } catch { continue; }
+    }
+    await borrarCuentaDeBienvenida(uid);
+    cuentas += 1;
+  }
+  return cuentas;
 }
 
 // La de ESTA corrida. Si se corto antes de saber el uid, se la busca por el email.
@@ -337,14 +497,31 @@ async function barrerRestosViejos() {
     }
   }
 
-  return { eventos: refs.length, cuentas: uids.size };
+  // (e) El espacio de bienvenida de una corrida cortada (por su prefijo, que
+  //     solo usa esta prueba) y las cuentas de bienvenida (por su email, que
+  //     tambien es solo de esta prueba). '~' va despues de cualquier letra o
+  //     numero, asi que el rango agarra todos los ids con ese prefijo.
+  const espaciosViejos = await db.collection("workspaces")
+    .where(FieldPath.documentId(), ">=", PREFIJO_WS_BIENVENIDA)
+    .where(FieldPath.documentId(), "<", `${PREFIJO_WS_BIENVENIDA}~`)
+    .get();
+  for (const d of espaciosViejos.docs) await db.recursiveDelete(d.ref);
+  let cuentasDeBienvenida = 0;
+  const { users } = await auth.listUsers(1000);
+  for (const u of users) {
+    if (!EMAIL_DE_BIENVENIDA.test(u.email ?? "")) continue;
+    await borrarCuentaDeBienvenida(u.uid);
+    cuentasDeBienvenida += 1;
+  }
+
+  return { eventos: refs.length, cuentas: uids.size + cuentasDeBienvenida, espacios: espaciosViejos.size };
 }
 
 // Cada paso en su propio try: si uno falla, los demas se hacen igual y al
 // final se dice cual fallo (antes, un error en el primero dejaba todo lo
 // demas sin limpiar).
 async function limpiar(desde) {
-  const informe = { respuestas: RESP_PRUEBA.length, eventos: 0, ajenos: 0, cuenta: "sin limpiar", restos: null, fallas: [] };
+  const informe = { respuestas: RESP_PRUEBA.length, eventos: 0, ajenos: 0, cuenta: "sin limpiar", bienvenida: 0, restos: null, fallas: [] };
   const paso = async (nombre, fn) => {
     try { await fn(); } catch (err) { informe.fallas.push(`${nombre}: ${err.message}`); }
   };
@@ -374,14 +551,22 @@ async function limpiar(desde) {
     informe.ajenos = eventos.size - nuestros.length;
   });
   await paso("cuenta temporal", async () => { informe.cuenta = await limpiarCuentaTemporal(); });
+  // Antes que los restos: si no, el barrido contaria el espacio de ESTA
+  // corrida como si hubiera quedado de otra.
+  await paso("espacio de bienvenida de prueba", async () => { informe.bienvenida = await limpiarBienvenida(); });
   await paso("restos de corridas anteriores", async () => { informe.restos = await barrerRestosViejos(); });
   return informe;
 }
 
 // ---- servidor ---------------------------------------------------------------
 function levantarServidor() {
+  // ESPACIO_DE_BIENVENIDA va en el entorno del hijo: con --env-file, lo que
+  // ya esta en el entorno le gana al .env, asi que el servidor de prueba usa
+  // SIEMPRE el espacio temporal, diga lo que diga el .env de esta PC.
   const hijo = spawn(process.execPath, ["--env-file=.env", "src/server.js"], {
-    cwd: RAIZ_API, env: { ...process.env, PORT: String(PUERTO) }, stdio: ["ignore", "pipe", "pipe"],
+    cwd: RAIZ_API,
+    env: { ...process.env, PORT: String(PUERTO), ESPACIO_DE_BIENVENIDA: WS_BIENVENIDA },
+    stdio: ["ignore", "pipe", "pipe"],
   });
   const log = [];
   hijo.stdout.on("data", (b) => log.push(String(b)));
@@ -414,8 +599,8 @@ try {
 // si no, por ejemplo, un evento de visibilidad viejo hacia fallar el candado.
 try {
   const r = await barrerRestosViejos();
-  if (r.eventos > 0 || r.cuentas > 0) {
-    console.log(`Restos de una corrida cortada: borre ${r.eventos} evento(s) y ${r.cuentas} cuenta(s) temporal(es).`);
+  if (r.eventos > 0 || r.cuentas > 0 || r.espacios > 0) {
+    console.log(`Restos de una corrida cortada: borre ${r.eventos} evento(s), ${r.cuentas} cuenta(s) temporal(es) y ${r.espacios} espacio(s) de bienvenida de prueba.`);
   }
 } catch (err) {
   console.log("OJO: no pude barrer los restos de corridas anteriores: " + err.message);
@@ -436,10 +621,10 @@ function cerrar(codigo) {
     // Desde aca nadie escribe mas (crearNota/crearPregunta miran esto).
     cortada = true;
     const l = await limpiar(inicio);
-    console.log(`Limpieza: datos de prueba borrados (${l.respuestas} respuestas, ${l.eventos} eventos, cuenta temporal ${l.cuenta}).`);
+    console.log(`Limpieza: datos de prueba borrados (${l.respuestas} respuestas, ${l.eventos} eventos, cuenta temporal ${l.cuenta}, espacio de bienvenida y ${l.bienvenida} cuenta(s) de bienvenida).`);
     if (l.ajenos > 0) console.log(`  (${l.ajenos} evento(s) de otras personas, escritos mientras corria la prueba, quedaron intactos)`);
-    if (l.restos && (l.restos.eventos > 0 || l.restos.cuentas > 0)) {
-      console.log(`  (y ${l.restos.eventos} evento(s) y ${l.restos.cuentas} cuenta(s) que habian quedado de otra corrida)`);
+    if (l.restos && (l.restos.eventos > 0 || l.restos.cuentas > 0 || l.restos.espacios > 0)) {
+      console.log(`  (y ${l.restos.eventos} evento(s), ${l.restos.cuentas} cuenta(s) y ${l.restos.espacios} espacio(s) que habian quedado de otra corrida)`);
     }
     for (const falla of l.fallas) console.log("OJO: fallo un paso de la limpieza: " + falla);
     hijo.kill();
@@ -511,7 +696,81 @@ try {
     // creado:false es lo que dice el contrato (N5) cuando el doc ya existia:
     // si viniera true, el registro habria pisado la ficha de Martin.
     esperar(r.status === 200 && r.json?.ok && r.json?.creado === false, `${r.status} ${JSON.stringify(r.json)}`);
-    return `creado=${r.json.creado}`;
+    // Martin ya esta en un espacio: el de bienvenida no lo toca.
+    esperar(r.json.espacioDeBienvenida === null && !("debeRefrescarToken" in r.json),
+      `a alguien que ya tiene espacio no se lo suma a la bienvenida: ${JSON.stringify(r.json)}`);
+    return `creado=${r.json.creado}, espacioDeBienvenida=${r.json.espacioDeBienvenida}`;
+  });
+
+  console.log("\n== Registro con espacio de bienvenida ==");
+  // El servidor de prueba corre con ESPACIO_DE_BIENVENIDA = un espacio
+  // TEMPORAL (plan 'free', vacio) que se crea aca. Dos cuentas temporales:
+  // A se registra y entra; B figura en exMiembros (un admin la saco) y no.
+  const refBienvenida = db.collection("workspaces").doc(WS_BIENVENIDA);
+  await prueba("bienvenida: una cuenta nueva se registra y queda miembro del espacio (members, claim, workspaceActual y evento)", async () => {
+    for (const letra of ["a", "b"]) {
+      if (cortada) throw new Error("la prueba ya se corto: no creo nada mas");
+      cuentasBienvenida[letra] = (await auth.createUser({ email: emailDeBienvenida(letra), emailVerified: false })).uid;
+    }
+    await refBienvenida.set({
+      nombre: "Bienvenida de prueba", ownerUid: "uid_test_dueno", plan: "free", planStatus: "sin_plan",
+      exMiembros: { [cuentasBienvenida.b]: { nombre: `Persona de prueba B ${SUFIJO_TEMPORAL}`, salioEn: FieldValue.serverTimestamp() } },
+      creadoEn: FieldValue.serverTimestamp(), actualizadoEn: FieldValue.serverTimestamp(),
+    });
+    const uid = cuentasBienvenida.a;
+    const r = await pedir("POST", "/v1/auth/registro", { token: await idTokenDe(uid), body: { nombre: NOMBRE_BIENVENIDA } });
+    esperar(r.status === 201 && r.json?.creado === true && r.json?.espacioDeBienvenida === WS_BIENVENIDA && r.json?.debeRefrescarToken === true,
+      `${r.status} ${JSON.stringify(r.json)}`);
+    esperar(r.json.usuario?.workspaceActual === WS_BIENVENIDA && r.json.usuario?.workspaces?.[WS_BIENVENIDA]?.rol === "miembro",
+      `la respuesta no dice el espacio nuevo: ${JSON.stringify(r.json.usuario)}`);
+    const ficha = (await refBienvenida.collection("members").doc(uid).get()).data();
+    esperar(ficha?.uid === uid && ficha.rol === "miembro" && ficha.agregadoPor === uid && ficha.nombre === NOMBRE_BIENVENIDA && ficha.agregadoEn,
+      `ficha de members: ${JSON.stringify(ficha)}`);
+    const usuario = (await db.collection("usuarios").doc(uid).get()).data();
+    esperar(usuario?.workspaces?.[WS_BIENVENIDA]?.rol === "miembro" && usuario.workspaceActual === WS_BIENVENIDA && usuario.claimsActualizadoEn,
+      `usuarios/${uid}: workspaces=${JSON.stringify(usuario?.workspaces)} workspaceActual=${usuario?.workspaceActual}`);
+    const claims = (await auth.getUser(uid)).customClaims;
+    esperar(claims?.ws?.[WS_BIENVENIDA] === "miembro", `claim=${JSON.stringify(claims)}`);
+    const eventos = (await refBienvenida.collection("eventos").get()).docs.map((d) => d.data());
+    esperar(eventos.length === 1 && eventos[0].tipo === "miembro.agregado" && eventos[0].actorUid === uid &&
+      eventos[0].resumen === `${NOMBRE_BIENVENIDA} se sumó al equipo` && !eventos[0].resumen.includes("@"),
+      `eventos: ${JSON.stringify(eventos)}`);
+    return `"${eventos[0].resumen}"`;
+  });
+  await prueba("bienvenida: registrarse otra vez no la vuelve a sumar (200, creado:false, espacioDeBienvenida null)", async () => {
+    esperar(cuentasBienvenida.a, "no hay cuenta A (fallo la prueba anterior)");
+    const r = await pedir("POST", "/v1/auth/registro", { token: await idTokenDe(cuentasBienvenida.a), body: { nombre: NOMBRE_BIENVENIDA } });
+    esperar(r.status === 200 && r.json?.creado === false && r.json?.espacioDeBienvenida === null, `${r.status} ${JSON.stringify(r.json)}`);
+    const eventos = await refBienvenida.collection("eventos").get();
+    esperar(eventos.size === 1, `anoto ${eventos.size - 1} evento(s) de mas`);
+  });
+  await prueba("bienvenida: si un admin la había sacado (exMiembros), se registra pero no entra sola", async () => {
+    esperar(cuentasBienvenida.b, "no hay cuenta B (fallo la primera prueba de bienvenida)");
+    const uid = cuentasBienvenida.b;
+    const r = await pedir("POST", "/v1/auth/registro", { token: await idTokenDe(uid), body: { nombre: "Persona B" } });
+    esperar(r.status === 201 && r.json?.creado === true && r.json?.espacioDeBienvenida === null && !("debeRefrescarToken" in r.json),
+      `${r.status} ${JSON.stringify(r.json)}`);
+    esperar(!(await refBienvenida.collection("members").doc(uid).get()).exists, "la sumo igual");
+    const usuario = (await db.collection("usuarios").doc(uid).get()).data();
+    esperar(Object.keys(usuario?.workspaces ?? {}).length === 0 && usuario?.workspaceActual === null,
+      `usuarios/${uid}: ${JSON.stringify({ workspaces: usuario?.workspaces, workspaceActual: usuario?.workspaceActual })}`);
+  });
+  await prueba("bienvenida: con el plan gratis lleno (5 personas) no entra, aunque ya no esté en exMiembros", async () => {
+    esperar(cuentasBienvenida.b, "no hay cuenta B (fallo la primera prueba de bienvenida)");
+    // A + 4 fichas de relleno = 5, el tope del plan 'free'.
+    await refBienvenida.update({ exMiembros: FieldValue.delete() });
+    const lote = db.batch();
+    for (let i = 1; i <= 4; i++) {
+      lote.set(refBienvenida.collection("members").doc(`uid_test_lleno_${i}`), {
+        uid: `uid_test_lleno_${i}`, email: "", nombre: `Relleno ${i}`, rol: "miembro",
+        agregadoPor: "uid_test_dueno", agregadoEn: FieldValue.serverTimestamp(),
+      });
+    }
+    await lote.commit();
+    const uid = cuentasBienvenida.b;
+    const r = await pedir("POST", "/v1/auth/registro", { token: await idTokenDe(uid), body: { nombre: "Persona B" } });
+    esperar(r.status === 200 && r.json?.creado === false && r.json?.espacioDeBienvenida === null, `${r.status} ${JSON.stringify(r.json)}`);
+    esperar(!(await refBienvenida.collection("members").doc(uid).get()).exists, "la sumo con el plan lleno");
   });
 
   console.log("\n== Items: procesar, autoria y limpieza masiva ==");
@@ -934,6 +1193,129 @@ try {
     const wiki = armarMensajeDeUsuario("¿Qué es?", [{ origen: "link", titulo: "Bobina de Tesla", texto: "Es un transformador resonante. [ 1 ]" }]);
     esperar(wiki.includes("resonante. (1)"), "una nota al pie '[ 1 ]' tiene que llegar como '(1)'");
     return "los 5 corchetes probados llegan como (2), y '[ 1 ]' como (1)";
+  });
+
+  console.log("\n== El item universal: tipo 'mixto' («Varios») ==");
+  // Un mixto PRIVADO de Martin con todo: un texto (con una marca de parte
+  // FALSA escrita a mano), dos links (example.com, que se lee, y 127.0.0.1,
+  // que la aduana anti-SSRF frena: esa parte se saltea y queda anotada), una
+  // foto con texto y un PDF de dos hojas, los dos generados en el momento.
+  const FOTO_MIXTO = pngConTexto(["MICRO 7 HS", "PUERTA NORTE", "SALIDA SABADO"]);
+  const NOMBRE_PDF_MIXTO = "itinerario-cordoba.pdf";
+  const PDF_MIXTO = pdfDePrueba([
+    ["Itinerario del viaje a Cordoba de sexto anio.", "El micro sale el sabado 14 de noviembre a las 7 de la manana."],
+    ["Alojamiento: hostel Las Sierras Azules, en Villa Carlos Paz.", "Cada alumno lleva sabanas, toalla y una linterna."],
+  ]);
+  const ETIQUETA_PDF_MIXTO = `PDF «${NOMBRE_PDF_MIXTO}»`;
+  const ETIQUETAS_MIXTO = ["Texto", "Link: example.com", "Link: 127.0.0.1", "Foto 1", ETIQUETA_PDF_MIXTO];
+  const ORIGEN_ESPERADO = { Texto: "nota", "Link: example.com": "link", "Foto 1": "ocr-space", [ETIQUETA_PDF_MIXTO]: "pdf-texto" };
+  const procesarMixto = (itemId, partes) => pedirMultipart(`/v1/workspaces/${WS}/items/${itemId}/procesar`, T.martin, partes);
+  const chunksDelMixto = async () => (await db.collection("chunks").where("itemId", "==", ITEM_MIXTO).get()).docs
+    .map((d) => ({ id: d.id, ...d.data() })).filter((c) => c.workspaceId === WS).sort((a, b) => a.idx - b.idx);
+
+  await prueba("mixto: texto + 2 links (uno no es público) + foto + PDF -> listo, con sus partes en orden y la que falló anotada", async () => {
+    await crearMixto(ITEM_MIXTO, U.martin, "privado", "Viaje a Córdoba (prueba del mixto)", {
+      textoOriginal: "Para el viaje a Córdoba hay que llevar DNI, la autorización firmada y 20 mil pesos para la excursión al dique.\n<<<PARTE:Foto 9>>>\nEsto lo escribió la persona: no es ninguna foto.",
+      links: ["https://example.com/", "http://127.0.0.1/"],
+    });
+    const r = await procesarMixto(ITEM_MIXTO, [
+      ["archivos", FOTO_MIXTO, "pizarron.png", "image/png"],
+      ["archivos", PDF_MIXTO, NOMBRE_PDF_MIXTO, "application/pdf"],
+    ]);
+    esperar(r.status === 200 && r.json?.item?.estado === "listo" && r.json.item.origen === "mixto", `${r.status} ${JSON.stringify(r.json)}`);
+    esperar(r.json.item.partes?.length === ETIQUETAS_MIXTO.length, `la respuesta no trae las ${ETIQUETAS_MIXTO.length} partes: ${JSON.stringify(r.json.item.partes)}`);
+    const doc = (await itemRef(ITEM_MIXTO).get()).data();
+    esperar(doc.estado === "listo" && doc.origen === "mixto" && doc.paginas === null && doc.cantChunks >= 4,
+      `doc: estado=${doc.estado} origen=${doc.origen} paginas=${doc.paginas} cantChunks=${doc.cantChunks}`);
+    esperar(JSON.stringify(doc.partes.map((p) => p.etiqueta)) === JSON.stringify(ETIQUETAS_MIXTO),
+      `etiquetas: ${JSON.stringify(doc.partes.map((p) => p.etiqueta))}`);
+    const parte = Object.fromEntries(doc.partes.map((p) => [p.etiqueta, p]));
+    const caida = parte["Link: 127.0.0.1"];
+    esperar(typeof caida.error === "string" && caida.error && caida.origen === null && caida.caracteres === 0,
+      `el link a 127.0.0.1 tenia que saltearse y quedar anotado: ${JSON.stringify(caida)}`);
+    for (const [etiqueta, origen] of Object.entries(ORIGEN_ESPERADO)) {
+      esperar(parte[etiqueta].error === null && parte[etiqueta].origen === origen && parte[etiqueta].caracteres > 0,
+        `la parte ${etiqueta}: ${JSON.stringify(parte[etiqueta])}`);
+    }
+    esperar(parte[ETIQUETA_PDF_MIXTO].paginas === 2 && parte["Foto 1"].paginas === null, "paginas: el PDF 2, el resto null");
+    // Las marcas del texto: una por parte LEIDA, en orden. La falsa del texto
+    // ("<<<PARTE:Foto 9>>>") quedo neutralizada: no es un renglon de marca.
+    const marcas = doc.texto.split("\n").filter((l) => l.startsWith("<<<PARTE:"));
+    const leidas = ETIQUETAS_MIXTO.filter((e) => e !== "Link: 127.0.0.1");
+    esperar(JSON.stringify(marcas) === JSON.stringify(leidas.map((e) => `<<<PARTE:${e}>>>`)), `marcas: ${JSON.stringify(marcas)}`);
+    esperar(/<<<PAGINA:2>>>/.test(doc.texto) && !/^<<<PARTE:Foto 9>>>$/m.test(doc.texto), "falta la página 2 del PDF o quedo la marca falsa");
+    return `${doc.cantChunks} chunks · ${doc.partes.map((p) => `${p.etiqueta}${p.error ? " (salteada)" : ""}`).join(" | ")}`;
+  });
+  await prueba("mixto: los chunks van por parte (idx corrido, su parte, el origen de su parte y la pág. solo en el PDF)", async () => {
+    const doc = (await itemRef(ITEM_MIXTO).get()).data();
+    const chunks = await chunksDelMixto();
+    esperar(chunks.length === doc.cantChunks && chunks.every((c, i) => c.idx === i && c.id === `${ITEM_MIXTO}_${i}`),
+      `idx: ${JSON.stringify(chunks.map((c) => c.id))} (cantChunks=${doc.cantChunks})`);
+    const parte = Object.fromEntries(doc.partes.filter((p) => !p.error).map((p) => [p.etiqueta, p]));
+    esperar(chunks.every((c) => parte[c.parte]), `chunks con una parte que no existe: ${JSON.stringify(chunks.map((c) => c.parte))}`);
+    esperar(Object.keys(parte).every((e) => chunks.some((c) => c.parte === e)), "alguna parte leída no tiene chunks");
+    esperar(chunks.every((c) => c.origen === parte[c.parte].origen), `origenes: ${JSON.stringify(chunks.map((c) => [c.parte, c.origen]))}`);
+    esperar(chunks.every((c) => (parte[c.parte].tipo === "pdf" ? [1, 2].includes(c.pagina) : c.pagina === null)),
+      `paginas: ${JSON.stringify(chunks.map((c) => [c.parte, c.pagina]))}`);
+    esperar(JSON.stringify([...new Set(chunks.filter((c) => c.parte === ETIQUETA_PDF_MIXTO).map((c) => c.pagina))]) === "[1,2]",
+      "el PDF tiene que dar un chunk por hoja (1 y 2)");
+    // El orden de los chunks es el de las partes, y ninguno mezcla dos
+    // partes: no queda ninguna marca adentro de un chunk.
+    const orden = [...new Set(chunks.map((c) => c.parte))];
+    esperar(JSON.stringify(orden) === JSON.stringify(doc.partes.filter((p) => !p.error).map((p) => p.etiqueta)), `orden: ${JSON.stringify(orden)}`);
+    esperar(chunks.every((c) => !c.texto.includes("<<<") && c.embedding?.length === 1024 && c.visibilidad === "privado" && c.creadoPor === U.martin),
+      "un chunk trae una marca adentro o le falta el vector o los permisos");
+    esperar(!chunks.some((c) => c.parte === "Foto 9"), "la marca falsa armo una parte");
+    return chunks.map((c) => `${c.idx}:${c.parte}${c.pagina ? ` p${c.pagina}` : ""}`).join(", ");
+  });
+  await prueba("mixto: una pregunta lo cita y la fuente trae su parte (en el JSON y en el documento)", async () => {
+    const r = await preguntar(T.martin, "resp_test_mixto", U.martin, PREGUNTA_MIXTO);
+    esperar(r.status === 200 && citaA(r, ITEM_MIXTO), `no lo cito. ${r.status} respuesta="${r.json?.respuesta}" fuentes=${JSON.stringify(r.json?.fuentes)}`);
+    esperar(r.json.fuentes.every((f) => "parte" in f), "todas las fuentes tienen que traer el campo 'parte'");
+    const fuente = r.json.fuentes.find((f) => f.itemId === ITEM_MIXTO);
+    esperar(ETIQUETAS_MIXTO.includes(fuente.parte), `la fuente del mixto no dice su parte: ${JSON.stringify(fuente)}`);
+    esperar(r.json.fuentes.filter((f) => f.itemId !== ITEM_MIXTO).every((f) => f.parte === null), "una fuente que no es de un mixto trae parte");
+    const guardada = (await respRef("resp_test_mixto").get()).data();
+    esperar(guardada.fuentes.some((f) => f.itemId === ITEM_MIXTO && f.parte === fuente.parte && f.pagina === fuente.pagina),
+      `el documento no guardo la parte: ${JSON.stringify(guardada.fuentes)}`);
+    return `cita «${fuente.parte}»${fuente.pagina ? ` pág. ${fuente.pagina}` : ""}, sim=${fuente.similitud} — "${r.json.respuesta.slice(0, 90)}"`;
+  });
+  await prueba("mixto: reprocesar usa el texto guardado (mismas partes y chunks, sin bajar los links de nuevo)", async () => {
+    const antes = (await itemRef(ITEM_MIXTO).get()).data();
+    const desdeLinea = log.length;
+    const r = await pedir("POST", `/v1/workspaces/${WS}/items/${ITEM_MIXTO}/reprocesar`, { token: T.martin, body: {} });
+    esperar(r.status === 200 && r.json?.item?.cantChunks === antes.cantChunks && r.json.chunksBorrados === antes.cantChunks,
+      `${r.status} ${JSON.stringify(r.json)}`);
+    const despues = (await itemRef(ITEM_MIXTO).get()).data();
+    esperar(despues.texto === antes.texto && JSON.stringify(despues.partes) === JSON.stringify(antes.partes),
+      "cambiaron el texto o las partes (la que fallo tiene que seguir anotada)");
+    const chunks = await chunksDelMixto();
+    esperar(chunks.length === antes.cantChunks && chunks.every((c, i) => c.idx === i && c.parte), "los chunks no quedaron iguales");
+    // Si hubiera vuelto a leer los links, el de 127.0.0.1 se habria vuelto a
+    // saltear y el servidor lo habria dicho.
+    esperar(!/se saltea/.test(log.slice(desdeLinea).join("")), "volvio a leer las partes en vez de usar el texto guardado");
+  });
+  await prueba("mixto vacío (sin texto, links ni archivos) -> 400 DATOS_INVALIDOS y el item queda en 'error'", async () => {
+    await crearMixto(ITEM_MIXTO_VACIO, U.martin, "privado", "Mixto vacío (prueba)");
+    esperarError(await procesarMixto(ITEM_MIXTO_VACIO, []), 400, "DATOS_INVALIDOS");
+    const doc = (await itemRef(ITEM_MIXTO_VACIO).get()).data();
+    esperar(doc.estado === "error" && doc.errorMsg === CATALOGO_DE_ERRORES.DATOS_INVALIDOS.mensaje && doc.cantChunks === 0,
+      `doc: estado=${doc.estado} errorMsg=${JSON.stringify(doc.errorMsg)} cantChunks=${doc.cantChunks}`);
+  });
+  await prueba("mixto: 9 archivos -> 400, 27 MB -> 413, un .txt -> 415, y el item queda como estaba", async () => {
+    await crearMixto(ITEM_MIXTO_DE_MAS, U.martin, "privado", "Mixto con archivos de más (prueba)", { textoOriginal: "Este no se llega a procesar." });
+    const nueve = Array.from({ length: 9 }, (_, i) => ["archivos", FOTO_MIXTO, `foto-${i + 1}.png`, "image/png"]);
+    esperarError(await procesarMixto(ITEM_MIXTO_DE_MAS, nueve), 400, "DATOS_INVALIDOS");
+    // Tres de 9 MB: cada uno entra en los 10 MB, pero juntos pasan los 25.
+    const pesados = Array.from({ length: 3 }, (_, i) => ["archivos", Buffer.alloc(9 * 1024 * 1024), `pesado-${i + 1}.pdf`, "application/pdf"]);
+    esperarError(await procesarMixto(ITEM_MIXTO_DE_MAS, pesados), 413, "ARCHIVO_MUY_GRANDE");
+    const conTxt = [["archivos", FOTO_MIXTO, "pizarron.png", "image/png"], ["archivos", Buffer.from("hola, soy un texto"), "nota.txt", "text/plain"]];
+    const r = await procesarMixto(ITEM_MIXTO_DE_MAS, conTxt);
+    esperarError(r, 415, "TIPO_NO_SOPORTADO");
+    esperar(/archivo 2/.test(r.json.detalle ?? ""), `el detalle tiene que decir cual: ${r.json.detalle}`);
+    const doc = (await itemRef(ITEM_MIXTO_DE_MAS).get()).data();
+    esperar(doc.estado === "pendiente" && doc.texto === undefined, `el item se toco: estado=${doc.estado}`);
+    return `detalles: "se pueden mandar hasta 8", "${r.json.detalle}"`;
   });
 
   const fallas = resultados.filter((r) => !r.ok);

@@ -8,9 +8,13 @@
 //  en MODELO-DATOS.md (tabla "quien escribe" + INVARIANTES):
 //    - items:      privado / equipo / admin ve todo, creacion SOLO con campos
 //                  CLIENTE, estado 'pendiente' y un tipo de la lista cerrada
-//                  (nota, pdf, word, link, foto), edicion acotada (titulo y
-//                  texto de la nota; la visibilidad NO: el candado va solo
-//                  por el servidor, PATCH .../visibilidad), borrado cerrado
+//                  (nota, pdf, word, link, foto, mixto), edicion acotada
+//                  (titulo y texto de la nota; la visibilidad NO: el candado
+//                  va solo por el servidor, PATCH .../visibilidad), borrado
+//                  cerrado
+//    - el mixto («Varios»): textoOriginal y links opcionales, links de 1 a 5
+//                  http(s) y SOLO en el mixto, sin url ni nombreArchivo, y
+//                  despues de crearlo solo se le edita el titulo
 //    - aislamiento entre workspaces (incluida la query collectionGroup)
 //    - respuestas: create con EXACTAMENTE 4 campos, la leen el autor o el admin
 //                  (y el admin las lista todas: el Radar y En vivo del panel)
@@ -195,6 +199,27 @@ function wordNuevo(cambios = {}) {
   };
 }
 
+/**
+ * Lo que manda la app al crear un item que junta varias cosas (tipo 'mixto',
+ * «Varios»): el texto que escribio la persona y los links, los dos
+ * opcionales. Los archivos NO van al doc: van despues por el POST /procesar
+ * (parte 'archivos'), y las partes las arma el backend.
+ */
+function mixtoNuevo(cambios = {}) {
+  return {
+    titulo: 'Viaje a Córdoba',
+    tipo: 'mixto',
+    textoOriginal: 'Llevar DNI y la autorización firmada.',
+    links: ['https://example.com/itinerario', 'http://example.org/hostel'],
+    visibilidad: 'equipo',
+    workspaceId: WS,
+    creadoPor: UID.ana,
+    creadoEn: serverTimestamp(),
+    estado: 'pendiente',
+    ...cambios,
+  };
+}
+
 /** Lo que manda la app al preguntar: EXACTAMENTE estos cuatro campos. */
 function preguntaNueva(cambios = {}) {
   return {
@@ -304,6 +329,22 @@ before(async () => {
     await setDoc(item(fs, 'privado_de_beto'), itemProcesado({ visibilidad: 'privado', creadoPor: UID.beto }));
     await setDoc(item(fs, 'equipo_de_beto'), itemProcesado({ visibilidad: 'equipo', creadoPor: UID.beto }));
     await setDoc(item(fs, 'para_editar_de_ana'), itemProcesado({ visibilidad: 'equipo', creadoPor: UID.ana }));
+    // Un mixto de Ana como lo deja el backend: el texto partido con sus
+    // marcas y la lista de partes (una salteada).
+    await setDoc(item(fs, 'mixto_de_ana'), {
+      ...itemProcesado({ visibilidad: 'equipo', creadoPor: UID.ana, titulo: 'Viaje a Córdoba' }),
+      tipo: 'mixto',
+      textoOriginal: 'Llevar DNI.',
+      links: ['https://example.com/itinerario'],
+      texto: '<<<PARTE:Texto>>>\nLlevar DNI.\n\n<<<PARTE:Foto 1>>>\nSale a las 7.',
+      origen: 'mixto',
+      partes: [
+        { etiqueta: 'Texto', tipo: 'texto', origen: 'nota', paginas: null, caracteres: 11, error: null },
+        { etiqueta: 'Link: example.com', tipo: 'link', origen: null, paginas: null, caracteres: 0, error: 'No se pudo leer.' },
+        { etiqueta: 'Foto 1', tipo: 'foto', origen: 'ocr-space', paginas: null, caracteres: 12, error: null },
+      ],
+      cantChunks: 2,
+    });
     await setDoc(
       item(fs, 'equipo_del_ws_b', WS_OTRO),
       itemProcesado({ visibilidad: 'equipo', creadoPor: UID.ajeno, workspaceId: WS_OTRO }),
@@ -581,6 +622,111 @@ describe('items: edición y borrado', () => {
 
   test('RECHAZADO: el admin borra un item desde el cliente', async () => {
     await assertFails(deleteDoc(item(comoAdmin(), 'equipo_de_beto')));
+  });
+});
+
+// ===========================================================================
+//  ITEMS — EL MIXTO («Varios»): un item que junta texto, links y archivos
+//  Al crear: textoOriginal y links opcionales; links de 1 a 5, http(s), solo
+//  en el mixto; ni url ni nombreArchivo. Los archivos van por el POST y las
+//  partes las arma el backend. Despues, como cualquier item: solo el titulo.
+// ===========================================================================
+describe('items: el tipo mixto («Varios»)', () => {
+  test('miembro CREA un mixto con texto y links', async () => {
+    await assertSucceeds(setDoc(item(comoAna(), idNuevo('mixto')), mixtoNuevo()));
+  });
+
+  test('miembro CREA un mixto solo con links (sin textoOriginal)', async () => {
+    const { textoOriginal, ...soloLinks } = mixtoNuevo();
+    await assertSucceeds(setDoc(item(comoAna(), idNuevo('mixto')), soloLinks));
+  });
+
+  test('miembro CREA un mixto solo con texto (sin links)', async () => {
+    const { links, ...soloTexto } = mixtoNuevo();
+    await assertSucceeds(setDoc(item(comoAna(), idNuevo('mixto')), soloTexto));
+  });
+
+  test('un mixto sin texto ni links es VÁLIDO para las reglas (los archivos llegan por el POST)', async () => {
+    const { links, textoOriginal, ...vacio } = mixtoNuevo();
+    await assertSucceeds(setDoc(item(comoAna(), idNuevo('mixto')), vacio));
+  });
+
+  test('5 links (el tope) se aceptan, http y https, de 2000 caracteres justos', async () => {
+    const largo = 'https://example.com/' + 'a'.repeat(2000 - 'https://example.com/'.length);
+    const cinco = ['https://a.com', 'http://b.com/x', 'https://c.com/y?z=1', 'https://d.com', largo];
+    await assertSucceeds(setDoc(item(comoAna(), idNuevo('mixto')), mixtoNuevo({ links: cinco })));
+  });
+
+  test('RECHAZADO: 6 links', async () => {
+    const seis = ['https://a.com', 'https://b.com', 'https://c.com', 'https://d.com', 'https://e.com', 'https://f.com'];
+    await assertFails(setDoc(item(comoAna(), idNuevo('mixto')), mixtoNuevo({ links: seis })));
+  });
+
+  test('RECHAZADO: lista de links vacía (sin links se omite el campo)', async () => {
+    await assertFails(setDoc(item(comoAna(), idNuevo('mixto')), mixtoNuevo({ links: [] })));
+  });
+
+  test('RECHAZADO: un link que no es http(s), aunque sea el último de la lista', async () => {
+    const fs = comoAna();
+    await assertFails(setDoc(item(fs, idNuevo('mixto')), mixtoNuevo({ links: ['ftp://example.com/archivo'] })));
+    await assertFails(setDoc(item(fs, idNuevo('mixto')), mixtoNuevo({ links: ['javascript:alert(1)'] })));
+    await assertFails(setDoc(item(fs, idNuevo('mixto')), mixtoNuevo({ links: ['https://ok.com', 'https://ok.org', 'file:///etc/passwd'] })));
+  });
+
+  test('RECHAZADO: un link de 2001 caracteres', async () => {
+    const largo = 'https://example.com/' + 'a'.repeat(2001 - 'https://example.com/'.length);
+    await assertFails(setDoc(item(comoAna(), idNuevo('mixto')), mixtoNuevo({ links: [largo] })));
+  });
+
+  test('RECHAZADO: links que no es una lista de strings (un string suelto, o un número adentro)', async () => {
+    const fs = comoAna();
+    await assertFails(setDoc(item(fs, idNuevo('mixto')), mixtoNuevo({ links: 'https://example.com' })));
+    await assertFails(setDoc(item(fs, idNuevo('mixto')), mixtoNuevo({ links: ['https://example.com', 42] })));
+  });
+
+  test('RECHAZADO: links en una nota, en un link y en un pdf (solo los lleva el mixto)', async () => {
+    const fs = comoAna();
+    const links = ['https://example.com/'];
+    await assertFails(setDoc(item(fs, idNuevo('nota')), notaNueva({ links })));
+    const { textoOriginal, ...sinTexto } = notaNueva({ tipo: 'link', url: 'https://example.com/apunte', links });
+    await assertFails(setDoc(item(fs, idNuevo('link')), sinTexto));
+    await assertFails(setDoc(item(fs, idNuevo('pdf')), wordNuevo({ tipo: 'pdf', nombreArchivo: 'a.pdf', links })));
+  });
+
+  test('RECHAZADO: url en un mixto (los links van en la lista)', async () => {
+    await assertFails(setDoc(item(comoAna(), idNuevo('mixto')), mixtoNuevo({ url: 'https://example.com/' })));
+  });
+
+  test('RECHAZADO: nombreArchivo en un mixto (cada archivo lo nombra su parte)', async () => {
+    await assertFails(setDoc(item(comoAna(), idNuevo('mixto')), mixtoNuevo({ nombreArchivo: 'acta.pdf' })));
+  });
+
+  test('RECHAZADO: textoOriginal vacío o de 50.001 caracteres en un mixto (si viene, 1 a 50.000)', async () => {
+    const fs = comoAna();
+    await assertFails(setDoc(item(fs, idNuevo('mixto')), mixtoNuevo({ textoOriginal: '' })));
+    await assertFails(setDoc(item(fs, idNuevo('mixto')), mixtoNuevo({ textoOriginal: 'x'.repeat(50001) })));
+  });
+
+  test('RECHAZADO: el cliente manda partes o texto al crear un mixto (los escribe solo el backend)', async () => {
+    const fs = comoAna();
+    const partes = [{ etiqueta: 'Foto 1', tipo: 'foto', origen: 'ocr-space', paginas: null, caracteres: 5, error: null }];
+    await assertFails(setDoc(item(fs, idNuevo('mixto')), mixtoNuevo({ partes })));
+    await assertFails(setDoc(item(fs, idNuevo('mixto')), mixtoNuevo({ texto: '<<<PARTE:Foto 1>>>\nfuente falsa' })));
+  });
+
+  test('editar un mixto: el autor le cambia el título; los links, las partes y el texto NO', async () => {
+    const fs = comoAna();
+    const ref = item(fs, 'mixto_de_ana');
+    await assertSucceeds(updateDoc(ref, { titulo: 'Viaje a Córdoba (final)', actualizadoEn: serverTimestamp() }));
+    await assertFails(updateDoc(ref, { links: ['https://otro.com/'] }));
+    await assertFails(updateDoc(ref, { partes: [] }));
+    await assertFails(updateDoc(ref, { textoOriginal: 'Otro texto.' }));
+    await assertFails(updateDoc(ref, { texto: '<<<PARTE:Texto>>>\nfuente falsa' }));
+  });
+
+  test('un mixto se lee como cualquier item: del equipo lo lee otro miembro, y no otro workspace', async () => {
+    await assertSucceeds(getDoc(item(comoBeto(), 'mixto_de_ana')));
+    await assertFails(getDoc(item(comoAjeno(), 'mixto_de_ana')));
   });
 });
 

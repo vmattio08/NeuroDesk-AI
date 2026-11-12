@@ -208,7 +208,7 @@ export async function itemsVisibles(wsId, uid, esAdmin) {
  *   el filtro de permisos no tiene apuro ni atajos, se hace entero siempre.
  * @returns {Promise<{
  *   fuentes: {n:number,chunkId:string,itemId:string,titulo:string,pagina:number|null,
- *             fragmento:string,texto:string,origen:string,similitud:number}[],
+ *             parte:string|null,fragmento:string,texto:string,origen:string,similitud:number}[],
  *   chunksMirados:number, chunksVisibles:number,
  *   mejorSimilitud:number, confianza:'alta'|'media'|'baja', umbral:number
  * }>}
@@ -307,6 +307,10 @@ export async function buscarChunks(wsId, pregunta, uid, esAdmin, opciones = {}) 
     itemId: p.chunk.itemId,
     titulo: p.chunk.titulo ?? '',
     pagina: p.chunk.pagina ?? null,
+    // La etiqueta de la parte de un item 'mixto' ("Foto 2", "PDF «acta.pdf»"),
+    // copiada del chunk. null en los otros tipos y en los chunks de antes de
+    // que existiera el campo.
+    parte: typeof p.chunk.parte === 'string' ? p.chunk.parte : null,
     fragmento: recorteParaCitar(p.chunk.texto),
     texto: p.chunk.texto, // el trozo entero, para armar el prompt
     origen: p.chunk.origen ?? null,

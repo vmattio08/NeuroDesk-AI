@@ -544,13 +544,17 @@ function validarCitas(textoDelModelo, candidatos) {
 // buscar.js devuelve cada fuente con campos de más (chunkId, origen y el
 // 'texto' ENTERO del chunk, que necesitamos para el prompt). En el documento y
 // en el JSON va exactamente lo que declaran el modelo y el contrato:
-// {n, itemId, titulo, pagina, fragmento, similitud}. Nada más.
+// {n, itemId, titulo, pagina, parte, fragmento, similitud}. Nada más.
+// 'parte' es de qué parte de un item 'mixto' sale la cita ("Foto 2"), para
+// que la app diga "Viaje a Córdoba · Foto 2"; null en los otros tipos. Sale
+// del chunk real, como el título: el modelo no la puede inventar.
 function fuenteParaGuardar(f) {
   return {
     n: f.n,
     itemId: f.itemId,
     titulo: f.titulo,
     pagina: f.pagina,
+    parte: f.parte ?? null,
     fragmento: f.fragmento,
     similitud: f.similitud,
   };

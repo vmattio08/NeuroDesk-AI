@@ -118,6 +118,16 @@ services:
       - key: INVITAR_SOLO_REGISTRADOS
         value: "0"
 
+      # Espacio de bienvenida (rutas/auth.js): quien se registra y no esta en
+      # ningun espacio entra solo, como miembro, a este (el de la demo). Es
+      # para la prueba cruzada entre equipos: el que se registra prueba la app
+      # con contenido de verdad sin esperar a que lo inviten. No entra si un
+      # admin lo saco antes ni si el plan no tiene lugar. Para un producto
+      # real se BORRA esta variable: nadie entra a un equipo ajeno sin
+      # invitacion. Vacia o ausente = apagado.
+      - key: ESPACIO_DE_BIENVENIDA
+        value: ws_seed_6to1ra
+
       # ----------------------------------------------------------------------
       # SECRETAS: sync: false = Render pide el valor al crear el Blueprint y lo
       # guarda el. NUNCA se escriben en este archivo.
