@@ -11,9 +11,13 @@
 
    NO hay registro aca a proposito: al panel entran cuentas que YA existen y
    que ya son admin de algun workspace. Las cuentas se crean desde la app
-   Flutter (que llama a POST /v1/auth/registro) y a admin se asciende desde
-   este mismo panel, en la pantalla de Miembros (boton "Hacer admin", que
-   llama a PATCH /v1/workspaces/:wsId/miembros/:uid).
+   (la de Android o la misma app en la web, en /app/), que llama a
+   POST /v1/auth/registro: quien se registra entra DIRECTO al espacio de
+   prueba como MIEMBRO, sin esperar ninguna invitacion. Por eso un miembro
+   nuevo que prueba este login se encuentra con el cartel de "no sos admin":
+   el texto de abajo le dice que lo suyo es la app. A admin se asciende
+   desde este mismo panel, en la pantalla de Miembros (boton "Hacer admin",
+   que llama a PATCH /v1/workspaces/:wsId/miembros/:uid).
 
    OJO: esto es un modulo ES. NO funciona abriendo el archivo con doble clic
    (file://): el navegador bloquea los imports por CORS. Hay que servirlo por
@@ -90,8 +94,10 @@
 
     <p class="chico apagado" style="margin-top:14px">
       Al panel solo entran las cuentas que son <b>administradoras</b> de algún
-      espacio de trabajo. Si tenés cuenta pero no sos admin, pedile a un
-      administrador de tu espacio que te toque <b>Hacer admin</b> en Miembros.
+      espacio de trabajo. Si te registraste en la app, sos <b>miembro</b> del
+      espacio de prueba: usá la app de Android o la
+      <a href="/app/">versión web</a>. Si necesitás ser admin, pedíselo a un
+      administrador de tu espacio (lo cambia desde Miembros).
     </p>
 
   </main>
@@ -119,6 +125,11 @@
       aviso.innerHTML = esc(texto);           // texto propio, pero pasa por esc igual: la regla no tiene excepciones
     }
 
+    // Con el registro abierto, el que mas seguido cae en "no sos admin" es un
+    // miembro recien registrado que probo este login: se le dice adonde ir
+    // en vez de dejarlo frente a un "no" a secas.
+    const PARA_MIEMBROS = ' Si sos miembro, usá la app o la versión web (el link está acá abajo).';
+
     // --- 1. ¿Esta completa la config? ---------------------------------
     if (faltaConfig) {
       avisoConfig.classList.remove('oculto');
@@ -138,7 +149,7 @@
       if (motivo === 'sesion') {
         mostrarAviso('Tu sesión venció. Volvé a entrar.');
       } else if (motivo === 'no_admin') {
-        mostrarAviso('Esa cuenta no es administradora de ningún espacio de trabajo.');
+        mostrarAviso('Esa cuenta no es administradora de ningún espacio de trabajo.' + PARA_MIEMBROS);
       }
 
       // Si el admin ya entro antes y no cerro sesion, lo mandamos derecho al
@@ -151,7 +162,7 @@
           location.replace('app.html');
           return;                       // la pagina se esta yendo: no dibujamos nada mas
         }
-        mostrarAviso('Esa cuenta no es administradora de ningún espacio de trabajo.');
+        mostrarAviso('Esa cuenta no es administradora de ningún espacio de trabajo.' + PARA_MIEMBROS);
       }
 
       verificando.classList.add('oculto');
@@ -187,7 +198,7 @@
           // (Igual no podria hacer nada del otro lado: las reglas de
           // Firestore le niegan eventos/ y suscripcion/, y el backend le
           // contesta NO_ES_ADMIN.)
-          mostrarAviso('Entraste, pero esa cuenta no es administradora de ningún espacio.');
+          mostrarAviso('Entraste, pero esa cuenta no es administradora de ningún espacio.' + PARA_MIEMBROS);
           return;
         }
 

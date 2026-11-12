@@ -727,6 +727,9 @@ tbody tr:hover { background: var(--tarjeta-2); }
 }
 .top-docs__lista li { padding-left: 2px; }
 .top-docs__lista li::marker { color: var(--marca-texto); font-weight: 700; }
+/* El tipo del documento ("[clip] Varios") delante del titulo. */
+.top-docs__tipo { margin-right: 6px; }
+.top-docs__tipo .etiqueta { vertical-align: 1px; }
 .top-docs__titulo { font-weight: 600; color: var(--tinta-fuerte); overflow-wrap: anywhere; }
 .top-docs__n { color: var(--apagado); font-size: .82rem; white-space: nowrap; }
 .top-docs__n::before { content: " · "; }

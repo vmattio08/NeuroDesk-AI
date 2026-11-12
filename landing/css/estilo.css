@@ -642,8 +642,17 @@ a:hover { color: #67E8F9; }
   .nav__lista li:last-child a { border-bottom: 0; }
 }
 
+/* El boton de la cabecera en UNA linea. "Probala gratis" entero mide 129 px y
+   al lado del nombre y del menu recien entra desde unos 430 px de ancho: mas
+   angosto dice "Probala" y nada mas (el "gratis" ya lo dice el hero), en vez
+   de partirse en dos renglones. */
+.cabecera__acciones .boton--chico { white-space: nowrap; }
+@media (max-width: 429px) {
+  .cabecera__extra { display: none; }
+}
+
 /* En pantallas muy angostas no entran el nombre, el boton y el menu: el
-   boton "Pedí acceso" ya esta en el hero y en el menu no hace falta. */
+   boton "Probala gratis" ya esta en el hero y en el menu no hace falta. */
 @media (max-width: 379px) {
   .cabecera__acciones .boton--chico { display: none; }
 }
@@ -970,10 +979,25 @@ a:hover { color: #67E8F9; }
   background: var(--superficie-suave);
 }
 
+/* Cinco tipos (con «Varios», el item que junta todo). "Documento" pide unos
+   66 px de caja, y cinco de esas mas los huecos son 354 px: con menos ancho
+   van en dos filas (3 + 2, la de abajo centrada: grilla de 6 columnas y cada
+   tipo ocupa 2) y recien con lugar, en una sola. Se mide el ancho de la
+   VIÑETA (container query) y no el de la pantalla: en la compu los pasos van
+   de a tres y la viñeta mide 338 px aunque la pantalla sea ancha. La viñeta
+   de un paso mide lo que su columna, asi que medirla no cambia su tamaño. */
+.paso > .vineta { container-type: inline-size; }
 .vineta__tipos {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 6px;
+}
+.vineta__tipos .tipo { grid-column: span 2; }
+.vineta__tipos .tipo:nth-child(4) { grid-column: 2 / span 2; }
+@container (min-width: 360px) {
+  .vineta__tipos { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .vineta__tipos .tipo,
+  .vineta__tipos .tipo:nth-child(4) { grid-column: auto; }
 }
 
 .tipo {

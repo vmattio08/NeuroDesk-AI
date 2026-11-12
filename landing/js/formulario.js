@@ -1,5 +1,10 @@
 // ============================================================================
-//  formulario.js  —  el pedido de acceso a la beta.
+//  formulario.js  —  el contacto "¿Lo querés para tu equipo? Escribinos".
+//
+//  Antes era LA puerta de la beta ("Pedí acceso"). Desde que el registro
+//  entra directo al espacio de prueba, para probar se usa la app (/app/) y
+//  este formulario queda para el que quiere el espacio propio de su equipo o
+//  un plan. COMO GUARDA no cambio: la misma coleccion y los mismos campos.
 //
 //  Que hace: valida los campos en el navegador con los MISMOS limites que
 //  van a tener las reglas de Firestore, y crea UN documento en la coleccion
@@ -270,7 +275,7 @@ export function iniciarFormulario() {
       boton.replaceChildren(giro, document.createTextNode('Enviando…'));
       estado.textContent = 'Enviando tu pedido…';
     } else {
-      boton.textContent = 'Pedir acceso';
+      boton.textContent = 'Enviar';   // el mismo texto que trae el HTML
     }
   }
 
@@ -362,7 +367,7 @@ export function iniciarFormulario() {
       ponerEnviando(false);
       mostrarListo(datos);
     } catch (error) {
-      console.warn('[landing] no se pudo guardar el pedido de acceso:', error?.code || error);
+      console.warn('[landing] no se pudo guardar el contacto:', error?.code || error);
       ponerEnviando(false);
       mostrarErrorGeneral(mensajeDeError(error));
     }

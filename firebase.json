@@ -11,7 +11,8 @@
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**", "**/*.md"],
     "cleanUrls": true,
     "redirects": [
-      { "regex": "^/panel$", "destination": "/panel/", "type": 301 }
+      { "regex": "^/panel$", "destination": "/panel/", "type": 301 },
+      { "regex": "^/app$", "destination": "/app/", "type": 301 }
     ],
     "headers": [
       {
@@ -20,6 +21,14 @@
       },
       {
         "regex": "\\.(png|jpe?g|gif|svg|webp|avif|ico|woff2?)$",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=600" }]
+      },
+      {
+        "regex": "^/app/.+\\.(json|bin)$",
+        "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      },
+      {
+        "regex": "^/app/.+\\.(wasm|symbols|otf|ttf|frag)$",
         "headers": [{ "key": "Cache-Control", "value": "public, max-age=600" }]
       }
     ]

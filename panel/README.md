@@ -131,6 +131,8 @@ panel/
 │   ├── util.js             esc(), las fechas y nombreDeAutor() (funciones puras)
 │   ├── nombres.js          de uid a nombre: members + exMiembros (lee una vez)
 │   ├── iconos.js           los íconos del panel, en SVG hecho a mano
+│   ├── tipos.js            el tipo y el origen de un item en castellano, con su ícono
+│   │                       (incluye «Varios», el item mixto con partes)
 │   ├── radar-calculos.js   las cuentas del Radar, SIN Firebase (se prueban con node)
 │   └── pantallas/
 │       ├── items.js        Contenido: tabla en vivo + buscador + filtros + candado
@@ -164,7 +166,9 @@ antes de montar la pantalla siguiente, siempre.
 - **Contenido:** ver **todo** el contenido del espacio en tiempo real,
   incluidos los items marcados como *privados* (eso es exactamente lo que el
   admin puede y un miembro no). Buscar y filtrar por estado, tipo y
-  visibilidad. El candado de cada item («Del equipo» / «Privado») se actualiza
+  visibilidad. Un item «Varios» (tipo `mixto`: texto, links y archivos en uno
+  solo) muestra sus partes, cuántas son y cuáles no se pudieron leer; el
+  buscador también encuentra los nombres de sus archivos y links. El candado de cada item («Del equipo» / «Privado») se actualiza
   solo cuando lo cambian desde la app: compartirlo con el equipo lo puede hacer
   solo el autor, y pasarlo a privado, el autor o el admin. La columna Autor dice el nombre
   también de quien ya se fue: «Lucas (ya no está en el equipo)».

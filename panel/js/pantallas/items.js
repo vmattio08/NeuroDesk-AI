@@ -24,9 +24,13 @@ import {
   db, collection, query, where, orderBy, limit, onSnapshot
 } from '../firebase.js';
 
-import { esc, fechaCorta, haceCuanto, normalizar } from '../util.js';
+import { esc, fechaCorta, haceCuanto, normalizar, plural } from '../util.js';
 import { leerNombres } from '../nombres.js';
 import { icono } from '../iconos.js';
+import {
+  etiquetaDeTipo, textoDeOrigen, partesDe, resumenDePartes, listaDePartes, listaCorta,
+  linksDe, detalleDeParte
+} from '../tipos.js';
 
 
 // ----------------------------------------------------------------------------
@@ -250,6 +254,7 @@ function plantilla() {
           <option value="word">Word</option>
           <option value="link">Link</option>
           <option value="foto">Foto</option>
+          <option value="mixto">Varios</option>
         </select>
       </div>
 
@@ -384,24 +389,40 @@ function dibujarTabla() {
 // UNA FILA.
 //
 // ACA ES DONDE IMPORTA esc(). Absolutamente TODO lo que sale del documento de
-// Firestore —titulo, nombreArchivo, url, errorMsg, el nombre del autor— lo
-// escribio otra persona desde la app, y va adentro de un innerHTML. Sin esc(),
-// un titulo con <img src=x onerror=...> ejecuta codigo en el navegador DEL
-// ADMIN. No hay ni una interpolacion en esta funcion sin esc().
+// Firestore —titulo, nombreArchivo, url, errorMsg, las partes de un 'mixto',
+// el nombre del autor— lo escribio otra persona desde la app, y va adentro de
+// un innerHTML. Sin esc(), un titulo con <img src=x onerror=...> ejecuta
+// codigo en el navegador DEL ADMIN. No hay ni una interpolacion en esta
+// funcion sin esc() (etiquetaDeTipo y las lineas de partes escapan adentro).
 // ----------------------------------------------------------------------------
 function fila(item) {
   const autor = autorDe(item);
 
-  // Segunda linea del titulo: el nombre del archivo o el link de origen.
+  // Las partes de un 'mixto' («Varios»). Para los otros tipos (y para un
+  // 'mixto' que el backend todavia no proceso) es una lista vacia.
+  const partes = partesDe(item);
+
+  // Segunda linea del titulo: el nombre del archivo, el link de origen o,
+  // en un 'mixto', las partes que junta ("Texto · Presupuesto.pdf · ...").
+  // Un 'mixto' que el backend todavia no proceso no tiene partes: se muestran
+  // sus links (los escribe la app al crearlo), si trae.
+  const links = linksDe(item);
   let sub = '';
-  if (item.nombreArchivo) sub = item.nombreArchivo;
-  else if (item.url)      sub = item.url;
+  if (item.nombreArchivo)  sub = item.nombreArchivo;
+  else if (item.url)       sub = item.url;
+  else if (partes.length)  sub = listaDePartes(partes);
+  else if (links.length)   sub = listaCorta(links);
 
   // El mensaje de error lo escribe el BACKEND (nunca un err.message crudo),
   // asi que ya viene en castellano y se muestra tal cual.
   const lineaError = item.estado === 'error' && item.errorMsg
     ? `<div class="celda-error">${esc(item.errorMsg)}</div>`
     : '';
+
+  // En un 'mixto' cada parte se lee por su lado, y el item puede quedar
+  // 'listo' aunque una foto no se haya podido leer: la IA contesta con el
+  // resto. El admin tiene que ver CUAL fallo y por que, no solo un "Listo".
+  const lineasPartes = lineasDePartesConError(partes);
 
   // 'recortado' lo pone el backend cuando el texto pasaba los 300.000
   // caracteres: el item esta listo, pero indexado a medias, y el admin tiene
@@ -416,14 +437,13 @@ function fila(item) {
         ${esc(item.titulo)}
         ${sub ? `<div class="sub">${esc(sub)}</div>` : ''}
         ${lineaError}
+        ${lineasPartes}
         ${lineaRecorte}
       </td>
-      <td><span class="etiqueta">${esc(textoDeTipo(item.tipo))}</span></td>
+      <td>${etiquetaDeTipo(item.tipo)}</td>
       <td>
         ${chipDeEstado(item.estado)}
-        ${item.origen
-          ? `<div class="sub chico apagado" title="origen: ${esc(item.origen)}">${esc(textoDeOrigen(item.origen))}</div>`
-          : ''}
+        ${lineaDeOrigen(item, partes)}
       </td>
       <td>${candado(item.visibilidad)}</td>
       <td>${esc(autor)}</td>
@@ -470,42 +490,42 @@ function chipDeEstado(estado) {
 
 
 // ----------------------------------------------------------------------------
-// Tipo y origen en castellano, para la persona y no el valor crudo del modelo.
+// Tipo y origen en castellano: las listas viven en tipos.js (las comparten
+// Contenido, En vivo y Lo que falta). Aca solo se arman las dos celdas.
 //
-// Mismo criterio que chipDeEstado(): un valor que no esta en la lista (un doc
-// cargado a mano, o un tipo nuevo que el panel todavia no conoce) se muestra
-// crudo y escapado en vez de romper la fila. El que llama igual pasa el
-// resultado por esc(): el valor crudo lo escribio otra persona.
-//
-// 'documento' NO aparece a proposito: en la app es solo el boton que acepta
-// PDF y Word, y el item se guarda como 'pdf' o como 'word'.
+// La segunda linea de la columna Estado:
+//   - un item comun: de donde salio el texto ("Leído con OCR"), con el valor
+//     crudo en el title;
+//   - un 'mixto' ya procesado: cuantas partes junta ("3 partes") y, en rojo,
+//     cuantas fallaron. El title lista parte por parte que se leyo.
 // ----------------------------------------------------------------------------
-const TEXTO_DE_TIPO = {
-  nota: 'Nota',
-  pdf:  'PDF',
-  word: 'Word',
-  link: 'Link',
-  foto: 'Foto'
-};
-
-// 'origen' es el enum CERRADO del modelo que escribe el backend: de donde
-// salio el texto que lee la IA. El valor crudo queda en el title de la celda.
-const TEXTO_DE_ORIGEN = {
-  'nota':      'Texto de la nota',
-  'pdf-texto': 'Texto del PDF',
-  'docx':      'Texto del Word',
-  'ocr-space': 'Leído con OCR',
-  'link':      'Texto de la página'
-};
-
-// Object.hasOwn y no TEXTO_DE_TIPO[tipo] a secas: con un tipo cargado a mano
-// como 'constructor' o 'toString', el objeto devolveria una funcion heredada.
-function textoDeTipo(tipo) {
-  return Object.hasOwn(TEXTO_DE_TIPO, tipo) ? TEXTO_DE_TIPO[tipo] : (tipo || '—');
+function lineaDeOrigen(item, partes) {
+  const resumen = resumenDePartes(partes);
+  if (resumen) {
+    // Un renglon por parte en el title ("\n" adentro de un atributo se ve
+    // como salto de linea en el globito). Va por esc(): las etiquetas son
+    // nombres de archivo y links que eligio otra persona.
+    const detalle = partes.map(detalleDeParte).join('\n');
+    return `<div class="sub chico apagado" title="${esc(detalle)}">${esc(resumen.texto)}</div>` +
+      (resumen.errores ? `<div class="celda-error">${esc(resumen.errores)}</div>` : '');
+  }
+  if (!item.origen) return '';
+  return `<div class="sub chico apagado" title="origen: ${esc(item.origen)}">${esc(textoDeOrigen(item.origen))}</div>`;
 }
 
-function textoDeOrigen(origen) {
-  return Object.hasOwn(TEXTO_DE_ORIGEN, origen) ? TEXTO_DE_ORIGEN[origen] : origen;
+// Debajo del titulo: «Pizarrón.jpg»: No pudimos leer el texto de la foto.
+// Hasta tres, y el resto contado: una fila no puede volverse una pagina.
+const TOPE_PARTES_CON_ERROR = 3;
+
+function lineasDePartesConError(partes) {
+  const conError = partes.filter((p) => p.error);
+  const lineas = conError.slice(0, TOPE_PARTES_CON_ERROR)
+    .map((p) => `<div class="celda-error">«${esc(p.etiqueta)}»: ${esc(p.error)}</div>`);
+  const resto = conError.length - TOPE_PARTES_CON_ERROR;
+  if (resto > 0) {
+    lineas.push(`<div class="celda-error">y ${esc(plural(resto, 'parte más', 'partes más'))} con error</div>`);
+  }
+  return lineas.join('');
 }
 
 
@@ -521,13 +541,18 @@ function filtrarEnMemoria(lista) {
     if (!buscado) return true;
 
     // Se busca en lo que la persona ve o reconoce: titulo, archivo, link y
-    // autor. NO se busca en 'texto' (el contenido extraido) a proposito:
-    // seria buscar adentro de notas privadas de otros y, aunque el admin
-    // tenga permiso, no es lo que este buscador promete que hace.
+    // autor. En un 'mixto', tambien los archivos y links de cada parte (sus
+    // etiquetas) y la lista 'links': buscar "presupuesto.pdf" tiene que
+    // encontrar el item «Varios» que lo trae adentro. NO se busca en 'texto'
+    // (el contenido extraido) a proposito: seria buscar adentro de notas
+    // privadas de otros y, aunque el admin tenga permiso, no es lo que este
+    // buscador promete.
     const bolsa = normalizar([
       item.titulo,
       item.nombreArchivo,
       item.url,
+      ...partesDe(item).map((p) => p.etiqueta),
+      ...linksDe(item),
       autorDe(item)
     ].filter(Boolean).join(' '));
 

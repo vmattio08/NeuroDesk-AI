@@ -5,10 +5,10 @@
 //  Cada pieza vive en su archivo y hace UNA cosa:
 //
 //    capturas.js    pone las capturas de pantalla si existen los PNG
-//    descarga.js    convierte el boton en "Bajá la app" si existe el APK
+//    descarga.js    los botones del APK: el link del release, el icono y el peso
 //    video.js       muestra el video de YouTube si hay un link cargado
 //    demo.js        la demo "la misma pregunta, dos personas"
-//    formulario.js  el pedido de acceso a la beta (el unico que usa Firebase)
+//    formulario.js  el contacto "¿Lo querés para tu equipo?" (el unico que usa Firebase)
 //
 //  Y aca mismo, porque son cortitas: el menu del celular y la aparicion de
 //  los bloques al hacer scroll.

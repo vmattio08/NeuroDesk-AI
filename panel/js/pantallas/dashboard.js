@@ -149,7 +149,7 @@ function plantilla() {
       <div class="tarjeta kpi">
         <div class="etiqueta-kpi">Contenido</div>
         <div class="valor" id="kpiTotal">—</div>
-        <div class="pie-kpi">notas, documentos, links y fotos del equipo</div>
+        <div class="pie-kpi">notas, documentos, links, fotos y «Varios» del equipo</div>
       </div>
 
       <div class="tarjeta kpi kpi-listo">

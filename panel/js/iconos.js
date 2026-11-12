@@ -2,7 +2,7 @@
 //  iconos.js  —  los iconos del panel, dibujados a mano en SVG.
 //  Panel web de NeuroDesk AI.
 //
-//  POR QUE A MANO Y NO UNA LIBRERIA DE ICONOS: son 20 dibujitos de lineas. Una
+//  POR QUE A MANO Y NO UNA LIBRERIA DE ICONOS: son 26 dibujitos de lineas. Una
 //  libreria por CDN seria una descarga mas (y un CDN mas que la red de la
 //  escuela puede bloquear) para usar el 1 % de lo que trae.
 //
@@ -38,6 +38,15 @@ const TRAZOS = {
   plan:        '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18"/><path d="M7 15h3"/>',
   chispa:      '<path d="M12 3v4M12 17v4M3 12h4M17 12h4"/><path d="m6.3 6.3 2.4 2.4M15.3 15.3l2.4 2.4M6.3 17.7l2.4-2.4M15.3 8.7l2.4-2.4"/>',
   generico:    '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/>',
+
+  // --- tipos de contenido (los usa tipos.js) ---
+  // El clip es el de 'mixto' («Varios»): varias cosas enganchadas en un solo
+  // item, como los adjuntos de un mail.
+  nota:        '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+  documento:   '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/>',
+  link:        '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
+  foto:        '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
+  clip:        '<path d="m21.4 11-9.2 9.2a6 6 0 0 1-8.5-8.5l9.2-9.2a4 4 0 0 1 5.7 5.7l-9.2 9.2a2 2 0 0 1-2.8-2.8l8.5-8.5"/>',
 
   // --- sueltos ---
   equipo:      '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8"/><path d="M18 14.2a6.5 6.5 0 0 1 3.5 5.8"/>',

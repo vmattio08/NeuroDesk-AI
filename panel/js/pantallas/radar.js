@@ -40,6 +40,7 @@ import { pedir } from '../api.js';
 import { esc, fechaCorta, haceCuanto, plural } from '../util.js';
 import { leerNombres } from '../nombres.js';
 import { icono } from '../iconos.js';
+import { etiquetaDeTipo } from '../tipos.js';
 import {
   armarRadar, ordenarGrupos, tituloSugerido, validarNota, datosDeLaNota,
   MAX_TITULO, DIAS_DE_LA_SEMANA
@@ -95,6 +96,11 @@ const notasCargadas = new Map();
 // pocos. Cuando un item deja de aparecer citado, su escucha se corta.
 const candados = new Map();
 const escuchasDeCandados = new Map();   // itemId -> cortar()
+
+// El TIPO de cada item citado (itemId -> 'pdf', 'mixto', ...), para dibujar
+// "[clip] Varios" al lado de cada documento del top. Sale de la MISMA escucha
+// del candado: es el mismo documento, asi que no cuesta ni una lectura mas.
+const tiposCitados = new Map();
 
 // Cuenta los montajes. mount() espera los nombres antes de escuchar, y en ese
 // rato el router puede volver a montar esta misma pantalla (En vivo -> Lo que
@@ -178,6 +184,7 @@ export function unmount() {
   for (const cortar of escuchasDeCandados.values()) cortar();
   escuchasDeCandados.clear();
   candados.clear();
+  tiposCitados.clear();
 
   // Si el dialogo estaba abierto, se cierra: si no, al volver a otra pantalla
   // quedaria flotando un formulario de una pantalla que ya no existe.
@@ -240,7 +247,8 @@ function escuchar() {
 //  (onSnapshot de UN documento: una lectura al empezar y otra por cada cambio).
 //  El admin puede leer todos los items del espacio, privados incluidos, asi
 //  que ninguna de estas lecturas choca con las reglas.
-//  Lo que importa es solo 'visibilidad'. Un item sin ese campo cuenta como
+//  Lo que importa es 'visibilidad' (y, de paso, 'tipo', para el dibujo del
+//  top: viene en la misma lectura). Un item sin visibilidad cuenta como
 //  privado (el mismo default que las reglas), y uno borrado no es del equipo.
 // ============================================================================
 function seguirCandados() {
@@ -263,6 +271,7 @@ function seguirCandados() {
       cortar();
       escuchasDeCandados.delete(itemId);
       candados.delete(itemId);
+      tiposCitados.delete(itemId);
     }
   }
 
@@ -272,11 +281,14 @@ function seguirCandados() {
       doc(db, 'workspaces', wsId, 'items', itemId),
       (foto) => {
         if (foto.exists()) {
-          candados.set(itemId, foto.data().visibilidad === 'equipo' ? 'equipo' : 'privado');
+          const datos = foto.data();
+          candados.set(itemId, datos.visibilidad === 'equipo' ? 'equipo' : 'privado');
+          tiposCitados.set(itemId, datos.tipo);
         } else if (!foto.metadata.fromCache) {
           // Solo si el SERVIDOR dice que no existe: sin internet, la cache
           // puede no tenerlo y eso no es "borrado". Mientras, queda sin saber.
           candados.set(itemId, 'borrado');
+          tiposCitados.delete(itemId);
         }
         dibujar();
       },
@@ -469,13 +481,17 @@ function dibujarKpis(radar) {
       (vecesSemana > 0 ? ` · ${plural(vecesSemana, 'vez', 'veces')} esta semana` : ''));
 
   // --- los 5 documentos mas utiles ---
-  // esc() en el titulo: lo escribio una persona desde la app.
+  // esc() en el titulo: lo escribio una persona desde la app. El tipo va con
+  // su dibujo (tipos.js, que escapa adentro): asi se distingue un PDF de un
+  // «Varios», que junta texto, links y archivos en un solo item. Si todavia
+  // no llego el documento del item, la fila sale sin tipo y se completa sola.
   const lista = raiz?.querySelector('#topDocs');
   if (lista) {
     lista.innerHTML = radar.masCitados.length === 0
       ? '<li class="apagado">Todavía ninguna pregunta citó un documento del equipo.</li>'
       : radar.masCitados.map((d) => `
           <li>
+            ${tiposCitados.has(d.itemId) ? `<span class="top-docs__tipo">${etiquetaDeTipo(tiposCitados.get(d.itemId))}</span>` : ''}
             <span class="top-docs__titulo">${esc(d.titulo)}</span>
             <span class="top-docs__n">${esc(plural(d.preguntas, 'pregunta', 'preguntas'))}</span>
           </li>`).join('');

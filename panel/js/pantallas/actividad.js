@@ -33,6 +33,7 @@ import {
 import { aFecha, esc, fechaCorta, haceCuanto, plural } from '../util.js';
 import { leerNombres } from '../nombres.js';
 import { icono } from '../iconos.js';
+import { etiquetaDeTipo } from '../tipos.js';
 
 
 let cortarEventos = null;
@@ -507,12 +508,16 @@ function dibujarAhora() {
     return;
   }
 
+  // El tipo va con su dibujo (tipos.js): en un 'mixto' («Varios») se procesan
+  // varias partes juntas y tarda mas que una nota; asi se entiende por que
+  // sigue en "Procesando".
   const filasItems = items.map((x) => {
     const procesando = x.estado === 'procesando';
     const cuando = momentoDelItem(x);
     return `
       <li class="en-curso">
         <span class="chip ${procesando ? 'chip-procesando' : 'chip-pendiente'}">${procesando ? 'Procesando' : 'Pendiente'}</span>
+        ${etiquetaDeTipo(x.tipo)}
         <span class="en-curso__texto">«${esc(taparEmails(x.titulo || '(sin título)'))}» <span class="apagado">de ${esc(nombreDe(x.creadoPor))}</span></span>
         <span class="en-curso__cuando apagado" title="${esc(fechaCorta(cuando))}">${esc(haceCuanto(cuando))}</span>
       </li>`;
